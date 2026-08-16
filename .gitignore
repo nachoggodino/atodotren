@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!example.env
+coverage/
+.DS_Store
+*.log
+atodotren-worker-multiarch.tar

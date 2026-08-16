@@ -1,0 +1,17 @@
+{
+  "name": "@atodotren/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "worker": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@atodotren/config": "0.0.0",
+    "@atodotren/db": "0.0.0",
+    "@atodotren/observability": "0.0.0"
+  }
+}

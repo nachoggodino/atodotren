@@ -1,0 +1,41 @@
+{
+  "name": "atodotren",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Provider-neutral Madrid Cercanias evidence ingestion foundation",
+  "type": "module",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "npm": ">=11.0.0 <12"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "db:migrate": "npm run build --silent && node apps/worker/dist/migrate.js",
+    "docker:build": "docker build --file docker/worker/Dockerfile --tag atodotren-worker:milestone-0 .",
+    "docker:build:multiarch": "docker buildx build --platform linux/amd64,linux/arm64 --file docker/worker/Dockerfile --output type=oci,dest=atodotren-worker-multiarch.tar .",
+    "lint": "eslint . --max-warnings 0",
+    "preflight": "node scripts/preflight.ts",
+    "test": "npm run test:unit",
+    "test:compile": "tsc --project tests/tsconfig.json",
+    "test:unit": "npm run build --silent && npm run test:compile --silent && node --test tests/dist/unit/*.test.js",
+    "test:integration": "npm run build --silent && npm run test:compile --silent && node --test tests/dist/integration/*.test.js",
+    "test:postgres:matrix": "./scripts/postgres-contract.sh postgres:16.14-bookworm && ./scripts/postgres-contract.sh postgres:18.4-bookworm",
+    "test:compose": "./scripts/compose-smoke.sh",
+    "typecheck": "tsc -b && tsc --project scripts/tsconfig.json --noEmit && tsc --project tests/tsconfig.json --noEmit",
+    "verify": "npm run typecheck && npm run lint && npm run test:unit",
+    "worker": "npm run build --silent && node apps/worker/dist/cli.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.8.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0"
+  }
+}
