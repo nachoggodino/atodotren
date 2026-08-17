@@ -38,11 +38,12 @@ npm run test:unit
 Docker CLI/daemon/Compose/Buildx availability, required variables and unresolved
 placeholders, all five PostgreSQL URLs, their expected local users/database/host/port,
 and local-only component-password coherence without printing credentials. It also
-checks the configured host port, a running primary container's health, migration
-state/checksums when PostgreSQL is reachable, Git ignore coverage for `.env`, and
-free disk space. PostgreSQL unavailability defers only the live database checks;
-static local configuration is still validated. Less than 10 GiB free is a warning
-and less than 2 GiB is a blocking failure.
+inspects the primary container's actual `5432/tcp` publication, requires it to match
+`POSTGRES_PORT`, checks container health and exact repository/database migration
+synchronization, verifies Git ignore coverage for `.env`, and checks free disk space.
+PostgreSQL unavailability is nonblocking only when no primary stack exists; an
+unreachable migration URL for a healthy primary stack fails. Less than 10 GiB free
+is a warning and less than 2 GiB is a blocking failure.
 
 Start only the pinned primary stock PostgreSQL 18.4 container:
 
@@ -60,11 +61,11 @@ npm run db:migrate
 npm run worker -- doctor
 ```
 
-`worker doctor` validates environment parsing, the PostgreSQL wire connection, migration state, private schemas, least-privilege runtime membership, denied schema creation, and database clock skew. Feed and spool checks are emitted as `deferred` because those systems intentionally begin in later milestones.
+`worker doctor` validates environment parsing, the PostgreSQL wire connection, exact migration synchronization, private schemas, the complete least-privilege runtime role graph, denied schema creation, and database clock skew. Extra direct membership, transitive role reachability, dormant settable roles, pending migrations, missing repository migrations, and checksum drift all fail. Feed and spool checks are emitted as `deferred` because those systems intentionally begin in later milestones.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 0 implements only `worker doctor`. The planned `ingest`, `import-static`, `aggregate`, `finalize`, `replay`, and `report` commands exit nonzero with a structured `command.not_implemented` error.
+The CLI contract is visible with `npm run worker -- --help`. Milestone 0 implements only `worker doctor`. Usage errors exit `2`, configuration/runtime failures exit `1`, and success exits `0`. The planned `ingest`, `import-static`, `aggregate`, `finalize`, `replay`, and `report` commands exit `1` with a structured `command.not_implemented` error. Command dispatch is import-safe; the executable entry point only connects process I/O and exit status.
 
 Run migrations:
 
@@ -81,7 +82,7 @@ set +a
 npm run test:integration
 ```
 
-The integration suite requires `TEST_ADMIN_DATABASE_URL`, `TEST_MIGRATOR_DATABASE_URL`, and `TEST_WORKER_DATABASE_URL`. It creates a uniquely named disposable database, validates hostile role-collision handling, migrates from empty, proves a second migration is clean, rotates the migration login, verifies ownership/default privileges and runtime permissions, runs `worker doctor`, and removes the disposable database. A missing database fails the suite explicitly; it is never silently skipped.
+The integration suite requires `TEST_ADMIN_DATABASE_URL`, `TEST_MIGRATOR_DATABASE_URL`, and `TEST_WORKER_DATABASE_URL`. It creates a uniquely named disposable database and covers hostile role attributes and membership graphs, migration rollback/checksum/missing-file failures, advisory-lock release and concurrency, login rotation, ownership/default privileges, exact doctor migration state, and runtime permissions before removing the database. A missing database fails explicitly; it is never silently skipped.
 
 Run the complete supported-major contract in isolated disposable containers:
 
@@ -131,10 +132,12 @@ Run the isolated full Compose smoke test (it creates and removes its own project
 npm run test:compose -- .env
 ```
 
-The smoke project overrides `POSTGRES_PORT` with Docker's `0` (ephemeral) host
-publication, so it never claims the primary stack's configured host port. Its
-project name, containers, network, and volume are isolated and removed on success,
-failure, `SIGINT`, or `SIGTERM`; the primary stack is neither stopped nor mutated.
+The smoke project's first path uses the declared `docker compose up worker`
+dependency chain: healthy PostgreSQL, successful migration, then worker doctor.
+It overrides `POSTGRES_PORT` with Docker's `0` (ephemeral) host publication, so it
+never claims the primary stack's configured host port. Its project name, containers,
+network, and volume are isolated and removed on success, failure, `SIGINT`, or
+`SIGTERM`; the primary stack is neither stopped nor mutated.
 
 ## Diagnosing failures
 
@@ -146,7 +149,11 @@ failure, `SIGINT`, or `SIGTERM`; the primary stack is neither stopped nor mutate
 - A migration reports missing membership: the login must be granted `atodotren_migration_admin` with `ADMIN FALSE, INHERIT FALSE, SET TRUE`. Never grant that role to the runtime login.
 - Docker is unavailable in WSL: enable the distribution under Docker Desktop's WSL integration settings. Container tests fail rather than report a skip.
 
-All logs are newline-delimited JSON. The worker drains its PostgreSQL pool on normal completion, `SIGINT`, and `SIGTERM`, with a bounded shutdown timeout.
+All logs are failure-safe newline-delimited JSON with recursive error normalization,
+credential/connection-URL redaction, circular-reference handling, and protected
+envelope fields. Shutdown remains bounded and LIFO, attempts every cleanup after a
+failure, safely closes resources registered during shutdown, and deliberately forces
+termination on a second signal.
 
 ## Future managed PostgreSQL variables
 
@@ -178,6 +185,7 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 - npm workspaces were selected because npm ships with the pinned Node runtime and provides a reproducible `npm ci` lockfile workflow.
 - Only packages needed by this milestone exist: configuration, observability, database, and worker. The web app and feed/domain packages are created when their milestone begins.
 - SQL migrations are immutable, checksummed, transaction-scoped, and serialized with a PostgreSQL advisory lock. Kysely is reserved for typed application queries and raw SQL checks.
-- All group roles are project-prefixed and `NOLOGIN`. Local Compose creates `atodotren_worker` with inherited, non-settable `atodotren_ingest_writer` membership and `atodotren_migrator` with non-inherited, set-only `atodotren_migration_admin` membership. Future migrations grant worker and monitor access per object instead of inheriting blanket write/read defaults.
+- All group roles are project-prefixed and `NOLOGIN`. Local Compose creates `atodotren_worker` with only inherited, non-settable `atodotren_ingest_writer` membership and `atodotren_migrator` with only non-inherited, set-only `atodotren_migration_admin` membership. Group roles cannot be members of any other role, and both runner and doctor reject direct or transitive graph drift. Future migrations grant worker and monitor access per object instead of inheriting blanket write/read defaults.
+- `npm run build` and test compilation remove their generated output first; `npm run clean` removes application, package, script, and test output so deleted sources cannot leave executable artifacts behind.
 - PostgreSQL 16 is the minimum supported major and PostgreSQL 18 is primary. Exact current patch tags were verified against the official multi-architecture registry manifests.
 - PostgreSQL and Node container tags are pinned to patch releases that publish both `amd64` and `arm64` images.

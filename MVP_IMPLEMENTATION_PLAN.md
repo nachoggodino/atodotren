@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: first agreed implementation plan
+Status: Milestone 0 foundation implemented and hardened; Milestone 1 remains next
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -628,6 +628,9 @@ Every response carries data freshness, coverage, methodology/aggregate version, 
 - mandatory integration tests against a pinned stock PostgreSQL container, including migrate-up from empty, application queries, and a clean second migration run
 - database-contract CI against the minimum PostgreSQL 16 major and primary PostgreSQL 18 major, including role collision, membership rotation, object ownership, and default-privilege tests
 - Docker smoke test that starts the complete local Compose stack and verifies health from outside the worker container
+- exact direct and transitive role-membership contracts for runtime and migration logins
+- one checksummed migration inventory shared by runner, doctor, and preflight, with exact synchronization checks
+- failure-safe structured logging, bounded exhaustive shutdown, import-safe CLI dispatch, and clean-before-compile test output
 
 Exit: a clean local PostgreSQL database can be migrated and `worker doctor` passes both on the host and inside the built container. No managed database is touched before this gate passes.
 
@@ -811,8 +814,8 @@ A failure at an earlier layer blocks the later deployment layer.
 
 ## 24. Immediate next actions
 
-1. Initialize the monorepo, Docker Compose, PostgreSQL migrations, and worker CLI shell.
-2. Implement the stable dimensions and immutable static-feed import first.
+1. Begin Milestone 1 with migration `0002` for stable dimensions and immutable static-feed foundations.
+2. Implement the conditional static downloader and Madrid-only import/activation path.
 3. Build a deterministic Madrid matching report before persisting real-time history.
 4. Add protobuf polling, deduplicated evidence, and canonical journeys.
 5. Start the pilot before implementing the public frontend.

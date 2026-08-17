@@ -1,23 +1,14 @@
 import { sql } from 'kysely';
 
 import type { DatabaseConnection } from './connection.js';
-
-const requiredSchemas = [
-  'gtfs_static',
-  'ingest',
-  'core',
-  'analytics',
-  'operations',
-] as const;
-const supportedPostgresMajors = { minimum: 16, maximum: 18 } as const;
-const ingestWriterRole = 'atodotren_ingest_writer';
-const requiredGroupRoles = [
-  'atodotren_migration_admin',
-  ingestWriterRole,
-  'atodotren_web_reader',
-  'atodotren_backup_reader',
-  'atodotren_monitor_reader',
-] as const;
+import {
+  atodotrenGroupRoles,
+  atodotrenRoles,
+  runtimeSchemas,
+  supportedPostgresMajors,
+} from './contract.js';
+import { readMigrationInventory, reconcileMigrationState } from './migration-inventory.js';
+import { validateRoleContract } from './roles.js';
 
 export interface DoctorCheck {
   readonly name: string;
@@ -31,8 +22,9 @@ export interface DoctorReport {
   readonly checks: readonly DoctorCheck[];
 }
 
-interface DoctorOptions {
+export interface DoctorOptions {
   readonly connection: DatabaseConnection;
+  readonly migrationsDirectory: string;
   readonly maxClockSkewMs: number;
   readonly now?: () => Date;
 }
@@ -50,16 +42,6 @@ interface PermissionRow {
   schema_name: string;
   has_usage: boolean;
   has_create: boolean;
-}
-
-interface RoleSecurityRow {
-  rolname: string;
-  rolcanlogin: boolean;
-  rolsuper: boolean;
-  rolcreatedb: boolean;
-  rolcreaterole: boolean;
-  rolreplication: boolean;
-  rolbypassrls: boolean;
 }
 
 export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorReport> {
@@ -90,55 +72,22 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     },
   });
 
-  const groupRoleResult = await sql<RoleSecurityRow>`
-    SELECT
-      rolname,
-      rolcanlogin,
-      rolsuper,
-      rolcreatedb,
-      rolcreaterole,
-      rolreplication,
-      rolbypassrls
-    FROM pg_roles
-    WHERE rolname = ANY(ARRAY[${sql.join(requiredGroupRoles)}]::text[])
-    ORDER BY rolname
-  `.execute(options.connection.db);
-  const unsafeRoles = groupRoleResult.rows.filter(
-    (role) =>
-      role.rolcanlogin ||
-      role.rolsuper ||
-      role.rolcreatedb ||
-      role.rolcreaterole ||
-      role.rolreplication ||
-      role.rolbypassrls,
-  );
-  if (groupRoleResult.rows.length !== requiredGroupRoles.length || unsafeRoles.length > 0) {
-    throw new Error('Required Atodotren group roles are missing or have unsafe attributes');
-  }
-
-  const runtimeMembership = await sql<{
-    valid_membership: boolean;
-  }>`
-    SELECT EXISTS (
-      SELECT 1
-      FROM pg_auth_members membership
-      JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-      JOIN pg_roles member_role ON member_role.oid = membership.member
-      WHERE granted_role.rolname = ${ingestWriterRole}
-        AND member_role.rolname = current_user
-        AND NOT membership.admin_option
-        AND membership.inherit_option
-        AND NOT membership.set_option
-    ) AS valid_membership
-  `.execute(options.connection.db);
-  if (runtimeMembership.rows[0]?.valid_membership !== true) {
-    throw new Error('Runtime login has unsafe Atodotren ingest-writer membership options');
+  const roleClient = await options.connection.pool.connect();
+  try {
+    await validateRoleContract(roleClient, connection.current_user, {
+      role: atodotrenRoles.ingestWriter,
+      admin: false,
+      inherit: true,
+      set: false,
+    });
+  } finally {
+    roleClient.release();
   }
   checks.push({
     name: 'database.roles',
     status: 'pass',
     details: {
-      groupRoles: requiredGroupRoles,
+      groupRoles: atodotrenGroupRoles,
       runtimeMembership: { admin: false, inherit: true, set: false },
     },
   });
@@ -163,20 +112,24 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     },
   });
 
-  const migrationResult = await sql<{ migration_count: number; latest_migration: string | null }>`
-    SELECT count(*)::integer AS migration_count, max(name) AS latest_migration
+  const inventory = await readMigrationInventory(options.migrationsDirectory);
+  const migrationResult = await sql<{ name: string; checksum: string }>`
+    SELECT name, checksum
     FROM operations.schema_migration
+    ORDER BY name
   `.execute(options.connection.db);
-  const migration = migrationResult.rows[0];
-  if (migration === undefined || migration.migration_count < 1) {
-    throw new Error('No applied database migrations were found');
+  const migrationState = reconcileMigrationState(inventory, migrationResult.rows);
+  if (migrationState.pending.length > 0) {
+    throw new Error(
+      `Database has pending migrations: ${migrationState.pending.map((migration) => migration.name).join(', ')}`,
+    );
   }
   checks.push({
     name: 'database.migrations',
     status: 'pass',
     details: {
-      count: migration.migration_count,
-      latest: migration.latest_migration,
+      count: migrationState.applied.length,
+      latest: migrationState.applied.at(-1)?.name ?? null,
     },
   });
 
@@ -185,7 +138,7 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
       schema_name,
       has_schema_privilege(current_user, schema_name, 'USAGE') AS has_usage,
       has_schema_privilege(current_user, schema_name, 'CREATE') AS has_create
-    FROM unnest(ARRAY[${sql.join(requiredSchemas)}]::text[]) AS schema_name
+    FROM unnest(ARRAY[${sql.join(runtimeSchemas)}]::text[]) AS schema_name
     ORDER BY schema_name
   `.execute(options.connection.db);
   const invalid = permissionResult.rows.filter((row) => !row.has_usage || row.has_create);
@@ -203,7 +156,7 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     public_create: boolean;
   }>`
     SELECT
-      pg_has_role(current_user, ${ingestWriterRole}, 'member') AS is_ingest_writer,
+      pg_has_role(current_user, ${atodotrenRoles.ingestWriter}, 'member') AS is_ingest_writer,
       has_schema_privilege(current_user, 'api', 'USAGE') AS api_usage,
       has_schema_privilege(current_user, 'public', 'USAGE') AS public_usage,
       has_schema_privilege(current_user, 'public', 'CREATE') AS public_create
@@ -222,8 +175,8 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     name: 'database.permissions',
     status: 'pass',
     details: {
-      role: ingestWriterRole,
-      schemaUsage: requiredSchemas,
+      role: atodotrenRoles.ingestWriter,
+      schemaUsage: runtimeSchemas,
       apiUsage: false,
       schemaCreate: false,
       publicUsage: false,

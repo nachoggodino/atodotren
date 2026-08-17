@@ -41,7 +41,9 @@ const baseConnectionOptions = {
   statementTimeoutMs: 30_000,
 };
 
-async function runWorkerDoctor(): Promise<{ code: number | null; stdout: string; stderr: string }> {
+async function runWorkerDoctor(
+  migrationsDirectory = resolve(process.cwd(), 'migrations'),
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const child = spawn(process.execPath, ['apps/worker/dist/cli.js', 'doctor'], {
     cwd: process.cwd(),
     env: {
@@ -49,6 +51,7 @@ async function runWorkerDoctor(): Promise<{ code: number | null; stdout: string;
       LOG_LEVEL: 'info',
       DATABASE_URL: workerDatabaseUrl,
       DATABASE_SSL_MODE: 'disable',
+      MIGRATIONS_DIR: migrationsDirectory,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -137,6 +140,124 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
       });
       assert.deepEqual(result.applied, []);
       assert.deepEqual(result.alreadyApplied, ['0001_repository_foundation.sql']);
+    });
+
+    await t.test('migration validation rejects an unexpected migrator membership', async () => {
+      const extraRole = `atodotren_test_migrator_extra_${process.pid}`;
+      await admin.query(`CREATE ROLE ${extraRole} NOLOGIN`);
+      try {
+        await admin.query(
+          `GRANT ${extraRole} TO atodotren_migrator WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
+        );
+        await assert.rejects(
+          migrateToLatest({
+            connection: {
+              ...baseConnectionOptions,
+              url: migratorDatabaseUrl,
+              applicationName: 'atodotren-integration-extra-migrator-role',
+            },
+            migrationsDirectory: resolve(process.cwd(), 'migrations'),
+          }),
+          /exact required membership/u,
+        );
+      } finally {
+        await admin.query(`REVOKE ${extraRole} FROM atodotren_migrator`);
+        await admin.query(`DROP ROLE ${extraRole}`);
+      }
+    });
+
+    await t.test('checksum mismatch and missing applied migration are rejected', async () => {
+      const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
+      await migratedAdmin.connect();
+      const temporaryMigrations = await mkdtemp(join(tmpdir(), 'atodotren-missing-'));
+      try {
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = repeat('0', 64) WHERE name = '0001_repository_foundation.sql'",
+        );
+        await assert.rejects(
+          migrateToLatest({
+            connection: { ...baseConnectionOptions, url: migratorDatabaseUrl, applicationName: 'atodotren-checksum-mismatch' },
+            migrationsDirectory: resolve(process.cwd(), 'migrations'),
+          }),
+          /has been modified/u,
+        );
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = '13ff887ab7942ba53322d85e33e7ea28280dc29006257ddfb36a3e352274132c' WHERE name = '0001_repository_foundation.sql'",
+        );
+        await writeFile(join(temporaryMigrations, '0009_only.sql'), 'SELECT 9;\n');
+        await assert.rejects(
+          migrateToLatest({
+            connection: { ...baseConnectionOptions, url: migratorDatabaseUrl, applicationName: 'atodotren-missing-applied' },
+            migrationsDirectory: temporaryMigrations,
+          }),
+          /missing from the repository/u,
+        );
+      } finally {
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = '13ff887ab7942ba53322d85e33e7ea28280dc29006257ddfb36a3e352274132c' WHERE name = '0001_repository_foundation.sql'",
+        );
+        await migratedAdmin.end();
+        await rm(temporaryMigrations, { recursive: true, force: true });
+      }
+    });
+
+    await t.test('failed migration rolls back and releases its advisory lock', async () => {
+      const temporaryMigrations = await mkdtemp(join(tmpdir(), 'atodotren-rollback-'));
+      const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
+      await migratedAdmin.connect();
+      try {
+        await cp(resolve(process.cwd(), 'migrations/0001_repository_foundation.sql'), join(temporaryMigrations, '0001_repository_foundation.sql'));
+        await writeFile(
+          join(temporaryMigrations, '9000_rollback_probe.sql'),
+          'CREATE TABLE operations.rollback_probe (id integer);\nSELECT definitely_invalid_syntax;\n',
+        );
+        await assert.rejects(
+          migrateToLatest({
+            connection: { ...baseConnectionOptions, url: migratorDatabaseUrl, applicationName: 'atodotren-rollback' },
+            migrationsDirectory: temporaryMigrations,
+          }),
+        );
+        const state = await migratedAdmin.query<{ table_exists: boolean; ledger_exists: boolean; lock_acquired: boolean }>(`
+          SELECT
+            to_regclass('operations.rollback_probe') IS NOT NULL AS table_exists,
+            EXISTS (SELECT 1 FROM operations.schema_migration WHERE name = '9000_rollback_probe.sql') AS ledger_exists,
+            pg_try_advisory_lock(7811417130112024::bigint) AS lock_acquired
+        `);
+        assert.deepEqual(state.rows[0], { table_exists: false, ledger_exists: false, lock_acquired: true });
+        await migratedAdmin.query('SELECT pg_advisory_unlock(7811417130112024::bigint)');
+      } finally {
+        await migratedAdmin.end();
+        await rm(temporaryMigrations, { recursive: true, force: true });
+      }
+    });
+
+    await t.test('two concurrent migration attempts serialize and preserve owner context', async () => {
+      const temporaryMigrations = await mkdtemp(join(tmpdir(), 'atodotren-concurrent-'));
+      const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
+      await migratedAdmin.connect();
+      try {
+        await cp(resolve(process.cwd(), 'migrations/0001_repository_foundation.sql'), join(temporaryMigrations, '0001_repository_foundation.sql'));
+        await writeFile(
+          join(temporaryMigrations, '9001_concurrent_probe.sql'),
+          'SELECT pg_sleep(0.25);\nCREATE TABLE api.concurrent_probe (id bigint PRIMARY KEY);\n',
+        );
+        const run = (applicationName: string) => migrateToLatest({
+          connection: { ...baseConnectionOptions, url: migratorDatabaseUrl, applicationName },
+          migrationsDirectory: temporaryMigrations,
+        });
+        const results = await Promise.all([run('atodotren-concurrent-a'), run('atodotren-concurrent-b')]);
+        assert.equal(results.filter((result) => result.applied.includes('9001_concurrent_probe.sql')).length, 1);
+        assert.equal(results.filter((result) => result.alreadyApplied.includes('9001_concurrent_probe.sql')).length, 1);
+        const ownership = await migratedAdmin.query<{ owner: string }>(
+          "SELECT tableowner AS owner FROM pg_tables WHERE schemaname = 'api' AND tablename = 'concurrent_probe'",
+        );
+        assert.equal(ownership.rows[0]?.owner, 'atodotren_migration_admin');
+      } finally {
+        await migratedAdmin.query('DROP TABLE IF EXISTS api.concurrent_probe');
+        await migratedAdmin.query("DELETE FROM operations.schema_migration WHERE name = '9001_concurrent_probe.sql'");
+        await migratedAdmin.end();
+        await rm(temporaryMigrations, { recursive: true, force: true });
+      }
     });
 
     await t.test('runtime role can read approved health objects but cannot create schemas', async () => {
@@ -321,7 +442,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
             },
             migrationsDirectory: temporaryMigrations,
           }),
-          /membership with ADMIN FALSE, INHERIT FALSE, SET TRUE/,
+          /exact required membership/,
         );
 
         await admin.query(
@@ -370,6 +491,79 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         }
       } finally {
         await rm(temporaryMigrations, { recursive: true, force: true });
+      }
+    });
+
+    await t.test('doctor rejects dormant settable privilege and indirect group escalation paths', async () => {
+      const privilegedRole = `atodotren_test_privileged_${process.pid}`;
+      const indirectRole = `atodotren_test_indirect_${process.pid}`;
+      await admin.query(`CREATE ROLE ${privilegedRole} NOLOGIN CREATEDB`);
+      await admin.query(`CREATE ROLE ${indirectRole} NOLOGIN`);
+      try {
+        await admin.query(
+          `GRANT ${privilegedRole} TO atodotren_worker WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`,
+        );
+        const dormant = await runWorkerDoctor();
+        assert.equal(dormant.code, 1);
+        assert.match(dormant.stdout, /exact required membership/u);
+        await admin.query(`REVOKE ${privilegedRole} FROM atodotren_worker`);
+
+        await admin.query(
+          `GRANT ${indirectRole} TO atodotren_ingest_writer WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`,
+        );
+        const indirect = await runWorkerDoctor();
+        assert.equal(indirect.code, 1);
+        assert.match(indirect.stdout, /must not reach any parent roles/u);
+      } finally {
+        await admin.query(`REVOKE ${privilegedRole} FROM atodotren_worker`);
+        await admin.query(`REVOKE ${indirectRole} FROM atodotren_ingest_writer`);
+        await admin.query(`DROP ROLE IF EXISTS ${privilegedRole}`);
+        await admin.query(`DROP ROLE IF EXISTS ${indirectRole}`);
+      }
+    });
+
+    await t.test('doctor requires repository and database migration state to be exactly synchronized', async () => {
+      const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
+      await migratedAdmin.connect();
+      const directory = await mkdtemp(join(tmpdir(), 'atodotren-doctor-state-'));
+      try {
+        const foundation = join(directory, '0001_repository_foundation.sql');
+        await cp(resolve(process.cwd(), 'migrations/0001_repository_foundation.sql'), foundation);
+        assert.equal((await runWorkerDoctor(directory)).code, 0);
+
+        await writeFile(join(directory, '9002_pending_probe.sql'), 'SELECT 1;\n');
+        assert.equal((await runWorkerDoctor(directory)).code, 1);
+        await rm(join(directory, '9002_pending_probe.sql'));
+
+        await migratedAdmin.query(
+          "INSERT INTO operations.schema_migration (name, checksum) VALUES ('9999_fabricated.sql', repeat('f', 64))",
+        );
+        assert.equal((await runWorkerDoctor(directory)).code, 1);
+        await migratedAdmin.query("DELETE FROM operations.schema_migration WHERE name = '9999_fabricated.sql'");
+
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = repeat('0', 64) WHERE name = '0001_repository_foundation.sql'",
+        );
+        assert.equal((await runWorkerDoctor(directory)).code, 1);
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = '13ff887ab7942ba53322d85e33e7ea28280dc29006257ddfb36a3e352274132c' WHERE name = '0001_repository_foundation.sql'",
+        );
+
+        await rm(foundation);
+        await writeFile(join(directory, '9003_only.sql'), 'SELECT 1;\n');
+        assert.equal((await runWorkerDoctor(directory)).code, 1);
+        await rm(join(directory, '9003_only.sql'));
+        await cp(resolve(process.cwd(), 'migrations/0001_repository_foundation.sql'), foundation);
+        await writeFile(join(directory, 'BAD.sql'), 'SELECT 1;\n');
+        assert.equal((await runWorkerDoctor(directory)).code, 1);
+        assert.equal((await runWorkerDoctor(join(directory, 'unreadable'))).code, 1);
+      } finally {
+        await migratedAdmin.query("DELETE FROM operations.schema_migration WHERE name = '9999_fabricated.sql'");
+        await migratedAdmin.query(
+          "UPDATE operations.schema_migration SET checksum = '13ff887ab7942ba53322d85e33e7ea28280dc29006257ddfb36a3e352274132c' WHERE name = '0001_repository_foundation.sql'",
+        );
+        await migratedAdmin.end();
+        await rm(directory, { recursive: true, force: true });
       }
     });
 

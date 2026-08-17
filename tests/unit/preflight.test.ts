@@ -3,10 +3,10 @@ import test from 'node:test';
 
 import {
   evaluateDiskSpace,
+  evaluatePrimaryPostgres,
   inspectLocalEnvironment,
   parseEnvironmentFile,
   preflightExitCode,
-  redactSensitiveText,
 } from '@atodotren/config';
 
 const localEnvironment = {
@@ -70,19 +70,43 @@ void test('rejects an absent required URL', () => {
   );
 });
 
-void test('redacts PostgreSQL URL passwords and explicitly known secrets', () => {
-  const secret = 'unique-sensitive-test-value';
-  const redacted = redactSensitiveText(
-    `failed postgresql://worker:${secret}@localhost:5432/atodotren token=${secret}`,
-    [secret],
-  );
-  assert.doesNotMatch(redacted, new RegExp(secret, 'u'));
-  assert.match(redacted, /postgresql:\/\/worker:\[REDACTED\]@localhost/u);
-});
-
 void test('blocking failures produce a nonzero exit and disk thresholds are deterministic', () => {
   assert.equal(preflightExitCode([{ name: 'x', status: 'fail', message: 'blocked' }]), 1);
   assert.equal(evaluateDiskSpace(1 * 1024 ** 3).status, 'fail');
   assert.equal(evaluateDiskSpace(5 * 1024 ** 3).status, 'warn');
   assert.equal(evaluateDiskSpace(12 * 1024 ** 3).status, 'pass');
+});
+
+void test('primary PostgreSQL binding checks distinguish matching, mismatched, and unrelated listeners', () => {
+  const matching = evaluatePrimaryPostgres(
+    { exists: true, running: true, health: 'healthy', hostPorts: [5432, 5432] },
+    5432,
+    true,
+  );
+  assert.equal(preflightExitCode(matching), 0);
+  const mismatched = evaluatePrimaryPostgres(
+    { exists: true, running: true, health: 'healthy', hostPorts: [55432] },
+    5432,
+    true,
+  );
+  assert.equal(preflightExitCode(mismatched), 1);
+  assert.match(mismatched.find((check) => check.name === 'postgres.port-binding')?.message ?? '', /does not match/u);
+  const absentWithListener = evaluatePrimaryPostgres(
+    { exists: false, running: false, health: 'absent', hostPorts: [] },
+    5432,
+    true,
+  );
+  assert.equal(preflightExitCode(absentWithListener), 1);
+  assert.match(absentWithListener.at(-1)?.message ?? '', /unrelated listener/u);
+});
+
+void test('primary PostgreSQL checks distinguish no binding and unhealthy state', () => {
+  const checks = evaluatePrimaryPostgres(
+    { exists: true, running: true, health: 'unhealthy', hostPorts: [] },
+    5432,
+    false,
+  );
+  assert.equal(preflightExitCode(checks), 1);
+  assert.match(checks[0]?.message ?? '', /unhealthy/u);
+  assert.match(checks[1]?.message ?? '', /no published/u);
 });

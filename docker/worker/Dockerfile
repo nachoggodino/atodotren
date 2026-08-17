@@ -11,6 +11,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 
 FROM build-dependencies AS build
 COPY tsconfig.json tsconfig.base.json ./
+COPY scripts/clean-generated.ts scripts/clean-generated.ts
 COPY apps/worker apps/worker
 COPY packages/config packages/config
 COPY packages/db packages/db
@@ -22,7 +23,6 @@ RUN npm run build
 # match the runtime image instead of the machine running BuildKit.
 FROM node:24.15.0-bookworm-slim AS production-dependencies
 
-ARG TARGETPLATFORM
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
@@ -30,7 +30,6 @@ COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/observability/package.json packages/observability/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
-RUN node -e "require('node:fs').writeFileSync('/app/.dependency-platform', process.platform + '/' + process.arch + '\n')"
 
 FROM node:24.15.0-bookworm-slim AS runtime
 
@@ -38,7 +37,6 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
-COPY --from=production-dependencies --chown=node:node /app/.dependency-platform ./.dependency-platform
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=build --chown=node:node /app/apps/worker/dist ./apps/worker/dist

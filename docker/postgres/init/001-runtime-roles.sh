@@ -79,6 +79,58 @@ GRANT atodotren_ingest_writer TO atodotren_worker
 GRANT atodotren_migration_admin TO atodotren_migrator
   WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 
+DO $membership_contract$
+DECLARE
+  direct_count integer;
+  exact_count integer;
+BEGIN
+  SELECT count(*), count(*) FILTER (
+    WHERE granted_role.rolname = 'atodotren_ingest_writer'
+      AND NOT membership.admin_option
+      AND membership.inherit_option
+      AND NOT membership.set_option
+  )
+  INTO direct_count, exact_count
+  FROM pg_auth_members AS membership
+  JOIN pg_roles AS member_role ON member_role.oid = membership.member
+  JOIN pg_roles AS granted_role ON granted_role.oid = membership.roleid
+  WHERE member_role.rolname = 'atodotren_worker';
+  IF direct_count <> 1 OR exact_count <> 1 THEN
+    RAISE EXCEPTION 'atodotren_worker must have only the exact ingest-writer membership';
+  END IF;
+
+  SELECT count(*), count(*) FILTER (
+    WHERE granted_role.rolname = 'atodotren_migration_admin'
+      AND NOT membership.admin_option
+      AND NOT membership.inherit_option
+      AND membership.set_option
+  )
+  INTO direct_count, exact_count
+  FROM pg_auth_members AS membership
+  JOIN pg_roles AS member_role ON member_role.oid = membership.member
+  JOIN pg_roles AS granted_role ON granted_role.oid = membership.roleid
+  WHERE member_role.rolname = 'atodotren_migrator';
+  IF direct_count <> 1 OR exact_count <> 1 THEN
+    RAISE EXCEPTION 'atodotren_migrator must have only the exact migration-admin membership';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_auth_members AS membership
+    JOIN pg_roles AS member_role ON member_role.oid = membership.member
+    WHERE member_role.rolname IN (
+      'atodotren_migration_admin',
+      'atodotren_ingest_writer',
+      'atodotren_web_reader',
+      'atodotren_backup_reader',
+      'atodotren_monitor_reader'
+    )
+  ) THEN
+    RAISE EXCEPTION 'Atodotren group roles must not reach parent roles';
+  END IF;
+END
+$membership_contract$;
+
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT CREATE ON DATABASE :"database_name" TO atodotren_migration_admin;
 SQL

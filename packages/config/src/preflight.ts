@@ -6,6 +6,13 @@ export interface PreflightCheck {
   readonly message: string;
 }
 
+export interface PrimaryPostgresState {
+  readonly exists: boolean;
+  readonly running: boolean;
+  readonly health: string;
+  readonly hostPorts: readonly number[];
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 const requiredLocalKeys = [
@@ -186,24 +193,68 @@ export function inspectLocalEnvironment(environment: Environment): readonly Pref
   return checks;
 }
 
-export function redactSensitiveText(
-  text: string,
-  knownSecrets: readonly string[] = [],
-): string {
-  let redacted = text.replace(
-    /\b(postgres(?:ql)?:\/\/[^\s:@/]+:)[^\s@/]+@/giu,
-    '$1[REDACTED]@',
-  );
-  for (const secret of [...knownSecrets].filter((value) => value !== '').sort(
-    (left, right) => right.length - left.length,
-  )) {
-    redacted = redacted.split(secret).join('[REDACTED]');
-  }
-  return redacted;
-}
-
 export function preflightExitCode(checks: readonly PreflightCheck[]): 0 | 1 {
   return checks.some((check) => check.status === 'fail') ? 1 : 0;
+}
+
+export function evaluatePrimaryPostgres(
+  state: PrimaryPostgresState,
+  expectedPort: number,
+  configuredPortAcceptsConnections: boolean,
+): readonly PreflightCheck[] {
+  if (!state.exists) {
+    return [
+      {
+        name: 'postgres.container-health',
+        status: 'warn',
+        message: 'Primary local PostgreSQL is absent; live health checks are deferred',
+      },
+      {
+        name: 'postgres.port-binding',
+        status: 'warn',
+        message: 'Primary PostgreSQL port binding is absent because the stack is not created',
+      },
+      {
+        name: 'postgres.host-port',
+        status: configuredPortAcceptsConnections ? 'fail' : 'pass',
+        message: configuredPortAcceptsConnections
+          ? 'Configured PostgreSQL host port is occupied by an unrelated listener'
+          : 'Configured PostgreSQL host port is available',
+      },
+    ];
+  }
+
+  const healthy = state.running && state.health === 'healthy';
+  const healthCheck: PreflightCheck = {
+    name: 'postgres.container-health',
+    status: healthy ? 'pass' : state.running ? 'fail' : 'warn',
+    message: healthy
+      ? 'Primary local PostgreSQL container is healthy'
+      : state.running
+        ? `Primary local PostgreSQL container is unhealthy (${state.health})`
+        : 'Primary local PostgreSQL container is stopped; live health checks are deferred',
+  };
+  const bindingMatches =
+    state.hostPorts.length > 0 && state.hostPorts.every((port) => port === expectedPort);
+  const bindingCheck: PreflightCheck = {
+    name: 'postgres.port-binding',
+    status: bindingMatches ? 'pass' : 'fail',
+    message:
+      state.hostPorts.length === 0
+        ? 'Primary PostgreSQL container has no published 5432/tcp host binding'
+        : bindingMatches
+          ? 'Primary PostgreSQL 5432/tcp binding matches POSTGRES_PORT'
+          : 'Primary PostgreSQL 5432/tcp binding does not match POSTGRES_PORT',
+  };
+  const hostPortCheck: PreflightCheck = {
+    name: 'postgres.host-port',
+    status: healthy && bindingMatches && configuredPortAcceptsConnections ? 'pass' : 'fail',
+    message:
+      healthy && bindingMatches && configuredPortAcceptsConnections
+        ? 'Configured PostgreSQL host port belongs to the healthy primary stack'
+        : 'Configured PostgreSQL host port does not reach the healthy primary stack',
+  };
+  return [healthCheck, bindingCheck, hostPortCheck];
 }
 
 export function evaluateDiskSpace(

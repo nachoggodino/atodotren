@@ -1,15 +1,17 @@
-import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-
 import type { PoolClient } from 'pg';
 
 import { createDatabaseConnection } from './connection.js';
+import { atodotrenRoles } from './contract.js';
+import {
+  readMigrationInventory,
+  reconcileMigrationState,
+  type AppliedMigration,
+} from './migration-inventory.js';
+import { validateRoleContract } from './roles.js';
 import type { DatabaseConnectionOptions, DatabaseLogSink } from './types.js';
 
-const migrationFilePattern = /^\d{4}_[a-z0-9_]+\.sql$/;
 const advisoryLockId = '7811417130112024';
-export const migrationOwnerRole = 'atodotren_migration_admin';
+export const migrationOwnerRole = atodotrenRoles.migrationAdmin;
 
 export interface MigrationResult {
   readonly applied: readonly string[];
@@ -22,65 +24,31 @@ interface MigrationOptions {
   readonly logger?: DatabaseLogSink;
 }
 
-interface MigrationFile {
-  readonly name: string;
-  readonly sql: string;
-  readonly checksum: string;
-}
-
-async function migrationFiles(directory: string): Promise<readonly MigrationFile[]> {
-  const absoluteDirectory = resolve(directory);
-  const names = (await readdir(absoluteDirectory))
-    .filter((name) => migrationFilePattern.test(name))
-    .sort((left, right) => left.localeCompare(right));
-  if (names.length === 0) {
-    throw new Error(`No migration files found in ${absoluteDirectory}`);
-  }
-
-  return Promise.all(
-    names.map(async (name) => {
-      const sql = await readFile(resolve(absoluteDirectory, name), 'utf8');
-      return {
-        name,
-        sql,
-        checksum: createHash('sha256').update(sql).digest('hex'),
-      };
-    }),
-  );
-}
-
-async function appliedMigrations(client: PoolClient): Promise<ReadonlyMap<string, string>> {
+async function appliedMigrations(client: PoolClient): Promise<readonly AppliedMigration[]> {
   const relation = await client.query<{ exists: boolean }>(
     "SELECT to_regclass('operations.schema_migration') IS NOT NULL AS exists",
   );
   if (relation.rows[0]?.exists !== true) {
-    return new Map();
+    return [];
   }
   const result = await client.query<{ name: string; checksum: string }>(
     'SELECT name, checksum FROM operations.schema_migration ORDER BY name',
   );
-  return new Map(result.rows.map((row) => [row.name, row.checksum]));
+  return result.rows;
 }
 
 async function assumeMigrationOwner(client: PoolClient, local: boolean): Promise<void> {
-  const membership = await client.query<{ valid_membership: boolean }>(`
-    SELECT EXISTS (
-      SELECT 1
-      FROM pg_auth_members membership
-      JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-      JOIN pg_roles member_role ON member_role.oid = membership.member
-      WHERE granted_role.rolname = '${migrationOwnerRole}'
-        AND member_role.rolname = session_user
-        AND NOT membership.admin_option
-        AND NOT membership.inherit_option
-        AND membership.set_option
-    ) AS valid_membership
-  `);
-  if (membership.rows[0]?.valid_membership !== true) {
-    throw new Error(
-      `Migration login needs ${migrationOwnerRole} membership with ADMIN FALSE, INHERIT FALSE, SET TRUE`,
-    );
+  const identity = await client.query<{ session_user: string }>('SELECT session_user');
+  const sessionUser = identity.rows[0]?.session_user;
+  if (sessionUser === undefined) {
+    throw new Error('Migration session identity could not be determined');
   }
+  await validateRoleContract(client, sessionUser, {
+    role: migrationOwnerRole,
+    admin: false,
+    inherit: false,
+    set: true,
+  });
 
   await client.query(`${local ? 'SET LOCAL' : 'SET'} ROLE ${migrationOwnerRole}`);
   const assumed = await client.query<{ current_user: string; session_user: string }>(
@@ -92,7 +60,7 @@ async function assumeMigrationOwner(client: PoolClient, local: boolean): Promise
 }
 
 export async function migrateToLatest(options: MigrationOptions): Promise<MigrationResult> {
-  const files = await migrationFiles(options.migrationsDirectory);
+  const files = await readMigrationInventory(options.migrationsDirectory);
   const connection = await createDatabaseConnection(options.connection, options.logger);
   let client: PoolClient | undefined;
   let locked = false;
@@ -105,16 +73,12 @@ export async function migrateToLatest(options: MigrationOptions): Promise<Migrat
     locked = true;
     await assumeMigrationOwner(client, false);
     const existing = await appliedMigrations(client);
-    const availableNames = new Set(files.map((migration) => migration.name));
-    for (const existingName of existing.keys()) {
-      if (!availableNames.has(existingName)) {
-        throw new Error(`Applied migration ${existingName} is missing from the repository`);
-      }
-    }
-    const lastAppliedName = [...existing.keys()].at(-1);
+    const state = reconcileMigrationState(files, existing);
+    const existingByName = new Map(existing.map((migration) => [migration.name, migration.checksum]));
+    const lastAppliedSequence = state.applied.at(-1)?.sequence;
 
     for (const migration of files) {
-      const existingChecksum = existing.get(migration.name);
+      const existingChecksum = existingByName.get(migration.name);
       if (existingChecksum !== undefined) {
         if (existingChecksum !== migration.checksum) {
           throw new Error(`Applied migration ${migration.name} has been modified`);
@@ -122,9 +86,9 @@ export async function migrateToLatest(options: MigrationOptions): Promise<Migrat
         alreadyApplied.push(migration.name);
         continue;
       }
-      if (lastAppliedName !== undefined && migration.name < lastAppliedName) {
+      if (lastAppliedSequence !== undefined && migration.sequence < lastAppliedSequence) {
         throw new Error(
-          `Migration ${migration.name} sorts before already-applied migration ${lastAppliedName}`,
+          `Migration ${migration.name} sorts before the latest already-applied sequence`,
         );
       }
 

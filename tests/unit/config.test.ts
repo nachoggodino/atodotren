@@ -48,3 +48,29 @@ void test('accepts a separate migration URL without changing the runtime URL', (
     'postgresql://admin:other@localhost:5432/atodotren',
   );
 });
+
+void test('migration URL falls back only when it is undefined', () => {
+  assert.equal(loadConfig(validEnvironment).migrationDatabase.url, validEnvironment.DATABASE_URL);
+  for (const value of ['', '   ', '\t']) {
+    assert.throws(
+      () => loadConfig({ ...validEnvironment, MIGRATION_DATABASE_URL: value }),
+      (error: unknown) =>
+        error instanceof ConfigError &&
+        error.issues.includes('MIGRATION_DATABASE_URL is required'),
+    );
+  }
+});
+
+void test('rejects invalid and accepts valid explicit migration URLs', () => {
+  assert.throws(
+    () => loadConfig({ ...validEnvironment, MIGRATION_DATABASE_URL: 'https://example.test/db' }),
+    ConfigError,
+  );
+  assert.equal(
+    loadConfig({
+      ...validEnvironment,
+      MIGRATION_DATABASE_URL: 'postgres://migrator:value@localhost:5432/other',
+    }).migrationDatabase.url,
+    'postgres://migrator:value@localhost:5432/other',
+  );
+});

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFile, readdir, statfs } from 'node:fs/promises';
+import { readFile, statfs } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 
 import { Client } from 'pg';
+import { readMigrationInventory, reconcileMigrationState } from '@atodotren/db';
 
 import {
   evaluateDiskSpace,
+  evaluatePrimaryPostgres,
   inspectLocalEnvironment,
   parseEnvironmentFile,
   preflightExitCode,
@@ -78,22 +79,11 @@ function unavailableDatabaseError(error: unknown): boolean {
   return ['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'].includes(code);
 }
 
-async function inspectMigrations(connectionUrl: string): Promise<{
+async function inspectMigrations(connectionUrl: string, migrationsDirectory: string): Promise<{
   readonly repository: readonly string[];
   readonly pending: readonly string[];
 }> {
-  const migrationsDirectory = resolve(process.cwd(), 'migrations');
-  const names = (await readdir(migrationsDirectory))
-    .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/u.test(name))
-    .sort((left, right) => left.localeCompare(right));
-  if (names.length === 0) {
-    throw new Error('No repository migrations found');
-  }
-  const repository = new Map<string, string>();
-  for (const name of names) {
-    const sql = await readFile(resolve(migrationsDirectory, name), 'utf8');
-    repository.set(name, createHash('sha256').update(sql).digest('hex'));
-  }
+  const inventory = await readMigrationInventory(migrationsDirectory);
 
   const client = new Client({
     connectionString: connectionUrl,
@@ -107,23 +97,17 @@ async function inspectMigrations(connectionUrl: string): Promise<{
     const relation = await client.query<{ exists: boolean }>(
       "SELECT to_regclass('operations.schema_migration') IS NOT NULL AS exists",
     );
-    const applied = new Map<string, string>();
+    const applied: Array<{ name: string; checksum: string }> = [];
     if (relation.rows[0]?.exists === true) {
       const result = await client.query<{ name: string; checksum: string }>(
         'SELECT name, checksum FROM operations.schema_migration ORDER BY name',
       );
-      for (const row of result.rows) {
-        applied.set(row.name, row.checksum);
-      }
+      applied.push(...result.rows);
     }
-    for (const [name, checksum] of applied) {
-      if (!repository.has(name) || repository.get(name) !== checksum) {
-        throw new Error('Applied migration state is inconsistent with the repository');
-      }
-    }
+    const state = reconcileMigrationState(inventory, applied);
     return {
-      repository: names,
-      pending: names.filter((name) => !applied.has(name)),
+      repository: inventory.map((migration) => migration.name),
+      pending: state.pending.map((migration) => migration.name),
     };
   } finally {
     await client.query('RESET ROLE').catch(() => undefined);
@@ -220,13 +204,19 @@ async function main(): Promise<number> {
           'postgres',
         ]).stdout
       : '';
-  let primaryRunning = false;
+  let primaryHealthy = false;
+  const portInUse =
+    Number.isSafeInteger(port) && port >= 1 && port <= 65_535
+      ? await portAcceptsConnections('127.0.0.1', port)
+      : false;
   if (primaryContainer === '') {
-    checks.push({
-      name: 'postgres.container-health',
-      status: 'warn',
-      message: 'Primary local PostgreSQL is not running; health check is deferred',
-    });
+    checks.push(
+      ...evaluatePrimaryPostgres(
+        { exists: false, running: false, health: 'absent', hostPorts: [] },
+        port,
+        portInUse,
+      ),
+    );
   } else {
     const state = command('docker', [
       'inspect',
@@ -234,29 +224,30 @@ async function main(): Promise<number> {
       '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}',
       primaryContainer,
     ]);
-    primaryRunning = state.ok && state.stdout === 'true healthy';
-    checks.push({
-      name: 'postgres.container-health',
-      status: primaryRunning ? 'pass' : state.stdout.startsWith('false ') ? 'warn' : 'fail',
-      message: primaryRunning
-        ? 'Primary local PostgreSQL container is healthy'
-        : state.stdout.startsWith('false ')
-          ? 'Primary local PostgreSQL container is stopped; health check is deferred'
-          : 'Primary local PostgreSQL container is running but not healthy',
-    });
-  }
-
-  if (Number.isSafeInteger(port) && port >= 1 && port <= 65_535) {
-    const portInUse = await portAcceptsConnections('127.0.0.1', port);
-    checks.push({
-      name: 'postgres.host-port',
-      status: !portInUse || primaryRunning ? 'pass' : 'fail',
-      message: !portInUse
-        ? 'Configured PostgreSQL host port is available'
-        : primaryRunning
-          ? 'Configured PostgreSQL host port belongs to the healthy primary stack'
-          : 'Configured PostgreSQL host port is occupied outside the healthy primary stack',
-    });
+    const [running = 'false', health = 'unknown'] = state.stdout.split(' ');
+    const binding = command('docker', [
+      'inspect',
+      '--format',
+      '{{json (index .NetworkSettings.Ports "5432/tcp")}}',
+      primaryContainer,
+    ]);
+    let hostPorts: number[];
+    try {
+      const parsed = JSON.parse(binding.stdout) as readonly { HostPort?: string }[] | null;
+      hostPorts = (parsed ?? [])
+        .map((entry) => Number(entry.HostPort))
+        .filter((hostPort) => Number.isSafeInteger(hostPort));
+    } catch {
+      hostPorts = [];
+    }
+    primaryHealthy = state.ok && running === 'true' && health === 'healthy';
+    checks.push(
+      ...evaluatePrimaryPostgres(
+        { exists: true, running: running === 'true', health, hostPorts },
+        port,
+        portInUse,
+      ),
+    );
   }
 
   if (checks.some((check) => check.name.startsWith('database.') && check.status === 'fail')) {
@@ -267,7 +258,10 @@ async function main(): Promise<number> {
     });
   } else {
     try {
-      const migrationState = await inspectMigrations(environment.MIGRATION_DATABASE_URL ?? '');
+      const migrationState = await inspectMigrations(
+        environment.MIGRATION_DATABASE_URL ?? '',
+        environment.MIGRATIONS_DIR ?? process.env.MIGRATIONS_DIR ?? resolve(process.cwd(), 'migrations'),
+      );
       checks.push({
         name: 'database.migrations',
         status: migrationState.pending.length === 0 ? 'pass' : 'fail',
@@ -279,9 +273,11 @@ async function main(): Promise<number> {
     } catch (error) {
       checks.push({
         name: 'database.migrations',
-        status: unavailableDatabaseError(error) ? 'warn' : 'fail',
+        status: unavailableDatabaseError(error) && !primaryHealthy ? 'warn' : 'fail',
         message: unavailableDatabaseError(error)
-          ? 'PostgreSQL is unreachable; migration and checksum checks are deferred'
+          ? primaryHealthy
+            ? 'Primary PostgreSQL is healthy but the configured migration URL is unreachable'
+            : 'PostgreSQL is unreachable; migration and checksum checks are deferred'
           : 'Migration state or checksum verification failed',
       });
     }

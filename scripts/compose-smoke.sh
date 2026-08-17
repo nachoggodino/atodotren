@@ -26,9 +26,17 @@ compose() {
 }
 
 compose build worker migrate
-compose up --detach --wait postgres
-compose run --rm --no-deps migrate
-compose run --rm --no-deps worker doctor
+compose up --detach worker
+compose wait worker >/dev/null
+
+for service in migrate worker; do
+  service_id="$(compose ps --all --quiet "${service}")"
+  exit_code="$(docker inspect --format '{{.State.ExitCode}}' "${service_id}")"
+  if [[ "${exit_code}" != '0' ]]; then
+    echo "Compose dependency-chain service ${service} exited with ${exit_code}" >&2
+    exit 1
+  fi
+done
 
 compose restart postgres
 compose up --detach --wait postgres
@@ -42,4 +50,4 @@ if [[ "${health}" != 'healthy' ]]; then
   exit 1
 fi
 
-echo 'Compose smoke test passed: PostgreSQL healthy, migration idempotent, restart survived, worker doctor succeeded twice.'
+echo 'Compose smoke test passed: the declared PostgreSQL -> migrate -> worker chain succeeded, migration remained idempotent, restart survived, and worker doctor succeeded twice.'

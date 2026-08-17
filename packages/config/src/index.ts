@@ -135,8 +135,9 @@ function connectionConfig(
 export function loadConfig(environment: Environment = process.env): AppConfig {
   const issues: string[] = [];
   const runtimeUrl = databaseUrl(environment, 'DATABASE_URL', issues);
-  const migrationUrl = environment.MIGRATION_DATABASE_URL?.trim() || runtimeUrl;
-  if (environment.MIGRATION_DATABASE_URL !== undefined) {
+  const rawMigrationUrl = environment.MIGRATION_DATABASE_URL;
+  const migrationUrl = rawMigrationUrl === undefined ? runtimeUrl : rawMigrationUrl;
+  if (rawMigrationUrl !== undefined) {
     databaseUrl({ MIGRATION_DATABASE_URL: migrationUrl }, 'MIGRATION_DATABASE_URL', issues);
   }
 
