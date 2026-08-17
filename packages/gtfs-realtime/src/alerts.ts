@@ -78,6 +78,81 @@ export async function sendOperationalAlert(
   );
 }
 
+export class RetryingAlertDelivery {
+  readonly #transports: readonly AlertTransport[];
+  readonly #delivered = new Map<string, Set<number>>();
+
+  public constructor(transports: readonly AlertTransport[]) {
+    this.#transports = transports;
+  }
+
+  public async send(message: AlertMessage): Promise<void> {
+    const deliveryKey = `${message.incidentKey}:${message.recovery ? 'recovery' : 'active'}`;
+    const delivered = this.#delivered.get(deliveryKey) ?? new Set<number>();
+    const pending = this.#transports
+      .map((transport, index) => ({ transport, index }))
+      .filter(({ index }) => !delivered.has(index));
+    const results = await Promise.allSettled(pending.map(async ({ transport }) => transport.send(message)));
+    const failures: unknown[] = [];
+    results.forEach((result, resultIndex) => {
+      const item = pending[resultIndex];
+      if (item === undefined) return;
+      if (result.status === 'fulfilled') delivered.add(item.index);
+      else failures.push(new Error(`${item.transport.name} delivery failed`, { cause: result.reason as unknown }));
+    });
+    if (failures.length > 0) {
+      this.#delivered.set(deliveryKey, delivered);
+      throw new AggregateError(failures, 'Alert delivery failed');
+    }
+    this.#delivered.delete(deliveryKey);
+  }
+}
+
+export interface NotificationChannelResult {
+  readonly channel: 'telegram' | 'smtp' | 'heartbeat';
+  readonly status: 'delivered' | 'failed' | 'skipped';
+  readonly configured: boolean;
+}
+
+export async function testNotificationChannels(options: {
+  readonly transports: readonly AlertTransport[];
+  readonly heartbeatUrl?: string;
+  readonly fetchImplementation?: typeof fetch;
+}): Promise<readonly NotificationChannelResult[]> {
+  const message: AlertMessage = {
+    incidentKey: 'manual.notification-test',
+    title: '[TEST] Atodotren operational notification',
+    body: 'This is an explicit delivery test. It is not a real operational incident.',
+    recovery: false,
+  };
+  const transportByName = new Map(options.transports.map((transport) => [transport.name, transport]));
+  const results: NotificationChannelResult[] = [];
+  for (const channel of ['telegram', 'smtp'] as const) {
+    const transport = transportByName.get(channel);
+    if (transport === undefined) {
+      results.push({ channel, configured: false, status: 'skipped' });
+      continue;
+    }
+    try {
+      await transport.send(message);
+      results.push({ channel, configured: true, status: 'delivered' });
+    } catch {
+      results.push({ channel, configured: true, status: 'failed' });
+    }
+  }
+  if (options.heartbeatUrl === undefined) {
+    results.push({ channel: 'heartbeat', configured: false, status: 'skipped' });
+  } else {
+    try {
+      await emitHeartbeat(options.heartbeatUrl, options.fetchImplementation);
+      results.push({ channel: 'heartbeat', configured: true, status: 'delivered' });
+    } catch {
+      results.push({ channel: 'heartbeat', configured: true, status: 'failed' });
+    }
+  }
+  return results;
+}
+
 interface IncidentRow {
   readonly occurrence_count: number;
   readonly is_open: boolean;

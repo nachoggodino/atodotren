@@ -688,6 +688,14 @@ was retained and explicit replay was empty. The milestone is not fully accepted
 until `ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env` completes and
 its operational report is reviewed.
 
+Acceptance readiness requires that command to act as a gate, not only a report:
+the worker must still be running, poll volume and successful coverage must meet
+configured minima, matching/malformed rates must remain within their operational
+thresholds, the final spool must be empty with zero shedding, and no notification
+incident may remain open. The worker also exposes a credential-safe opt-in
+`test-notifications` command for real Telegram, SMTP, and heartbeat delivery
+checks; it never mutates incident state.
+
 ### Milestone 3 — Canonical journeys
 
 - journey and journey-stop daily partitions

@@ -14,6 +14,7 @@ import {
   OutageSpool,
   runIngest,
   runReplay,
+  testNotificationChannels,
 } from '@atodotren/gtfs-realtime';
 import {
   formatHumanReport,
@@ -35,6 +36,7 @@ const plannedCommands = [
   'finalize',
   'replay',
   'doctor',
+  'test-notifications',
   'report',
 ] as const;
 type PlannedCommand = (typeof plannedCommands)[number];
@@ -51,6 +53,7 @@ Commands:
   finalize        Finalize eligible service days (planned for a later milestone)
   replay          Replay the local outage spool and exit
   doctor          Validate database contracts and the active Madrid static feed
+  test-notifications  Explicitly test configured operational delivery channels
   report          Emit operational reports (planned for a later milestone)
 
 Global options:
@@ -75,6 +78,14 @@ export const replayUsage = `Usage:
   worker replay
 
 Replays normalized SQLite spool entries to PostgreSQL in source order and exits.
+`;
+
+export const testNotificationsUsage = `Usage:
+  worker test-notifications --confirm-send
+
+Sends one clearly labelled test through each configured Telegram, SMTP, and
+heartbeat channel. ATODOTREN_NOTIFICATION_TEST=1 is an alternative explicit opt-in.
+No operational incident is created or changed.
 `;
 
 export const importStaticUsage = `Usage:
@@ -106,6 +117,7 @@ export interface DispatcherDependencies {
   readonly importStatic?: typeof importStaticFeed;
   readonly ingest?: typeof runIngest;
   readonly replay?: typeof runReplay;
+  readonly notificationTest?: typeof testNotificationChannels;
 }
 
 interface ImportStaticCliOptions {
@@ -282,6 +294,32 @@ export async function runIngestCommand(
   }
 }
 
+export async function runNotificationTestCommand(
+  dependencies: DispatcherDependencies = {},
+): Promise<0 | 1> {
+  const environment = dependencies.environment ?? process.env;
+  const config = loadConfig(environment);
+  const stdout = dependencies.stdout ?? process.stdout;
+  const transports = [
+    ...(config.operations.telegram === undefined ? [] : [createTelegramTransport(config.operations.telegram)]),
+    ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
+  ];
+  const channels = await (dependencies.notificationTest ?? testNotificationChannels)({
+    transports,
+    ...(config.operations.heartbeatUrl === undefined ? {} : { heartbeatUrl: config.operations.heartbeatUrl }),
+  });
+  const report = {
+    command: 'test-notifications',
+    configured: channels.filter((channel) => channel.configured).length,
+    delivered: channels.filter((channel) => channel.status === 'delivered').length,
+    failed: channels.filter((channel) => channel.status === 'failed').length,
+    skipped: channels.filter((channel) => channel.status === 'skipped').length,
+    channels,
+  };
+  stdout.write(`${JSON.stringify(report)}\n`);
+  return report.failed === 0 ? 0 : 1;
+}
+
 export async function runReplayCommand(dependencies: DispatcherDependencies = {}): Promise<0 | 1> {
   const environment = dependencies.environment ?? process.env;
   const config = loadConfig(environment);
@@ -427,6 +465,18 @@ export async function dispatchCli(
     }
     if (commandArguments.length > 0) throw new UsageError('Command replay does not accept options', replayUsage);
     return runReplayCommand(dependencies);
+  }
+  if (first === 'test-notifications') {
+    if (commandArguments.length === 1 && ['--help', '-h'].includes(commandArguments[0] ?? '')) {
+      stdout.write(testNotificationsUsage);
+      return 0;
+    }
+    const confirmed = commandArguments.length === 1 && commandArguments[0] === '--confirm-send';
+    if ((!confirmed && commandArguments.length > 0) ||
+        (!confirmed && (dependencies.environment ?? process.env).ATODOTREN_NOTIFICATION_TEST !== '1')) {
+      throw new UsageError('Notification delivery test requires explicit opt-in', testNotificationsUsage);
+    }
+    return runNotificationTestCommand(dependencies);
   } else if (commandArguments.length > 0) {
     throw new UsageError(`Command ${first} does not accept options in Milestone 1`);
   }

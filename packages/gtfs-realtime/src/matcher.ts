@@ -149,6 +149,23 @@ export async function loadStaticMatchIndex(
   alertRouteIds: readonly string[] = [],
   alertStopIds: readonly string[] = [],
 ): Promise<StaticMatchIndex> {
+  const versionResult = await pool.query<{
+    active_feed_version_id: string;
+    previous_feed_version_id: string | null;
+  }>(`
+    SELECT id::text AS active_feed_version_id,
+      previous_feed_version_id::text AS previous_feed_version_id
+    FROM gtfs_static.current_feed_version
+    WHERE network_slug = 'madrid'
+  `);
+  const version = versionResult.rows[0];
+  if (version === undefined) throw new Error('No active Madrid static version is available');
+  const versionIdentity = {
+    activeFeedVersionId: version.active_feed_version_id,
+    ...(version.previous_feed_version_id === null ? {} : {
+      previousFeedVersionId: version.previous_feed_version_id,
+    }),
+  };
   const tripIds = [...new Set(descriptors.flatMap((descriptor) => descriptor.tripId === undefined ? [] : [descriptor.tripId]))];
   const routeIds = [...new Set(descriptors.flatMap((descriptor) => descriptor.routeId === undefined ? [] : [descriptor.routeId]))];
   const requestedDates = [...new Set(descriptors.flatMap((descriptor) => {
@@ -156,7 +173,9 @@ export async function loadStaticMatchIndex(
     return date === undefined ? [] : [date];
   }))];
   const allRouteIds = [...new Set([...routeIds, ...alertRouteIds])];
-  if (tripIds.length === 0 && allRouteIds.length === 0 && alertStopIds.length === 0) return { candidates: [] };
+  if (tripIds.length === 0 && allRouteIds.length === 0 && alertStopIds.length === 0) {
+    return { candidates: [], versionIdentity };
+  }
   const result = await pool.query<CandidateRow>(`
     WITH versions AS (
       SELECT current.id, 'active'::text AS version_position
@@ -251,6 +270,7 @@ export async function loadStaticMatchIndex(
     else alertStops.set(row.source_id, { feedVersionId: row.feed_version_id, stationId: row.stable_id });
   }
   return {
+    versionIdentity,
     candidates: [...grouped.values()].map(({ row, stops }) => ({
       feedVersionId: row.feed_version_id,
       versionPosition: row.version_position,

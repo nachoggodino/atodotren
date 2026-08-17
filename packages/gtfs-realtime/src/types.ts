@@ -111,6 +111,10 @@ export interface StaticTripCandidate {
 
 export interface StaticMatchIndex {
   readonly candidates: readonly StaticTripCandidate[];
+  readonly versionIdentity?: {
+    readonly activeFeedVersionId: string;
+    readonly previousFeedVersionId?: string | undefined;
+  } | undefined;
   readonly knownNationalTripIds?: ReadonlySet<string> | undefined;
   readonly alertRoutes?: ReadonlyMap<string, { readonly feedVersionId: string; readonly lineId: string }> | undefined;
   readonly alertStops?: ReadonlyMap<string, { readonly feedVersionId: string; readonly stationId: string }> | undefined;

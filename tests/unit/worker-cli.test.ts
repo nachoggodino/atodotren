@@ -53,7 +53,39 @@ void test('later commands remain unavailable and realtime options are strict', a
   assert.equal((await invoke(['ingest', '--cycles', '0'])).code, 2);
   assert.equal((await invoke(['ingest', '--help'])).code, 0);
   assert.equal((await invoke(['replay', '--help'])).code, 0);
+  assert.equal((await invoke(['test-notifications', '--help'])).code, 0);
+  assert.equal((await invoke(['test-notifications'])).code, 2);
   assert.equal((await invoke(['report', '--unknown'])).code, 2);
+});
+
+void test('notification test requires opt-in and reports channel outcomes without database access', async () => {
+  const environment = { DATABASE_URL: 'postgresql://worker:password@localhost/atodotren' };
+  const tested = await invoke(['test-notifications', '--confirm-send'], environment, {
+    notificationTest: () => Promise.resolve([
+      { channel: 'telegram', configured: true, status: 'delivered' },
+      { channel: 'smtp', configured: true, status: 'failed' },
+      { channel: 'heartbeat', configured: false, status: 'skipped' },
+    ]),
+  });
+  assert.equal(tested.code, 1);
+  assert.deepEqual(JSON.parse(tested.stdout), {
+    command: 'test-notifications', configured: 2, delivered: 1, failed: 1, skipped: 1,
+    channels: [
+      { channel: 'telegram', configured: true, status: 'delivered' },
+      { channel: 'smtp', configured: true, status: 'failed' },
+      { channel: 'heartbeat', configured: false, status: 'skipped' },
+    ],
+  });
+  const environmentOptIn = await invoke(['test-notifications'], {
+    ...environment, ATODOTREN_NOTIFICATION_TEST: '1',
+  }, {
+    notificationTest: () => Promise.resolve([
+      { channel: 'telegram', configured: false, status: 'skipped' },
+      { channel: 'smtp', configured: false, status: 'skipped' },
+      { channel: 'heartbeat', configured: false, status: 'skipped' },
+    ]),
+  });
+  assert.equal(environmentOptIn.code, 0);
 });
 
 void test('ingest and replay dispatch bounded modes with predictable reports', async () => {

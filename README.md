@@ -82,8 +82,8 @@ spool writability/size/pending/dropped counts, and heartbeat configuration.
 ## Commands
 
 The CLI contract is visible with `npm run worker -- --help`. Milestone 2
-implements `worker doctor`, `worker import-static`, `worker ingest`, and
-`worker replay`. Usage errors exit `2`;
+implements `worker doctor`, `worker import-static`, `worker ingest`,
+`worker replay`, and the opt-in `worker test-notifications`. Usage errors exit `2`;
 configuration, acquisition, validation, database, and runtime failures exit `1`;
 a successful import or explicit HTTP/checksum unchanged result exits `0`. The
 later `aggregate`, `finalize`, and `report` commands remain unimplemented. Command
@@ -118,6 +118,12 @@ departure-only data and propagated predictions are not historical evidence.
 Cancellation, skipped-stop, and first STOPPED_AT presence evidence use distinct
 classifications. Identical predictions and repeated stopped presence update no
 append-only row, while live vehicle positions replace current state.
+
+The in-memory matching cache is tagged with the active/previous feed-version
+identity and replaced when either identity changes. A warm cache remains usable
+during a PostgreSQL outage. A cold worker that cannot load its first static index
+records or spools a compact `static.index_unavailable` failed poll and retries
+later; it does not count a discarded national feed as a successful matching cycle.
 
 Inspect recent poll quality:
 
@@ -156,8 +162,24 @@ docker compose --env-file .env run --rm --no-deps worker replay
 durable PostgreSQL or spool persistence. Telegram (`TELEGRAM_BOT_TOKEN` plus
 `TELEGRAM_CHAT_ID`) and SMTP (`SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`, with optional
 credentials) are independent. Incidents are deduplicated and normally notify
-after three consecutive observations, with recovery notices. Ordinary tests use
+after three consecutive observations, with recovery notices. Partial delivery is
+tracked per channel in the running worker, so a successful Telegram delivery is
+not repeated while only a failed SMTP delivery is retried. Ordinary tests use
 fake transports and never send messages.
+
+Explicitly test the configured real channels from the built Compose worker only
+when sending a labelled test message and heartbeat is intended:
+
+```sh
+docker compose --env-file .env run --rm --no-deps worker \
+  test-notifications --confirm-send
+```
+
+The command reports Telegram, SMTP, and heartbeat as delivered, failed, or
+skipped and exits nonzero if a configured channel fails. It never creates an
+operational incident or prints credentials. `ATODOTREN_NOTIFICATION_TEST=1` is an
+alternative explicit opt-in; the command refuses to send without one of these
+confirmations.
 
 ## Static Madrid import
 
@@ -397,8 +419,21 @@ ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env
 The script samples container CPU/memory and spool peak, then reports poll coverage,
 matching/fallback/ambiguous/malformed rates, changed versus repeated evidence,
 relation/index sizes, endpoint failures, incident/recovery state, and heartbeat
-state. It leaves the stack running for inspection. A short smoke is not evidence
-that this 48-hour gate passed.
+state. It leaves the stack running for inspection and exits nonzero if the worker
+is no longer running, the derived minimum poll count is missed, successful poll
+coverage is below 90%, matching/malformed thresholds fail, the spool is nonempty
+or has dropped operations, or an incident remains open. The default minimum poll
+count is 90% of the polls implied by enabled feeds, configured intervals, and run
+duration. Useful overrides are `ATODOTREN_ACCEPTANCE_MIN_POLLS`,
+`ATODOTREN_ACCEPTANCE_MIN_POLL_RATIO`,
+`ATODOTREN_ACCEPTANCE_MIN_SUCCESS_COVERAGE`,
+`ATODOTREN_ACCEPTANCE_MIN_MATCHING_RATE`, and
+`ATODOTREN_ACCEPTANCE_MAX_MALFORMED_RATE`. Matching and malformed defaults come
+from `INGEST_MATCHING_RATE_MINIMUM` and `INGEST_MALFORMED_RATE_MAXIMUM`.
+
+The command uses the Compose `postgres-data` and `realtime-spool` named volumes
+and deliberately leaves both, plus the running stack, available for inspection.
+A short smoke is not evidence that this 48-hour gate passed.
 
 ## Diagnosing failures
 

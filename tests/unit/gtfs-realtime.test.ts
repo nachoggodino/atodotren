@@ -10,11 +10,14 @@ import {
   FeedAcquisitionError,
   FeedDecodeError,
   matchTrip,
+  mergeStaticMatchIndex,
   normalizeFeed,
   OutageSpool,
   parseGtfsTime,
   protobufTypes,
   resolveStop,
+  RetryingAlertDelivery,
+  runIngest,
   sendOperationalAlert,
   type NormalizedBatch,
   type PollRecord,
@@ -179,6 +182,93 @@ void test('bounded acquisition rejects oversized responses and alert transports 
     { name: 'fake-smtp', send: () => { deliveries.push('smtp'); return Promise.resolve(); } },
   ], { incidentKey: 'test', title: 'Test alert', body: 'Offline transport test', recovery: false });
   assert.deepEqual(deliveries.sort(), ['smtp', 'telegram']);
+});
+
+void test('partial alert delivery retries only failed transports and recovery remains deliverable', async () => {
+  let telegramCalls = 0;
+  let smtpCalls = 0;
+  const delivery = new RetryingAlertDelivery([
+    { name: 'telegram', send: () => { telegramCalls += 1; return Promise.resolve(); } },
+    { name: 'smtp', send: () => {
+      smtpCalls += 1;
+      return smtpCalls === 1 ? Promise.reject(new Error('temporary SMTP failure')) : Promise.resolve();
+    } },
+  ]);
+  const incident = { incidentKey: 'test.partial', title: 'Partial', body: 'test', recovery: false };
+  await assert.rejects(delivery.send(incident), AggregateError);
+  await delivery.send(incident);
+  assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 1, smtpCalls: 2 });
+  await delivery.send({ ...incident, recovery: true });
+  assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 2, smtpCalls: 3 });
+});
+
+void test('long-running static cache replaces candidates when active/previous identities change', () => {
+  const initial: StaticMatchIndex = {
+    versionIdentity: { activeFeedVersionId: '10', previousFeedVersionId: '9' },
+    candidates: [activeTrip, previousTrip],
+  };
+  const activated: StaticMatchIndex = {
+    versionIdentity: { activeFeedVersionId: '11', previousFeedVersionId: '10' },
+    candidates: [{ ...activeTrip, feedVersionId: '11' }, { ...activeTrip, versionPosition: 'previous' }],
+  };
+  const merged = mergeStaticMatchIndex(initial, activated);
+  assert.deepEqual(merged.versionIdentity, activated.versionIdentity);
+  assert.deepEqual(merged.candidates.map((candidate) => candidate.feedVersionId), ['11', '10']);
+  assert.equal(merged.candidates.some((candidate) => candidate.feedVersionId === '9'), false);
+});
+
+void test('cold static-index failure is deferred safely and a later cycle retries normally', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'atodotren-cold-index-'));
+  const spool = new OutageSpool(join(directory, 'spool.sqlite'), 2_000_000);
+  let loads = 0;
+  let clock = Date.parse('2026-08-17T10:00:00.000Z');
+  const body = encode([{
+    id: 'tu-cold', tripUpdate: {
+      trip: { tripId: '10T1', startDate: '20260817' }, timestamp: 1_725_000_001,
+      stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 30 } }],
+    },
+  }]);
+  const unavailablePool = {
+    connect: () => Promise.reject(new Error('PostgreSQL unavailable')),
+    query: () => Promise.reject(new Error('PostgreSQL unavailable')),
+  };
+  try {
+    const report = await runIngest({
+      pool: unavailablePool as never,
+      spool,
+      cycles: 2,
+      config: {
+        endpoints: [{ kind: 'trip_updates', url: 'http://localhost/feed', enabled: true }],
+        requestTimeoutMs: 1_000, maxResponseBytes: 1_024 * 1024,
+        cycleIntervalMs: 1, alertIntervalMs: 60_000, failureThreshold: 3,
+        matchingRateMinimum: 0.02, malformedRateMaximum: 0.25,
+        spoolWarningRatio: 0.75, staleAfterMs: 120_000,
+      },
+      fetchImplementation: () => Promise.resolve(new Response(body, { status: 200 })),
+      loadStaticIndex: () => {
+        loads += 1;
+        return loads === 1
+          ? Promise.reject(new Error('PostgreSQL unavailable'))
+          : Promise.resolve({
+            versionIdentity: { activeFeedVersionId: '10' }, candidates: [activeTrip],
+          });
+      },
+      sleep: () => Promise.resolve(),
+      now: () => { const value = new Date(clock); clock += 1_000; return value; },
+    });
+    assert.equal(report.successfulCycles, 1);
+    assert.equal(report.unmatched, 0);
+    const first = spool.peek();
+    assert.equal(first?.envelope.poll.resultClass, 'persistence_error');
+    assert.equal(first?.envelope.poll.errorCode, 'static.index_unavailable');
+    assert.equal(first?.envelope.batch, undefined);
+    if (first !== undefined) spool.acknowledge(first.sequence);
+    const second = spool.peek();
+    assert.equal(second?.envelope.batch?.matchedMadridCount, 1);
+  } finally {
+    spool.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 function poll(id: string): PollRecord {

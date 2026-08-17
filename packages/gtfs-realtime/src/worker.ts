@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 
 import { acquireFeed, FeedAcquisitionError, type FeedEndpoint } from './acquisition.js';
-import { emitHeartbeat, sendOperationalAlert, type AlertTransport } from './alerts.js';
+import { emitHeartbeat, RetryingAlertDelivery, type AlertTransport } from './alerts.js';
 import { decodeFeed, FeedDecodeError } from './decoder.js';
 import { loadStaticMatchIndex } from './matcher.js';
 import { checksum, normalizeFeed } from './normalize.js';
@@ -40,6 +40,7 @@ export interface IngestRunOptions {
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly now?: () => Date;
   readonly onEvent?: (event: string, fields: Readonly<Record<string, unknown>>) => void;
+  readonly loadStaticIndex?: typeof loadStaticMatchIndex;
 }
 
 export interface IngestRunReport {
@@ -58,13 +59,20 @@ export interface IngestRunReport {
   readonly stoppedBySignal: boolean;
 }
 
+class StaticIndexUnavailableError extends Error {
+  public constructor(options?: ErrorOptions) {
+    super('Initial Madrid static matching index is unavailable', options);
+    this.name = 'StaticIndexUnavailableError';
+  }
+}
+
 class LocalIncidentTracker {
   readonly #state = new Map<string, { count: number; notified: boolean }>();
-  readonly #transports: readonly AlertTransport[];
+  readonly #delivery: RetryingAlertDelivery;
   readonly #pool: Pool;
 
   public constructor(transports: readonly AlertTransport[], pool: Pool) {
-    this.#transports = transports;
+    this.#delivery = new RetryingAlertDelivery(transports);
     this.#pool = pool;
   }
 
@@ -81,7 +89,7 @@ class LocalIncidentTracker {
     `, [key]).then((result) => result.rows[0]).catch(() => undefined);
     if (!active) {
       if (previous?.notified === true || (stored?.is_open === true && stored.last_notified_at !== null)) {
-        await sendOperationalAlert(this.#transports, {
+        await this.#delivery.send({
           incidentKey: key, title: `${title} recovered`, body, recovery: true,
         });
       }
@@ -99,7 +107,7 @@ class LocalIncidentTracker {
     };
     let newlyNotified = false;
     if (current.count >= threshold && !current.notified) {
-      await sendOperationalAlert(this.#transports, { incidentKey: key, title, body, recovery: false });
+      await this.#delivery.send({ incidentKey: key, title, body, recovery: false });
       current.notified = true;
       newlyNotified = true;
     }
@@ -125,12 +133,17 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function mergeIndex(previous: StaticMatchIndex | undefined, current: StaticMatchIndex): StaticMatchIndex {
+export function mergeStaticMatchIndex(previous: StaticMatchIndex | undefined, current: StaticMatchIndex): StaticMatchIndex {
+  if (previous?.versionIdentity !== undefined && current.versionIdentity !== undefined && (
+    previous.versionIdentity.activeFeedVersionId !== current.versionIdentity.activeFeedVersionId ||
+    previous.versionIdentity.previousFeedVersionId !== current.versionIdentity.previousFeedVersionId
+  )) return current;
   const candidates = new Map<string, StaticMatchIndex['candidates'][number]>();
   for (const candidate of [...(previous?.candidates ?? []), ...current.candidates]) {
     candidates.set(`${candidate.feedVersionId}\0${candidate.tripId}`, candidate);
   }
   return {
+    ...(current.versionIdentity === undefined ? {} : { versionIdentity: current.versionIdentity }),
     candidates: [...candidates.values()],
     alertRoutes: new Map([...(previous?.alertRoutes ?? []), ...(current.alertRoutes ?? [])]),
     alertStops: new Map([...(previous?.alertStops ?? []), ...(current.alertStops ?? [])]),
@@ -180,6 +193,7 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
   const now = options.now ?? (() => new Date());
   const transports = options.transports ?? [];
   const incidents = new LocalIncidentTracker(transports, options.pool);
+  const loadStaticIndex = options.loadStaticIndex ?? loadStaticMatchIndex;
   const maximumCycles = options.cycles ?? Number.POSITIVE_INFINITY;
   let lastAlertPoll = 0;
   let staticCache: StaticMatchIndex | undefined;
@@ -229,22 +243,27 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
       const startedAt = now();
       let poll: PollRecord;
       let batch: NormalizedBatch | undefined;
+      let acquired: Awaited<ReturnType<typeof acquireFeed>> | undefined;
       try {
-        const acquired = await acquireFeed(endpoint, {
+        acquired = await acquireFeed(endpoint, {
           timeoutMs: options.config.requestTimeoutMs,
           maxResponseBytes: options.config.maxResponseBytes,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
           ...(options.fetchImplementation === undefined ? {} : { fetchImplementation: options.fetchImplementation }),
           sleep,
         });
+        report.responseBytes += acquired.responseBytes;
         const capturedAt = now();
         const feed = decodeFeed(acquired.body, endpoint.kind);
         const identities = descriptorsForFeed(feed);
         try {
-          const loaded = await loadStaticMatchIndex(options.pool, identities.descriptors, identities.routes, identities.stops);
-          staticCache = mergeIndex(staticCache, loaded);
-        } catch {
-          if (staticCache === undefined) staticMismatch = true;
+          const loaded = await loadStaticIndex(options.pool, identities.descriptors, identities.routes, identities.stops);
+          staticCache = mergeStaticMatchIndex(staticCache, loaded);
+        } catch (error) {
+          if (staticCache === undefined) {
+            staticMismatch = true;
+            throw new StaticIndexUnavailableError({ cause: error });
+          }
         }
         batch = normalizeFeed(feed, capturedAt, staticCache ?? { candidates: [] });
         cycleMatched += batch.matchedMadridCount;
@@ -255,7 +274,6 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         report.nonMadrid += batch.nonMadridCount;
         report.unmatched += batch.unmatchedCount;
         report.invalid += batch.invalidCount;
-        report.responseBytes += acquired.responseBytes;
         poll = pollRecord({
           feedKind: endpoint.kind, startedAt: startedAt.toISOString(), completedAt: now().toISOString(),
           capturedAt: capturedAt.toISOString(), feedHeaderTimestamp: feed.headerTimestamp,
@@ -270,14 +288,19 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         const completedAt = now();
         const acquisition = error instanceof FeedAcquisitionError ? error : undefined;
         const decoding = error instanceof FeedDecodeError ? error : undefined;
+        const staticUnavailable = error instanceof StaticIndexUnavailableError;
         poll = pollRecord({
           feedKind: endpoint.kind, startedAt: startedAt.toISOString(), completedAt: completedAt.toISOString(),
           capturedAt: completedAt.toISOString(),
-          ...(acquisition?.status === undefined ? {} : { httpStatus: acquisition.status }),
-          resultClass: acquisition?.code ?? decoding?.code ?? 'network_error', responseBytes: 0,
+          ...(acquisition?.status === undefined && acquired?.status === undefined ? {} : {
+            httpStatus: acquisition?.status ?? acquired?.status,
+          }),
+          resultClass: staticUnavailable ? 'persistence_error' : acquisition?.code ?? decoding?.code ?? 'network_error',
+          responseBytes: acquired?.responseBytes ?? 0,
           entityTotal: 0, matchedMadridCount: 0, nonMadridCount: 0, unmatchedCount: 0,
-          invalidCount: 0, responseDurationMs: acquisition?.durationMs ?? Math.round(performance.now() - cycleStarted),
-          persistenceDurationMs: 0, errorCode: acquisition?.code ?? decoding?.code ?? 'poll.unexpected',
+          invalidCount: 0, responseDurationMs: acquisition?.durationMs ?? acquired?.durationMs ?? Math.round(performance.now() - cycleStarted),
+          persistenceDurationMs: 0,
+          errorCode: staticUnavailable ? 'static.index_unavailable' : acquisition?.code ?? decoding?.code ?? 'poll.unexpected',
         });
       }
       const durable = await durablePersist(options.pool, options.spool, poll, batch);

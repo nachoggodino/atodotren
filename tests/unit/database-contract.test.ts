@@ -19,3 +19,16 @@ void test('SQL migration and provider-neutral bootstrap agree with the TypeScrip
   assert.match(bootstrap, new RegExp(`GRANT ${atodotrenRoles.ingestWriter} TO ${atodotrenRoles.workerLogin}\\s+WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`, 'u'));
   assert.match(bootstrap, new RegExp(`GRANT ${atodotrenRoles.migrationAdmin} TO ${atodotrenRoles.migratorLogin}\\s+WITH ADMIN FALSE, INHERIT FALSE, SET TRUE`, 'u'));
 });
+
+void test('Compose forwards documented realtime operational thresholds', async () => {
+  const compose = await readFile('compose.yaml', 'utf8');
+  for (const [name, fallback] of [
+    ['INGEST_ALERT_FAILURE_THRESHOLD', '3'],
+    ['INGEST_STALE_AFTER_MS', '120000'],
+    ['INGEST_MATCHING_RATE_MINIMUM', '0.02'],
+    ['INGEST_MALFORMED_RATE_MAXIMUM', '0.25'],
+    ['SQLITE_SPOOL_WARNING_RATIO', '0.75'],
+  ]) {
+    assert.ok(compose.includes(`${name}: \${${name}:-${fallback}}`), `${name} is not forwarded by Compose`);
+  }
+});
