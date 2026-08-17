@@ -1,0 +1,6 @@
+shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence,shape_dist_traveled
+10SHAPE-A,40.4066,-3.6891,1,0
+10SHAPE-A,40.4466,-3.6924,2,5000
+10SHAPE-A,40.4918,-3.5932,3,12000
+20SHAPE-A,43.0000,-5.0000,1,0
+20SHAPE-A,43.1000,-5.1000,2,10000

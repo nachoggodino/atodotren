@@ -33,14 +33,20 @@ void test('recursively normalizes arrays, bigint, circular values, causes, and P
     code: '23505', severity: 'ERROR', detail: 'duplicate', schema: 'core', table: 'station',
     column: 'slug', constraint: 'station_slug_key', where: 'statement',
   });
-  output.logger.error('database.error', 'failed', { circular, error });
+  output.logger.error('database.error', 'failed', {
+    circular,
+    error,
+    observedAt: new Date('2026-08-17T04:00:00.000Z'),
+  });
   const record = output.records()[0] as {
     circular: { values: unknown; self: string };
     error: Record<string, unknown> & { cause: { message: string } };
+    observedAt: string;
   };
   assert.deepEqual(record.circular.values, ['1', { size: '2' }]);
   assert.equal(record.circular.self, '[Circular]');
   assert.equal(record.error.cause.message, 'inner');
+  assert.equal(record.observedAt, '2026-08-17T04:00:00.000Z');
   assert.deepEqual(
     Object.fromEntries(['code', 'severity', 'detail', 'schema', 'table', 'column', 'constraint', 'where'].map((key) => [key, record.error[key]])),
     {

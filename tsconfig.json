@@ -4,6 +4,7 @@
     { "path": "./packages/config" },
     { "path": "./packages/observability" },
     { "path": "./packages/db" },
+    { "path": "./packages/gtfs-static" },
     { "path": "./apps/worker" }
   ]
 }

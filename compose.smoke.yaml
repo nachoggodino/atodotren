@@ -1,0 +1,8 @@
+services:
+  static-import:
+    command: ["import-static", "--file", "/fixtures/representative-madrid.zip", "--json"]
+    environment:
+      GTFS_STATIC_REQUIRED_LINE_CODES: C-1
+      GTFS_STATIC_REQUIRED_STATION_IDS: atocha,aeropuerto-t4
+    volumes:
+      - ./tests/fixtures/gtfs-static/representative.zip:/fixtures/representative-madrid.zip:ro

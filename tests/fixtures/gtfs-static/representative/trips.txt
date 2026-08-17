@@ -1,0 +1,5 @@
+route_id,service_id,trip_id,trip_headsign,direction_id,shape_id
+10T0001C1,WK,10TRIP-A,Aeropuerto,,10SHAPE-A
+10T0001C1,WK,10TRIP-MISSING,,,10SHAPE-A
+10T0001C1,WK,10TRIP-SINGLE,,,10SHAPE-A
+20T0001C1,NAT,20TRIP-A,Elsewhere,1,20SHAPE-A

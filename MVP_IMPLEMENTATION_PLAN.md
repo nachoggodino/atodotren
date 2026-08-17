@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: Milestone 0 foundation implemented and hardened; Milestone 1 remains next
+Status: Milestones 0 and 1 accepted; Milestone 2 is next
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -13,7 +13,7 @@ The first implementation target is not the public frontend. It is a trustworthy 
 ## 2. Non-negotiable product rules
 
 - Madrid only during the MVP. National feed entities are parsed in memory and discarded unless they can be assigned to the Madrid network.
-- The model is network-aware from the first migration so another Cercanías network can be added through configuration and static mappings, without redesigning the schema.
+- The model is network-aware from the first migration so another Cercanías network can be added through a focused configuration/code mapping addition, without redesigning the schema.
 - PostgreSQL is the source of truth. It must remain standard managed PostgreSQL without a required time-series or provider-specific extension.
 - Renfe's `arrival.time` is an absolute reported event estimate. It is not our capture timestamp and is not guaranteed to be an observed actual arrival.
 - Renfe's `arrival.delay` is a signed schedule deviation in seconds. When both fields exist, `arrival.time` is authoritative for the expected-arrival instant, following GTFS-Realtime.
@@ -636,13 +636,34 @@ Exit: a clean local PostgreSQL database can be migrated and `worker doctor` pass
 
 ### Milestone 1 — Static Madrid foundation
 
+Status: accepted against the checked-in minimized representative timetable and the
+current official RENFE archive. The offline fixture deliberately includes a
+same-label non-Madrid route and proves zero national persistence. On 2026-08-17,
+the live archive imported in 25.709 seconds at about 550 MiB peak Node RSS,
+retaining 118 routes, 37,503 trips, 95 stops, 533,783 stop times, 30 services, and
+23 shapes. Madrid uses verified source route prefix `10`; every retained mapping
+was covered and the dependency audit found zero unrelated facts.
+
+The acceptance run also fixed and fixture-backed three bounded source variations:
+feed-level agency `1071VC` with no per-route `agency_id`, fixed-width whitespace in
+CSV headers, and 41 zero-length trip fragments. One consecutive repeated terminal
+call remains preserved in versioned stop times but is collapsed in stable topology
+so it cannot create a self-segment.
+
 - stable network/station/line/branch/service-pattern schema
 - conditional static downloader and checksum versioning
 - streaming/bounded national parsing with Madrid-only persistence
 - staging validation and transactional activation
 - active/previous matching indexes and import report
 
-Exit: the current Madrid timetable, station mappings, directions, branches, segments, and shapes are reproducibly imported with no national rows persisted.
+Exit demonstrated: the representative Madrid timetable reproducibly imports stable
+stations, public lines, branches, normalized directions (including absent
+`direction_id`), service patterns, ordered stops, directed segments, versioned
+trips/stop times above 24:00, calendars, and referenced shapes. PostgreSQL 16.14
+and 18.4 tests prove checksum idempotency, active/previous activation, concurrent
+serialization, rejected/failed rollback, and zero retained non-Madrid facts.
+The original current-timetable exit criterion is demonstrated by the successful
+opt-in live import, Madrid-only audit, transactional activation, and doctor result.
 
 ### Milestone 2 — Real-time evidence ingestion
 
@@ -814,10 +835,10 @@ A failure at an earlier layer blocks the later deployment layer.
 
 ## 24. Immediate next actions
 
-1. Begin Milestone 1 with migration `0002` for stable dimensions and immutable static-feed foundations.
-2. Implement the conditional static downloader and Madrid-only import/activation path.
-3. Build a deterministic Madrid matching report before persisting real-time history.
-4. Add protobuf polling, deduplicated evidence, and canonical journeys.
-5. Start the pilot before implementing the public frontend.
+1. Begin Milestone 2 with GTFS-Realtime protobuf decoding and bounded fake-feed poll cycles.
+2. Match realtime entities against the active static version, then its immediate previous version, without guessing ambiguous journeys.
+3. Add compact poll/evidence persistence, Madrid-only filtered payloads, live state, and quarantine.
+4. Add the bounded SQLite outage spool, ordered replay, heartbeat, and operational alerts.
+5. Run the opt-in realtime smoke and 48-hour pilot before canonical journey work or the public frontend.
 
 This ordering deliberately makes the future interface a consumer of measured, understood data rather than a design built around assumptions about Renfe's feed.

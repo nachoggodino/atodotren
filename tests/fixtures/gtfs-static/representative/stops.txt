@@ -1,0 +1,6 @@
+stop_id,stop_code,stop_name,stop_lat,stop_lon,location_type,wheelchair_boarding
+10STOP-A,atocha,Atocha,40.4066,-3.6891,0,1
+10STOP-B,nuevos-ministerios,Nuevos Ministerios,40.4466,-3.6924,0,1
+10STOP-C,aeropuerto-t4,Aeropuerto T4,40.4918,-3.5932,0,1
+20STOP-A,national-a,National A,43.0000,-5.0000,0,0
+20STOP-B,national-b,National B,43.1000,-5.1000,0,0

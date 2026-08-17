@@ -1,0 +1,3 @@
+route_id,route_short_name,route_long_name,route_type,route_color,route_text_color
+10T0001C1,C-1,Chamartín - Aeropuerto,2,70B42C,FFFFFF
+20T0001C1,C-1,National label collision,2,111111,FFFFFF

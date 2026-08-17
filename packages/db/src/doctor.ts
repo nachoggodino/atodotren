@@ -18,7 +18,7 @@ export interface DoctorCheck {
 
 export interface DoctorReport {
   readonly ok: true;
-  readonly scope: 'milestone-0';
+  readonly scope: 'milestone-1';
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -196,10 +196,71 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     details: { skewMs, maximumMs: options.maxClockSkewMs },
   });
 
+  const staticFeedResult = await sql<{
+    id: string;
+    sha256: string;
+    source_url: string;
+    fetched_at: Date;
+    activated_at: Date;
+    previous_feed_version_id: string | null;
+    routes: string;
+    mapped_routes: string;
+    trips: string;
+    mapped_trips: string;
+    stops: string;
+    mapped_stops: string;
+  }>`
+    SELECT
+      active.id,
+      active.sha256,
+      active.source_url,
+      active.fetched_at,
+      active.activated_at,
+      active.previous_feed_version_id,
+      (SELECT count(*) FROM gtfs_static.route WHERE feed_version_id = active.id)::text AS routes,
+      (SELECT count(*) FROM gtfs_static.route_line_map WHERE feed_version_id = active.id)::text AS mapped_routes,
+      (SELECT count(*) FROM gtfs_static.trip WHERE feed_version_id = active.id)::text AS trips,
+      (SELECT count(*) FROM gtfs_static.trip_pattern_map WHERE feed_version_id = active.id)::text AS mapped_trips,
+      (SELECT count(*) FROM gtfs_static.stop WHERE feed_version_id = active.id)::text AS stops,
+      (SELECT count(*) FROM gtfs_static.stop_station_map WHERE feed_version_id = active.id)::text AS mapped_stops
+    FROM gtfs_static.current_feed_version AS active
+    WHERE active.network_slug = 'madrid'
+  `.execute(options.connection.db);
+  const staticFeed = staticFeedResult.rows[0];
+  if (staticFeed === undefined) {
+    throw new Error('No valid active Madrid static-feed version exists; run worker import-static');
+  }
+  const routes = Number(staticFeed.routes);
+  const trips = Number(staticFeed.trips);
+  const stops = Number(staticFeed.stops);
+  if (
+    routes <= 0 || trips <= 0 || stops <= 0 ||
+    Number(staticFeed.mapped_routes) !== routes ||
+    Number(staticFeed.mapped_trips) !== trips ||
+    Number(staticFeed.mapped_stops) !== stops
+  ) {
+    throw new Error(`Active Madrid static-feed version ${staticFeed.id} has incomplete stable-dimension mapping coverage`);
+  }
   checks.push({
-    name: 'feeds',
+    name: 'feeds.static',
+    status: 'pass',
+    details: {
+      network: 'madrid',
+      versionId: staticFeed.id,
+      checksum: staticFeed.sha256,
+      source: new URL(staticFeed.source_url, 'file:///').protocol === 'file:' ? 'local-file' : new URL(staticFeed.source_url).hostname,
+      fetchedAt: staticFeed.fetched_at,
+      activatedAt: staticFeed.activated_at,
+      ageMs: Math.max(0, now().getTime() - staticFeed.activated_at.getTime()),
+      previousVersionId: staticFeed.previous_feed_version_id,
+      counts: { routes, trips, stops },
+      mappingCoverage: { routes, trips, stops },
+    },
+  });
+  checks.push({
+    name: 'feeds.realtime',
     status: 'deferred',
-    details: { reason: 'Feed access begins in Milestone 1 and is not required in Milestone 0' },
+    details: { reason: 'GTFS-Realtime ingestion begins in Milestone 2' },
   });
   checks.push({
     name: 'spool.storage',
@@ -207,5 +268,5 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     details: { reason: 'The bounded outage spool begins in Milestone 2' },
   });
 
-  return { ok: true, scope: 'milestone-0', checks };
+  return { ok: true, scope: 'milestone-1', checks };
 }

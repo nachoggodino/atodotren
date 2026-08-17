@@ -8,6 +8,12 @@ import {
   runDatabaseDoctor,
   type DatabaseConnection,
 } from '@atodotren/db';
+import {
+  formatHumanReport,
+  importStaticFeed,
+  RENFE_STATIC_URL,
+  renfeMadridMapping,
+} from '@atodotren/gtfs-static';
 import { createLogger, createShutdownManager } from '@atodotren/observability';
 
 type ExitCode = 0 | 1 | 2;
@@ -32,13 +38,13 @@ Usage:
   worker <command> [options]
 
 Commands:
-  ingest          Continuous GTFS-Realtime polling (not implemented in Milestone 0)
-  import-static   Import and activate static GTFS (not implemented in Milestone 0)
-  aggregate       Recompute dirty aggregate buckets (not implemented in Milestone 0)
-  finalize        Finalize eligible service days (not implemented in Milestone 0)
-  replay          Replay the local outage spool (not implemented in Milestone 0)
-  doctor          Validate configuration, database, permissions, migrations, and clock
-  report          Emit operational reports (not implemented in Milestone 0)
+  ingest          Continuous GTFS-Realtime polling (planned for Milestone 2)
+  import-static   Import and transactionally activate Madrid static GTFS
+  aggregate       Recompute dirty aggregate buckets (planned for a later milestone)
+  finalize        Finalize eligible service days (planned for a later milestone)
+  replay          Replay the local outage spool (planned for Milestone 2)
+  doctor          Validate database contracts and the active Madrid static feed
+  report          Emit operational reports (planned for a later milestone)
 
 Global options:
   --help           Show this help
@@ -49,6 +55,15 @@ export const doctorUsage = `Usage:
   worker doctor
 
 Validates configuration, database, exact role and migration state, permissions, and clock.
+`;
+
+export const importStaticUsage = `Usage:
+  worker import-static [--url <https-url> | --file <local.zip>] [--force-recheck] [--json]
+
+Defaults to the configured RENFE Cercanías static URL. A local ZIP provides a
+deterministic recovery and fixture path. --force-recheck omits HTTP validators;
+checksum idempotency still applies. Exit 0 means imported or unchanged, 1 means
+configuration/download/validation/database failure, and 2 means invalid usage.
 `;
 
 export class UsageError extends Error {
@@ -68,6 +83,91 @@ export interface DispatcherDependencies {
   readonly cwd?: string;
   readonly connect?: typeof createDatabaseConnection;
   readonly doctor?: typeof runDatabaseDoctor;
+  readonly importStatic?: typeof importStaticFeed;
+}
+
+interface ImportStaticCliOptions {
+  readonly source: { readonly kind: 'http'; readonly url: string } | { readonly kind: 'file'; readonly path: string };
+  readonly forceRecheck: boolean;
+  readonly json: boolean;
+}
+
+function parseImportStaticOptions(arguments_: readonly string[]): ImportStaticCliOptions {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...arguments_],
+      allowPositionals: false,
+      strict: true,
+      options: {
+        url: { type: 'string' },
+        file: { type: 'string' },
+        'force-recheck': { type: 'boolean' },
+        json: { type: 'boolean' },
+        help: { type: 'boolean', short: 'h' },
+      },
+    });
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : 'Invalid import-static options', importStaticUsage);
+  }
+  if (parsed.values.help === true) {
+    if (arguments_.length !== 1) throw new UsageError('import-static help does not accept other options', importStaticUsage);
+    return { source: { kind: 'http', url: RENFE_STATIC_URL }, forceRecheck: false, json: false };
+  }
+  if (parsed.values.url !== undefined && parsed.values.file !== undefined) {
+    throw new UsageError('--url and --file are mutually exclusive', importStaticUsage);
+  }
+  if (parsed.values.url === '' || parsed.values.file === '') {
+    throw new UsageError('--url and --file require a non-empty value', importStaticUsage);
+  }
+  return {
+    source: parsed.values.file === undefined
+      ? { kind: 'http', url: parsed.values.url ?? RENFE_STATIC_URL }
+      : { kind: 'file', path: parsed.values.file },
+    forceRecheck: parsed.values['force-recheck'] ?? false,
+    json: parsed.values.json ?? false,
+  };
+}
+
+export async function runImportStaticCommand(
+  cliOptions: ImportStaticCliOptions,
+  dependencies: DispatcherDependencies = {},
+): Promise<0 | 1> {
+  const environment = dependencies.environment ?? process.env;
+  const config = loadConfig(environment);
+  const stdout = dependencies.stdout ?? process.stdout;
+  const stderr = dependencies.stderr ?? process.stderr;
+  const logger = createLogger({ service: 'atodotren-worker', level: config.logLevel, output: stderr });
+  const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
+  let connection: DatabaseConnection | undefined;
+  try {
+    connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
+    await shutdown.register('database-pool', async () => connection?.close());
+    const requiredLines = (environment.GTFS_STATIC_REQUIRED_LINE_CODES ?? '')
+      .split(',').map((value) => value.trim()).filter((value) => value !== '');
+    const requiredStations = (environment.GTFS_STATIC_REQUIRED_STATION_IDS ?? '')
+      .split(',').map((value) => value.trim()).filter((value) => value !== '');
+    const report = await (dependencies.importStatic ?? importStaticFeed)({
+      pool: connection.pool,
+      source: cliOptions.source,
+      forceRecheck: cliOptions.forceRecheck,
+      signal: shutdown.signal,
+      ...(environment.GTFS_STATIC_TEMP_DIR === undefined ? {} : { temporaryDirectory: environment.GTFS_STATIC_TEMP_DIR }),
+      mapping: {
+        ...renfeMadridMapping,
+        canaries: {
+          ...renfeMadridMapping.canaries,
+          requiredLineCodes: requiredLines,
+          requiredStationPublicIds: requiredStations,
+        },
+      },
+    });
+    stdout.write(cliOptions.json ? `${JSON.stringify(report)}\n` : formatHumanReport(report));
+    return report.ok ? 0 : 1;
+  } finally {
+    await shutdown.shutdown('command-complete');
+    shutdown.dispose();
+  }
 }
 
 function isPlannedCommand(value: string): value is PlannedCommand {
@@ -171,15 +271,22 @@ export async function dispatchCli(
     }
     return runDoctorCommand(dependencies);
   }
+  if (first === 'import-static') {
+    if (commandArguments.length === 1 && ['--help', '-h'].includes(commandArguments[0] ?? '')) {
+      stdout.write(importStaticUsage);
+      return 0;
+    }
+    return runImportStaticCommand(parseImportStaticOptions(commandArguments), dependencies);
+  }
   if (first === 'ingest') {
     parseIngestOptions(commandArguments);
   } else if (commandArguments.length > 0) {
-    throw new UsageError(`Command ${first} does not accept options in Milestone 0`);
+    throw new UsageError(`Command ${first} does not accept options in Milestone 1`);
   }
   const logger = createLogger({ service: 'atodotren-worker', level: 'info', output: stdout });
   logger.error('command.not_implemented', `Command "${first}" is not implemented`, {
     command: first,
-    milestone: 0,
+    milestone: 1,
   });
   return 1;
 }

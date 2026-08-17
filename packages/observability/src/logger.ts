@@ -80,6 +80,9 @@ function normalize(
   if (typeof value !== 'object') {
     return '[Unsupported]';
   }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '[InvalidDate]' : value.toISOString();
+  }
   if (seen.has(value)) {
     return '[Circular]';
   }
