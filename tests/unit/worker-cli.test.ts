@@ -42,14 +42,48 @@ void test('doctor help succeeds while configuration failures are runtime failure
   assert.match(failure.stdout, /config\.invalid/u);
 });
 
-void test('planned but unavailable commands are runtime failures and invalid options remain usage errors', async () => {
-  for (const command of ['ingest', 'aggregate', 'finalize', 'replay', 'report']) {
-    const planned = await invoke(command === 'ingest' ? [command, '--once'] : [command]);
+void test('later commands remain unavailable and realtime options are strict', async () => {
+  for (const command of ['aggregate', 'finalize', 'report']) {
+    const planned = await invoke([command]);
     assert.equal(planned.code, 1);
     assert.match(planned.stdout, /command\.not_implemented/u);
   }
   assert.equal((await invoke(['ingest', '--unknown'])).code, 2);
+  assert.equal((await invoke(['ingest', '--once', '--cycles', '2'])).code, 2);
+  assert.equal((await invoke(['ingest', '--cycles', '0'])).code, 2);
+  assert.equal((await invoke(['ingest', '--help'])).code, 0);
+  assert.equal((await invoke(['replay', '--help'])).code, 0);
   assert.equal((await invoke(['report', '--unknown'])).code, 2);
+});
+
+void test('ingest and replay dispatch bounded modes with predictable reports', async () => {
+  const environment = {
+    DATABASE_URL: 'postgresql://worker:password@localhost/atodotren',
+    SQLITE_SPOOL_PATH: `/tmp/atodotren-cli-${process.pid}.sqlite`,
+  };
+  const connect: NonNullable<DispatcherDependencies['connect']> = () => Promise.resolve({
+    pool: {} as never,
+    db: {} as never,
+    close: () => Promise.resolve(),
+  });
+  const ingest = await invoke(['ingest', '--cycles', '2'], environment, {
+    connect,
+    ingest: (options) => Promise.resolve({
+      cyclesAttempted: options.cycles ?? 0, successfulCycles: 2,
+      postgresPersistedFeeds: 4, spooledFeeds: 0, replayedFeeds: 0,
+      evidenceInserted: 2, evidenceRepeated: 1, matchedMadrid: 4,
+      nonMadrid: 5, unmatched: 0, invalid: 0, responseBytes: 100,
+      stoppedBySignal: false,
+    }),
+  });
+  assert.equal(ingest.code, 0);
+  assert.equal((JSON.parse(ingest.stdout) as { cyclesAttempted: number }).cyclesAttempted, 2);
+  const replay = await invoke(['replay'], environment, {
+    connect,
+    replay: () => Promise.resolve({ replayed: 3, pending: 0 }),
+  });
+  assert.equal(replay.code, 0);
+  assert.equal((JSON.parse(replay.stdout) as { replayed: number }).replayed, 3);
 });
 
 void test('import-static exposes strict options and preserves JSON report exit semantics', async () => {

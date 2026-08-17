@@ -13,11 +13,61 @@ export interface DatabaseConfig {
   readonly applicationName: string;
 }
 
+export interface RealtimeEndpointConfig {
+  readonly enabled: boolean;
+  readonly url: string;
+}
+
+export interface RealtimeConfig {
+  readonly tripUpdates: RealtimeEndpointConfig;
+  readonly vehiclePositions: RealtimeEndpointConfig;
+  readonly serviceAlerts: RealtimeEndpointConfig;
+  readonly requestTimeoutMs: number;
+  readonly maxResponseBytes: number;
+  readonly cycleIntervalMs: number;
+  readonly alertIntervalMs: number;
+}
+
+export interface SpoolConfig {
+  readonly path: string;
+  readonly maxBytes: number;
+  readonly maxBacklogMs: number;
+}
+
+export interface TelegramConfig {
+  readonly botToken: string;
+  readonly chatId: string;
+}
+
+export interface SmtpConfig {
+  readonly host: string;
+  readonly port: number;
+  readonly secure: boolean;
+  readonly user?: string;
+  readonly password?: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface OperationsConfig {
+  readonly heartbeatUrl?: string;
+  readonly telegram?: TelegramConfig;
+  readonly smtp?: SmtpConfig;
+  readonly failureThreshold: number;
+  readonly staleAfterMs: number;
+  readonly matchingRateMinimum: number;
+  readonly malformedRateMaximum: number;
+  readonly spoolWarningRatio: number;
+}
+
 export interface AppConfig {
   readonly nodeEnvironment: NodeEnvironment;
   readonly logLevel: LogLevel;
   readonly database: DatabaseConfig;
   readonly migrationDatabase: DatabaseConfig;
+  readonly realtime: RealtimeConfig;
+  readonly spool: SpoolConfig;
+  readonly operations: OperationsConfig;
   readonly doctorMaxClockSkewMs: number;
   readonly shutdownTimeoutMs: number;
 }
@@ -69,6 +119,55 @@ function positiveInteger(
     return fallback;
   }
   return parsed;
+}
+
+function boundedInteger(
+  environment: Environment,
+  key: string,
+  fallback: number,
+  maximum: number,
+  issues: string[],
+): number {
+  const value = positiveInteger(environment, key, fallback, issues);
+  if (value > maximum) {
+    issues.push(`${key} must be no greater than ${maximum}`);
+    return fallback;
+  }
+  return value;
+}
+
+function booleanValue(environment: Environment, key: string, fallback: boolean, issues: string[]): boolean {
+  const raw = environment[key];
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  issues.push(`${key} must be true or false`);
+  return fallback;
+}
+
+function httpUrl(environment: Environment, key: string, fallback: string, optional: boolean, allowHttp: boolean, issues: string[]): string | undefined {
+  const raw = environment[key]?.trim() ?? fallback;
+  if (raw === '' && optional) return undefined;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && (allowHttp || ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)))) {
+      issues.push(`${key} must use HTTPS or loopback HTTP`);
+    }
+  } catch {
+    issues.push(`${key} must be a valid URL`);
+  }
+  return raw;
+}
+
+function ratio(environment: Environment, key: string, fallback: number, issues: string[]): number {
+  const raw = environment[key];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    issues.push(`${key} must be a number between 0 and 1`);
+    return fallback;
+  }
+  return value;
 }
 
 function databaseUrl(environment: Environment, key: string, issues: string[]): string {
@@ -161,6 +260,64 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     shutdownTimeoutMs: positiveInteger(environment, 'SHUTDOWN_TIMEOUT_MS', 10_000, issues),
   };
 
+  const allowHttp = nodeEnvironment === 'test';
+  const tripUpdatesUrl = httpUrl(environment, 'GTFS_RT_TRIP_UPDATES_URL', 'https://gtfsrt.renfe.com/trip_updates.pb', false, allowHttp, issues) ?? '';
+  const vehiclePositionsUrl = httpUrl(environment, 'GTFS_RT_VEHICLE_POSITIONS_URL', 'https://gtfsrt.renfe.com/vehicle_positions.pb', false, allowHttp, issues) ?? '';
+  const serviceAlertsUrl = httpUrl(environment, 'GTFS_RT_SERVICE_ALERTS_URL', 'https://gtfsrt.renfe.com/alerts.pb', false, allowHttp, issues) ?? '';
+  const realtime: RealtimeConfig = {
+    tripUpdates: { enabled: booleanValue(environment, 'GTFS_RT_TRIP_UPDATES_ENABLED', true, issues), url: tripUpdatesUrl },
+    vehiclePositions: { enabled: booleanValue(environment, 'GTFS_RT_VEHICLE_POSITIONS_ENABLED', true, issues), url: vehiclePositionsUrl },
+    serviceAlerts: { enabled: booleanValue(environment, 'GTFS_RT_SERVICE_ALERTS_ENABLED', true, issues), url: serviceAlertsUrl },
+    requestTimeoutMs: boundedInteger(environment, 'GTFS_RT_REQUEST_TIMEOUT_MS', 10_000, 60_000, issues),
+    maxResponseBytes: boundedInteger(environment, 'GTFS_RT_MAX_RESPONSE_BYTES', 32 * 1024 * 1024, 256 * 1024 * 1024, issues),
+    cycleIntervalMs: boundedInteger(environment, 'GTFS_RT_CYCLE_INTERVAL_MS', 30_000, 3_600_000, issues),
+    alertIntervalMs: boundedInteger(environment, 'GTFS_RT_ALERT_INTERVAL_MS', 60_000, 3_600_000, issues),
+  };
+  const spool: SpoolConfig = {
+    path: environment.SQLITE_SPOOL_PATH?.trim() || '/tmp/atodotren/realtime-spool.sqlite',
+    maxBytes: boundedInteger(environment, 'SQLITE_SPOOL_MAX_BYTES', 1024 * 1024 * 1024, 10 * 1024 * 1024 * 1024, issues),
+    maxBacklogMs: boundedInteger(environment, 'SQLITE_SPOOL_MAX_BACKLOG_MS', 48 * 60 * 60 * 1_000, 48 * 60 * 60 * 1_000, issues),
+  };
+  const heartbeatUrl = httpUrl(environment, 'HEARTBEAT_URL', '', true, allowHttp, issues);
+  const telegramToken = environment.TELEGRAM_BOT_TOKEN?.trim() || undefined;
+  const telegramChatId = environment.TELEGRAM_CHAT_ID?.trim() || undefined;
+  if ((telegramToken === undefined) !== (telegramChatId === undefined)) {
+    issues.push('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured together');
+  }
+  const smtpHost = environment.SMTP_HOST?.trim() || undefined;
+  const smtpFrom = environment.SMTP_FROM?.trim() || undefined;
+  const smtpTo = environment.SMTP_TO?.trim() || undefined;
+  const smtpUser = environment.SMTP_USER?.trim() || undefined;
+  const smtpPassword = environment.SMTP_PASSWORD || undefined;
+  if (smtpHost !== undefined && (smtpFrom === undefined || smtpTo === undefined)) {
+    issues.push('SMTP_HOST requires SMTP_FROM and SMTP_TO');
+  }
+  if ((smtpUser === undefined) !== (smtpPassword === undefined)) {
+    issues.push('SMTP_USER and SMTP_PASSWORD must be configured together');
+  }
+  const operations: OperationsConfig = {
+    ...(heartbeatUrl === undefined ? {} : { heartbeatUrl }),
+    ...(telegramToken === undefined || telegramChatId === undefined ? {} : {
+      telegram: { botToken: telegramToken, chatId: telegramChatId },
+    }),
+    ...(smtpHost === undefined || smtpFrom === undefined || smtpTo === undefined ? {} : {
+      smtp: {
+        host: smtpHost,
+        port: boundedInteger(environment, 'SMTP_PORT', 587, 65_535, issues),
+        secure: booleanValue(environment, 'SMTP_SECURE', false, issues),
+        ...(smtpUser === undefined ? {} : { user: smtpUser }),
+        ...(smtpPassword === undefined ? {} : { password: smtpPassword }),
+        from: smtpFrom,
+        to: smtpTo,
+      },
+    }),
+    failureThreshold: boundedInteger(environment, 'INGEST_ALERT_FAILURE_THRESHOLD', 3, 100, issues),
+    staleAfterMs: boundedInteger(environment, 'INGEST_STALE_AFTER_MS', 120_000, 86_400_000, issues),
+    matchingRateMinimum: ratio(environment, 'INGEST_MATCHING_RATE_MINIMUM', 0.02, issues),
+    malformedRateMaximum: ratio(environment, 'INGEST_MALFORMED_RATE_MAXIMUM', 0.25, issues),
+    spoolWarningRatio: ratio(environment, 'SQLITE_SPOOL_WARNING_RATIO', 0.75, issues),
+  };
+
   const database = connectionConfig(environment, runtimeUrl, 'atodotren-worker', issues);
   const migrationDatabase: DatabaseConfig = {
     ...database,
@@ -172,7 +329,7 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     throw new ConfigError(issues);
   }
 
-  return { ...shared, database, migrationDatabase };
+  return { ...shared, database, migrationDatabase, realtime, spool, operations };
 }
 
 export * from './preflight.js';

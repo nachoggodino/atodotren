@@ -5,6 +5,7 @@
     { "path": "./packages/observability" },
     { "path": "./packages/db" },
     { "path": "./packages/gtfs-static" },
+    { "path": "./packages/gtfs-realtime" },
     { "path": "./apps/worker" }
   ]
 }

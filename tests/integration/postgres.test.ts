@@ -7,6 +7,18 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { migrateToLatest } from '@atodotren/db';
+import {
+  checksum,
+  loadStaticMatchIndex,
+  matchTrip,
+  normalizeFeed,
+  observeIncident,
+  OutageSpool,
+  persistBatch,
+  replaySpool,
+  type DecodedFeed,
+  type PollRecord,
+} from '@atodotren/gtfs-realtime';
 import { importStaticFeed, renfeMadridMapping } from '@atodotren/gtfs-static';
 import { Client, Pool } from 'pg';
 
@@ -68,6 +80,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
     cp(
       resolve(process.cwd(), 'migrations/0003_static_mapping_integrity.sql'),
       join(directory, '0003_static_mapping_integrity.sql'),
+    ),
+    cp(
+      resolve(process.cwd(), 'migrations/0004_realtime_ingestion.sql'),
+      join(directory, '0004_realtime_ingestion.sql'),
     ),
   ]);
 }
@@ -160,6 +176,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0001_repository_foundation.sql',
         '0002_static_madrid_foundation.sql',
         '0003_static_mapping_integrity.sql',
+        '0004_realtime_ingestion.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -178,6 +195,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0001_repository_foundation.sql',
         '0002_static_madrid_foundation.sql',
         '0003_static_mapping_integrity.sql',
+        '0004_realtime_ingestion.sql',
       ]);
     });
 
@@ -570,6 +588,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0001_repository_foundation.sql',
           '0002_static_madrid_foundation.sql',
           '0003_static_mapping_integrity.sql',
+          '0004_realtime_ingestion.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
@@ -765,6 +784,194 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         });
       } finally {
         await migratedAdmin.end();
+        await pool.end();
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+
+    await t.test('realtime persistence is Madrid-only, previous-aware, changed-only, replaceable, bounded, and replay-idempotent', async () => {
+      const directory = await mkdtemp('/tmp/atodotren-realtime-integration-');
+      const pool = new Pool({ connectionString: workerDatabaseUrl, max: 3 });
+      try {
+        const fixtureNames = ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'shapes.txt'];
+        const entries = await Promise.all(fixtureNames.map(async (name) => {
+          let data = await readFile(join(representativeFixtureDirectory, name), 'utf8');
+          if (name === 'trips.txt' || name === 'stop_times.txt') data = data.replaceAll('10TRIP-A', '10TRIP-NEW');
+          return { name, data };
+        }));
+        const changedPath = join(directory, 'changed-trip.zip');
+        await writeFile(changedPath, createStoredZip(entries));
+        const changedStatic = await importStaticFeed({
+          pool, source: { kind: 'file', path: changedPath }, mapping: fixtureMapping,
+          temporaryDirectory: directory,
+        });
+        assert.equal(changedStatic.result, 'imported', JSON.stringify(changedStatic));
+
+        const oldDescriptor = { tripId: '10TRIP-A', scheduleRelationship: 'SCHEDULED' } as const;
+        const previousIndex = await loadStaticMatchIndex(pool, [oldDescriptor]);
+        assert.equal(matchTrip(previousIndex, oldDescriptor).disposition, 'previous-exact-trip');
+
+        const captured = new Date();
+        const makeFeed = (delay: number, at: Date): DecodedFeed => ({
+          feedKind: 'trip_updates', headerTimestamp: Math.floor(at.getTime() / 1000), entityTotal: 2,
+          invalidEntities: [],
+          entities: [
+            {
+              kind: 'trip_update', entityId: `entity-${delay}`, trip: oldDescriptor,
+              timestamp: Math.floor(at.getTime() / 1000),
+              stopUpdates: [{ stopSequence: 1, stopId: '10STOP-A', arrivalDelay: delay, relationship: 'SCHEDULED' }],
+            },
+            {
+              kind: 'trip_update', entityId: 'national',
+              trip: { tripId: '20TRIP-A', routeId: '20T0001C1', scheduleRelationship: 'SCHEDULED' },
+              stopUpdates: [],
+            },
+          ],
+        });
+        const makePoll = (batch: ReturnType<typeof normalizeFeed>, suffix: string): PollRecord => ({
+          idempotencyKey: checksum([batch.feedKind, batch.capturedAt, suffix]),
+          feedKind: batch.feedKind, startedAt: batch.capturedAt, completedAt: batch.capturedAt,
+          capturedAt: batch.capturedAt, feedHeaderTimestamp: batch.headerTimestamp,
+          httpStatus: 200, resultClass: 'success', responseBytes: 200, entityTotal: 2,
+          matchedMadridCount: batch.matchedMadridCount, nonMadridCount: batch.nonMadridCount,
+          unmatchedCount: batch.unmatchedCount, invalidCount: batch.invalidCount,
+          responseDurationMs: 5, persistenceDurationMs: 0,
+        });
+
+        const firstBatch = normalizeFeed(makeFeed(-30, captured), captured, previousIndex);
+        assert.equal(firstBatch.matchedMadridCount, 1);
+        assert.equal(firstBatch.nonMadridCount, 1);
+        const firstPoll = makePoll(firstBatch, 'first');
+        const first = await persistBatch(pool, firstPoll, firstBatch);
+        assert.equal(first.evidenceInserted, 1);
+        const duplicate = await persistBatch(pool, firstPoll, firstBatch);
+        assert.equal(duplicate.evidenceInserted, 0);
+        assert.equal(duplicate.evidenceRepeated, 1);
+
+        const changedAt = new Date(captured.getTime() + 1_000);
+        const changedBatch = normalizeFeed(makeFeed(60, changedAt), changedAt, previousIndex);
+        const changed = await persistBatch(pool, makePoll(changedBatch, 'changed'), changedBatch);
+        assert.equal(changed.evidenceInserted, 1);
+
+        const vehicleAt = new Date(captured.getTime() + 2_000);
+        const vehicleIndex = await loadStaticMatchIndex(pool, [oldDescriptor]);
+        const vehicleFeed = (latitude: number, at: Date): DecodedFeed => ({
+          feedKind: 'vehicle_positions', headerTimestamp: Math.floor(at.getTime() / 1000),
+          entityTotal: 1, invalidEntities: [], entities: [{
+            kind: 'vehicle_position', entityId: 'vehicle-entity', trip: oldDescriptor,
+            vehicleId: 'vehicle-1', timestamp: Math.floor(at.getTime() / 1000),
+            latitude, longitude: -3.7, currentStopSequence: 1, stopId: '10STOP-A',
+            currentStatus: 'STOPPED_AT',
+          }],
+        });
+        const vehicleBatchOne = normalizeFeed(vehicleFeed(40.4, vehicleAt), vehicleAt, vehicleIndex);
+        await persistBatch(pool, makePoll(vehicleBatchOne, 'vehicle-1'), vehicleBatchOne);
+        const vehicleLater = new Date(vehicleAt.getTime() + 1_000);
+        const vehicleBatchTwo = normalizeFeed(vehicleFeed(40.5, vehicleLater), vehicleLater, vehicleIndex);
+        await persistBatch(pool, makePoll(vehicleBatchTwo, 'vehicle-2'), vehicleBatchTwo);
+
+        const ambiguousAt = new Date(captured.getTime() + 4_000);
+        const ambiguousFeed: DecodedFeed = {
+          feedKind: 'trip_updates', headerTimestamp: Math.floor(ambiguousAt.getTime() / 1000),
+          entityTotal: 1, invalidEntities: [], entities: [{
+            kind: 'trip_update', entityId: 'ambiguous-stop', trip: oldDescriptor,
+            stopUpdates: [{ stopId: '10STOP-C', arrivalDelay: 20, relationship: 'SCHEDULED' }],
+          }],
+        };
+        const ambiguousBatch = normalizeFeed(ambiguousFeed, ambiguousAt, previousIndex);
+        await persistBatch(pool, makePoll(ambiguousBatch, 'ambiguous'), ambiguousBatch);
+
+        const alertAt = new Date(captured.getTime() + 5_000);
+        const alertIndex = await loadStaticMatchIndex(pool, [], ['10T0001C1'], ['10STOP-A']);
+        const alertFeed: DecodedFeed = {
+          feedKind: 'service_alerts', headerTimestamp: Math.floor(alertAt.getTime() / 1000),
+          entityTotal: 1, invalidEntities: [], entities: [{
+            kind: 'alert', entityId: 'alert-1', activePeriods: [], cause: 'TECHNICAL_PROBLEM',
+            effect: 'SIGNIFICANT_DELAYS', headerText: 'Incidencia', descriptionText: 'Demoras',
+            targets: [{ routeId: '10T0001C1', stopId: '10STOP-A' }],
+          }],
+        };
+        const alertBatch = normalizeFeed(alertFeed, alertAt, alertIndex);
+        await persistBatch(pool, makePoll(alertBatch, 'alert'), alertBatch);
+
+        const state = await pool.query<{
+          prediction_count: string; presence_count: string; latest_delay: number;
+          latitude: number; quarantine_count: string; alert_count: string;
+          target_count: string; poll_count: string;
+        }>(`
+          SELECT
+            (SELECT count(*) FROM ingest.stop_evidence WHERE evidence_classification = 'reported_prediction')::text AS prediction_count,
+            (SELECT count(*) FROM ingest.stop_evidence WHERE evidence_classification = 'observed_presence')::text AS presence_count,
+            (SELECT renfe_arrival_delay FROM ingest.stop_evidence WHERE evidence_classification = 'reported_prediction' ORDER BY captured_at DESC LIMIT 1) AS latest_delay,
+            (SELECT latitude FROM ingest.live_vehicle_state WHERE vehicle_id = 'vehicle-1') AS latitude,
+            (SELECT count(*) FROM ingest.quarantined_entity WHERE reason_code = 'matching.stop_ambiguous')::text AS quarantine_count,
+            (SELECT count(*) FROM ingest.service_alert WHERE source_alert_id = 'alert-1')::text AS alert_count,
+            (SELECT count(*) FROM ingest.service_alert_target WHERE source_alert_id = 'alert-1')::text AS target_count,
+            (SELECT count(*) FROM ingest.poll_run)::text AS poll_count
+        `);
+        assert.deepEqual(state.rows[0], {
+          prediction_count: '2', presence_count: '1', latest_delay: 60,
+          latitude: 40.5, quarantine_count: '1', alert_count: '1', target_count: '1', poll_count: '6',
+        });
+
+        const spool = new OutageSpool(join(directory, 'outage-spool.sqlite'), 4 * 1024 * 1024);
+        try {
+          const outageAt = new Date(captured.getTime() + 6_000);
+          const outageBatch = normalizeFeed(makeFeed(90, outageAt), outageAt, previousIndex);
+          const outagePoll = makePoll(outageBatch, 'outage');
+          const unavailablePool = new Pool({
+            connectionString: 'postgresql://nobody:nothing@127.0.0.1:1/unavailable',
+            connectionTimeoutMillis: 100,
+          });
+          await assert.rejects(persistBatch(unavailablePool, outagePoll, outageBatch));
+          await unavailablePool.end();
+          assert.equal(spool.enqueue({ poll: outagePoll, batch: outageBatch }).stored, true);
+          assert.equal(spool.stats().pendingCount, 1);
+          assert.equal((await replaySpool(spool, pool)).replayed, 1);
+          assert.equal(spool.stats().pendingCount, 0);
+          assert.equal(spool.enqueue({ poll: outagePoll, batch: outageBatch }).stored, true);
+          assert.equal((await replaySpool(spool, pool)).replayed, 1);
+          assert.equal(spool.enqueue({ poll: firstPoll, batch: firstBatch }).stored, true);
+          assert.equal((await replaySpool(spool, pool)).replayed, 1);
+          const repeatAfterStaleReplay = await persistBatch(pool, outagePoll, outageBatch);
+          assert.equal(repeatAfterStaleReplay.evidenceInserted, 0);
+          assert.equal(repeatAfterStaleReplay.evidenceRepeated, 1);
+          const replayState = await pool.query<{ predictions: string; polls: string }>(`
+            SELECT
+              (SELECT count(*) FROM ingest.stop_evidence WHERE evidence_classification = 'reported_prediction')::text AS predictions,
+              (SELECT count(*) FROM ingest.poll_run WHERE idempotency_key = $1)::text AS polls
+          `, [outagePoll.idempotencyKey]);
+          assert.deepEqual(replayState.rows[0], { predictions: '3', polls: '1' });
+        } finally {
+          spool.close();
+        }
+
+        const permissions = await pool.query<{ can_delete_evidence: boolean; can_update_vehicle: boolean }>(`
+          SELECT
+            has_table_privilege(current_user, 'ingest.stop_evidence', 'DELETE') AS can_delete_evidence,
+            has_table_privilege(current_user, 'ingest.live_vehicle_state', 'UPDATE') AS can_update_vehicle
+        `);
+        assert.deepEqual(permissions.rows[0], { can_delete_evidence: false, can_update_vehicle: true });
+
+        const alertDeliveries: boolean[] = [];
+        const incident = {
+          pool,
+          transports: [{
+            name: 'fake',
+            send: (message: { readonly recovery: boolean }) => {
+              alertDeliveries.push(message.recovery);
+              return Promise.resolve();
+            },
+          }],
+          incidentKey: 'integration.threshold', title: 'Threshold alert', body: 'test', threshold: 3,
+        };
+        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
+        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
+        assert.equal(await observeIncident({ ...incident, active: true }), 'notified');
+        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
+        assert.equal(await observeIncident({ ...incident, active: false }), 'recovered');
+        assert.deepEqual(alertDeliveries, [false, true]);
+      } finally {
         await pool.end();
         await rm(directory, { recursive: true, force: true });
       }

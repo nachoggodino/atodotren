@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../packages/config" },
     { "path": "../../packages/db" },
+    { "path": "../../packages/gtfs-realtime" },
     { "path": "../../packages/gtfs-static" },
     { "path": "../../packages/observability" }
   ]

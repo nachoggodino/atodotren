@@ -1,4 +1,16 @@
 services:
+  fake-feed:
+    image: atodotren-worker:milestone-2
+    entrypoint: ["node", "apps/worker/dist/fake-feed-server.js"]
+    environment:
+      FAKE_FEED_PORT: 4010
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4010/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+    restart: "no"
+
   static-import:
     command: ["import-static", "--file", "/fixtures/representative-madrid.zip", "--json"]
     environment:
@@ -6,3 +18,21 @@ services:
       GTFS_STATIC_REQUIRED_STATION_IDS: atocha,aeropuerto-t4
     volumes:
       - ./tests/fixtures/gtfs-static/representative.zip:/fixtures/representative-madrid.zip:ro
+
+  worker:
+    command: ["ingest"]
+    environment:
+      NODE_ENV: test
+      GTFS_RT_TRIP_UPDATES_URL: http://fake-feed:4010/trip_updates.pb
+      GTFS_RT_VEHICLE_POSITIONS_URL: http://fake-feed:4010/vehicle_positions.pb
+      GTFS_RT_SERVICE_ALERTS_URL: http://fake-feed:4010/alerts.pb
+      GTFS_RT_REQUEST_TIMEOUT_MS: 1000
+      GTFS_RT_CYCLE_INTERVAL_MS: 500
+      GTFS_RT_ALERT_INTERVAL_MS: 1000
+      DATABASE_CONNECTION_TIMEOUT_MS: 250
+      DATABASE_STATEMENT_TIMEOUT_MS: 2000
+      SQLITE_SPOOL_MAX_BYTES: 8388608
+      INGEST_ALERT_FAILURE_THRESHOLD: 3
+    depends_on:
+      fake-feed:
+        condition: service_healthy

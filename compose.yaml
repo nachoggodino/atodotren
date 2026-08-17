@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
-    image: atodotren-worker:milestone-1
+    image: atodotren-worker:milestone-2
     entrypoint: ["node", "apps/worker/dist/migrate.js"]
     environment:
       NODE_ENV: production
@@ -41,7 +41,7 @@ services:
     restart: "no"
 
   static-import:
-    image: atodotren-worker:milestone-1
+    image: atodotren-worker:milestone-2
     command: ["import-static", "--json"]
     environment:
       NODE_ENV: production
@@ -57,9 +57,18 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  spool-init:
+    image: atodotren-worker:milestone-2
+    user: root
+    entrypoint: ["sh", "-c"]
+    command: ["mkdir -p /spool && chown 1000:1000 /spool"]
+    volumes:
+      - realtime-spool:/spool
+    restart: "no"
+
   worker:
-    image: atodotren-worker:milestone-1
-    command: ["doctor"]
+    image: atodotren-worker:milestone-2
+    command: ["ingest"]
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -67,10 +76,38 @@ services:
       DATABASE_SSL_MODE: disable
       DOCTOR_MAX_CLOCK_SKEW_MS: ${DOCTOR_MAX_CLOCK_SKEW_MS:-5000}
       SHUTDOWN_TIMEOUT_MS: ${SHUTDOWN_TIMEOUT_MS:-10000}
+      GTFS_RT_TRIP_UPDATES_ENABLED: ${GTFS_RT_TRIP_UPDATES_ENABLED:-true}
+      GTFS_RT_TRIP_UPDATES_URL: ${GTFS_RT_TRIP_UPDATES_URL:-https://gtfsrt.renfe.com/trip_updates.pb}
+      GTFS_RT_VEHICLE_POSITIONS_ENABLED: ${GTFS_RT_VEHICLE_POSITIONS_ENABLED:-true}
+      GTFS_RT_VEHICLE_POSITIONS_URL: ${GTFS_RT_VEHICLE_POSITIONS_URL:-https://gtfsrt.renfe.com/vehicle_positions.pb}
+      GTFS_RT_SERVICE_ALERTS_ENABLED: ${GTFS_RT_SERVICE_ALERTS_ENABLED:-true}
+      GTFS_RT_SERVICE_ALERTS_URL: ${GTFS_RT_SERVICE_ALERTS_URL:-https://gtfsrt.renfe.com/alerts.pb}
+      GTFS_RT_REQUEST_TIMEOUT_MS: ${GTFS_RT_REQUEST_TIMEOUT_MS:-10000}
+      GTFS_RT_MAX_RESPONSE_BYTES: ${GTFS_RT_MAX_RESPONSE_BYTES:-33554432}
+      GTFS_RT_CYCLE_INTERVAL_MS: ${GTFS_RT_CYCLE_INTERVAL_MS:-30000}
+      GTFS_RT_ALERT_INTERVAL_MS: ${GTFS_RT_ALERT_INTERVAL_MS:-60000}
+      SQLITE_SPOOL_PATH: /spool/realtime.sqlite
+      SQLITE_SPOOL_MAX_BYTES: ${SQLITE_SPOOL_MAX_BYTES:-1073741824}
+      SQLITE_SPOOL_MAX_BACKLOG_MS: ${SQLITE_SPOOL_MAX_BACKLOG_MS:-172800000}
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TO: ${SMTP_TO:-}
+    volumes:
+      - realtime-spool:/spool
     depends_on:
       static-import:
         condition: service_completed_successfully
-    restart: "no"
+      spool-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   postgres-data:
+  realtime-spool:

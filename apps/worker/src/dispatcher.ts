@@ -9,6 +9,13 @@ import {
   type DatabaseConnection,
 } from '@atodotren/db';
 import {
+  createSmtpTransport,
+  createTelegramTransport,
+  OutageSpool,
+  runIngest,
+  runReplay,
+} from '@atodotren/gtfs-realtime';
+import {
   formatHumanReport,
   importStaticFeed,
   RENFE_STATIC_URL,
@@ -38,11 +45,11 @@ Usage:
   worker <command> [options]
 
 Commands:
-  ingest          Continuous GTFS-Realtime polling (planned for Milestone 2)
+  ingest          Poll and persist Madrid GTFS-Realtime evidence
   import-static   Import and transactionally activate Madrid static GTFS
   aggregate       Recompute dirty aggregate buckets (planned for a later milestone)
   finalize        Finalize eligible service days (planned for a later milestone)
-  replay          Replay the local outage spool (planned for Milestone 2)
+  replay          Replay the local outage spool and exit
   doctor          Validate database contracts and the active Madrid static feed
   report          Emit operational reports (planned for a later milestone)
 
@@ -55,6 +62,19 @@ export const doctorUsage = `Usage:
   worker doctor
 
 Validates configuration, database, exact role and migration state, permissions, and clock.
+`;
+
+export const ingestUsage = `Usage:
+  worker ingest [--once | --cycles <positive-integer>]
+
+Polls enabled GTFS-Realtime feeds without overlapping cycles. Continuous polling
+is the default; --once is equivalent to --cycles 1.
+`;
+
+export const replayUsage = `Usage:
+  worker replay
+
+Replays normalized SQLite spool entries to PostgreSQL in source order and exits.
 `;
 
 export const importStaticUsage = `Usage:
@@ -84,6 +104,8 @@ export interface DispatcherDependencies {
   readonly connect?: typeof createDatabaseConnection;
   readonly doctor?: typeof runDatabaseDoctor;
   readonly importStatic?: typeof importStaticFeed;
+  readonly ingest?: typeof runIngest;
+  readonly replay?: typeof runReplay;
 }
 
 interface ImportStaticCliOptions {
@@ -174,19 +196,111 @@ function isPlannedCommand(value: string): value is PlannedCommand {
   return (plannedCommands as readonly string[]).includes(value);
 }
 
-function parseIngestOptions(arguments_: readonly string[]): void {
+function parseIngestOptions(arguments_: readonly string[]): { readonly cycles?: number; readonly help: boolean } {
+  let parsed;
   try {
-    parseArgs({
+    parsed = parseArgs({
       args: [...arguments_],
       allowPositionals: false,
       strict: true,
       options: {
         once: { type: 'boolean' },
         cycles: { type: 'string' },
+        help: { type: 'boolean', short: 'h' },
       },
     });
   } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : 'Invalid ingest options');
+    throw new UsageError(error instanceof Error ? error.message : 'Invalid ingest options', ingestUsage);
+  }
+  if (parsed.values.help === true) {
+    if (arguments_.length !== 1) throw new UsageError('ingest help does not accept other options', ingestUsage);
+    return { help: true };
+  }
+  if (parsed.values.once === true && parsed.values.cycles !== undefined) {
+    throw new UsageError('--once and --cycles are mutually exclusive', ingestUsage);
+  }
+  if (parsed.values.once === true) return { cycles: 1, help: false };
+  if (parsed.values.cycles === undefined) return { help: false };
+  const cycles = Number(parsed.values.cycles);
+  if (!Number.isSafeInteger(cycles) || cycles <= 0) {
+    throw new UsageError('--cycles must be a positive integer', ingestUsage);
+  }
+  return { cycles, help: false };
+}
+
+export async function runIngestCommand(
+  cliOptions: { readonly cycles?: number },
+  dependencies: DispatcherDependencies = {},
+): Promise<0 | 1> {
+  const environment = dependencies.environment ?? process.env;
+  const config = loadConfig(environment);
+  const stdout = dependencies.stdout ?? process.stdout;
+  const stderr = dependencies.stderr ?? process.stderr;
+  const logger = createLogger({ service: 'atodotren-worker', level: config.logLevel, output: stderr });
+  const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
+  let connection: DatabaseConnection | undefined;
+  let spool: OutageSpool | undefined;
+  try {
+    connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
+    await shutdown.register('database-pool', async () => connection?.close());
+    spool = new OutageSpool(config.spool.path, config.spool.maxBytes, config.spool.maxBacklogMs);
+    await shutdown.register('sqlite-spool', () => spool?.close());
+    const transports = [
+      ...(config.operations.telegram === undefined ? [] : [createTelegramTransport(config.operations.telegram)]),
+      ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
+    ];
+    const report = await (dependencies.ingest ?? runIngest)({
+      pool: connection.pool,
+      spool,
+      config: {
+        endpoints: [
+          { kind: 'trip_updates', ...config.realtime.tripUpdates },
+          { kind: 'vehicle_positions', ...config.realtime.vehiclePositions },
+          { kind: 'service_alerts', ...config.realtime.serviceAlerts },
+        ],
+        requestTimeoutMs: config.realtime.requestTimeoutMs,
+        maxResponseBytes: config.realtime.maxResponseBytes,
+        cycleIntervalMs: config.realtime.cycleIntervalMs,
+        alertIntervalMs: config.realtime.alertIntervalMs,
+        ...(config.operations.heartbeatUrl === undefined ? {} : { heartbeatUrl: config.operations.heartbeatUrl }),
+        failureThreshold: config.operations.failureThreshold,
+        matchingRateMinimum: config.operations.matchingRateMinimum,
+        malformedRateMaximum: config.operations.malformedRateMaximum,
+        spoolWarningRatio: config.operations.spoolWarningRatio,
+        staleAfterMs: config.operations.staleAfterMs,
+      },
+      ...(cliOptions.cycles === undefined ? {} : { cycles: cliOptions.cycles }),
+      signal: shutdown.signal,
+      transports,
+      onEvent: (event, fields) => logger.info(event, 'Realtime feed poll completed', fields),
+    });
+    stdout.write(`${JSON.stringify({ command: 'ingest', ...report, spool: spool.stats() })}\n`);
+    return report.cyclesAttempted > 0 && report.successfulCycles === report.cyclesAttempted ? 0 : 1;
+  } finally {
+    await shutdown.shutdown('command-complete');
+    shutdown.dispose();
+  }
+}
+
+export async function runReplayCommand(dependencies: DispatcherDependencies = {}): Promise<0 | 1> {
+  const environment = dependencies.environment ?? process.env;
+  const config = loadConfig(environment);
+  const stdout = dependencies.stdout ?? process.stdout;
+  const logger = createLogger({ service: 'atodotren-worker', level: config.logLevel, output: dependencies.stderr ?? process.stderr });
+  const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
+  let connection: DatabaseConnection | undefined;
+  let spool: OutageSpool | undefined;
+  try {
+    connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
+    await shutdown.register('database-pool', async () => connection?.close());
+    spool = new OutageSpool(config.spool.path, config.spool.maxBytes, config.spool.maxBacklogMs);
+    await shutdown.register('sqlite-spool', () => spool?.close());
+    const result = await (dependencies.replay ?? runReplay)(connection.pool, spool);
+    stdout.write(`${JSON.stringify({ command: 'replay', ...result, spool: spool.stats() })}\n`);
+    return result.pending === 0 ? 0 : 1;
+  } finally {
+    await shutdown.shutdown('command-complete');
+    shutdown.dispose();
   }
 }
 
@@ -202,9 +316,12 @@ export async function runDoctorCommand(
   });
   const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
   let connection: DatabaseConnection | undefined;
+  let spool: OutageSpool | undefined;
   try {
     connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
     await shutdown.register('database-pool', async () => connection?.close());
+    spool = new OutageSpool(config.spool.path, config.spool.maxBytes, config.spool.maxBacklogMs);
+    await shutdown.register('sqlite-spool', () => spool?.close());
     if (shutdown.signal.aborted) {
       return 0;
     }
@@ -213,6 +330,23 @@ export async function runDoctorCommand(
       migrationsDirectory:
         environment.MIGRATIONS_DIR ?? resolve(dependencies.cwd ?? process.cwd(), 'migrations'),
       maxClockSkewMs: config.doctorMaxClockSkewMs,
+      realtime: {
+        endpoints: [
+          { kind: 'trip_updates', ...config.realtime.tripUpdates },
+          { kind: 'vehicle_positions', ...config.realtime.vehiclePositions },
+          { kind: 'service_alerts', ...config.realtime.serviceAlerts },
+        ],
+        pollFreshnessMs: config.operations.staleAfterMs,
+        spool: {
+          path: config.spool.path,
+          writable: true,
+          sizeBytes: spool.sizeBytes(),
+          maxBytes: config.spool.maxBytes,
+          pendingCount: spool.stats().pendingCount,
+          droppedCount: spool.stats().droppedCount,
+        },
+        heartbeatConfigured: config.operations.heartbeatUrl !== undefined,
+      },
     });
     for (const check of report.checks) {
       const fields = { check: check.name, status: check.status, ...check.details };
@@ -279,7 +413,20 @@ export async function dispatchCli(
     return runImportStaticCommand(parseImportStaticOptions(commandArguments), dependencies);
   }
   if (first === 'ingest') {
-    parseIngestOptions(commandArguments);
+    const options = parseIngestOptions(commandArguments);
+    if (options.help) {
+      stdout.write(ingestUsage);
+      return 0;
+    }
+    return runIngestCommand(options, dependencies);
+  }
+  if (first === 'replay') {
+    if (commandArguments.length === 1 && ['--help', '-h'].includes(commandArguments[0] ?? '')) {
+      stdout.write(replayUsage);
+      return 0;
+    }
+    if (commandArguments.length > 0) throw new UsageError('Command replay does not accept options', replayUsage);
+    return runReplayCommand(dependencies);
   } else if (commandArguments.length > 0) {
     throw new UsageError(`Command ${first} does not accept options in Milestone 1`);
   }

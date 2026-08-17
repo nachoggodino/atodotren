@@ -1,8 +1,10 @@
 # Atodotren
 
-Milestone 1's bounded, provider-neutral Madrid static-GTFS importer is accepted
-against both the deterministic fixture and the current official RENFE feed. It
-does not ingest GTFS-Realtime and does not contain a frontend.
+Milestone 2 adds portable, provider-neutral Madrid GTFS-Realtime ingestion to the
+accepted static foundation. Deterministic and bounded smoke gates cover protobuf
+polling, active/previous matching, changed evidence, live state, alerts, and SQLite
+outage replay. Full acceptance remains pending the documented unattended 48-hour
+run. The project does not yet build canonical journeys, aggregates, an API, or a frontend.
 
 ## Prerequisites
 
@@ -73,17 +75,89 @@ used to infer the network.
 exact migration synchronization, private schemas, the complete least-privilege
 runtime role graph, denied schema creation, database clock skew, and the active
 Madrid static version with complete route/trip/stop mapping coverage. It reports
-version/checksum/freshness/counts and its immediate predecessor. GTFS-Realtime and
-the outage spool remain explicitly deferred to Milestone 2.
+version/checksum/freshness/counts and its immediate predecessor. It also reports
+configured realtime endpoints, the latest successful poll and freshness, SQLite
+spool writability/size/pending/dropped counts, and heartbeat configuration.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 1
-implements `worker doctor` and `worker import-static`. Usage errors exit `2`;
+The CLI contract is visible with `npm run worker -- --help`. Milestone 2
+implements `worker doctor`, `worker import-static`, `worker ingest`, and
+`worker replay`. Usage errors exit `2`;
 configuration, acquisition, validation, database, and runtime failures exit `1`;
 a successful import or explicit HTTP/checksum unchanged result exits `0`. The
-later `ingest`, `aggregate`, `finalize`, `replay`, and `report` commands remain
-unimplemented. Command dispatch is import-safe.
+later `aggregate`, `finalize`, and `report` commands remain unimplemented. Command
+dispatch is import-safe.
+
+## Realtime ingestion
+
+Production defaults to RENFE's protobuf feeds at `trip_updates.pb`,
+`vehicle_positions.pb`, and `alerts.pb`. Trip updates and vehicle positions run
+in the same non-overlapping 30-second cycle; alerts run every 60 seconds. Each
+endpoint has a validated URL and independent enable flag in `example.env`.
+
+Run continuously, once, or for a bounded number of cycles:
+
+```sh
+npm run worker -- ingest
+npm run worker -- ingest --once
+npm run worker -- ingest --cycles 2
+```
+
+Requests time out after 10 seconds, responses are capped at 32 MiB, and one
+transient network/timeout/5xx failure is retried after 3–5 seconds of jitter.
+4xx responses are not retried. Feed-generation, vehicle-observation, and local
+capture timestamps remain distinct. `DIFFERENTIAL` feeds fail explicitly rather
+than being treated as snapshots.
+
+Only uniquely matched Madrid entities are persisted. Matching tries the active
+static version, then its immediate predecessor; route/start-time fallback must
+produce exactly one trip. `stop_sequence` takes precedence over `stop_id` for
+repeated stops. Arrival time and signed arrival delay are retained independently;
+departure-only data and propagated predictions are not historical evidence.
+Cancellation, skipped-stop, and first STOPPED_AT presence evidence use distinct
+classifications. Identical predictions and repeated stopped presence update no
+append-only row, while live vehicle positions replace current state.
+
+Inspect recent poll quality:
+
+```sql
+SELECT feed_kind, captured_at, feed_header_timestamp, result_class,
+       matched_madrid_count, non_madrid_count, unmatched_count, invalid_count,
+       evidence_changed_count, evidence_repeated_count, response_bytes,
+       response_duration_ms, persistence_duration_ms
+FROM ingest.poll_run
+ORDER BY captured_at DESC
+LIMIT 20;
+```
+
+Detailed poll and quarantine rows target 30 days, Madrid-filtered compressed
+payloads 48 hours, and changed stop evidence seven days. Migration 0004 creates
+daily partitions through a bounded stock-PostgreSQL helper; the later generalized
+retention/finalization framework is intentionally not part of this milestone.
+
+## SQLite spool, heartbeat, and alerts
+
+The Node 24 built-in SQLite queue stores normalized pending writes, never national
+protobuf bodies. It is FIFO and replay-safe, defaults to a 1 GiB hard limit, is
+capped at 10 GiB, and rejects logical backlog older than 48 hours. Under pressure
+it drops replaceable vehicle positions first and records exact reasons/counts.
+Compose mounts it at `/spool/realtime.sqlite` on the `realtime-spool` volume.
+
+Inspect and explicitly replay it:
+
+```sh
+npm run worker -- doctor
+npm run worker -- replay
+docker compose --env-file .env run --rm --no-deps worker replay
+```
+
+`HEARTBEAT_URL` is optional and is called only after a successful fetch plus
+durable PostgreSQL or spool persistence. Telegram (`TELEGRAM_BOT_TOKEN` plus
+`TELEGRAM_CHAT_ID`) and SMTP (`SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`, with optional
+credentials) are independent. Incidents are deduplicated and normally notify
+after three consecutive observations, with recovery notices. Ordinary tests use
+fake transports and never send messages.
 
 ## Static Madrid import
 
@@ -244,12 +318,15 @@ npm run docker:build:multiarch
 
 The archive is written to the ignored file `atodotren-worker-multiarch.tar`. If the local default Buildx driver cannot export multiple platforms, create a container-backed builder first with `docker buildx create --driver docker-container --use`.
 
-TypeScript compilation runs on the build platform, while `npm ci --omit=dev` runs separately on each target platform. Native production dependencies are therefore built for `amd64` or `arm64`, including the future SQLite spool dependency.
+TypeScript compilation runs on the build platform, while `npm ci --omit=dev` runs
+separately on each target platform. The spool uses Node 24's built-in SQLite, so
+Milestone 2 introduces no third-party native addon; both architectures still run
+their own production dependency installation.
 
-Start the ordinary Milestone 1 Compose sequence. PostgreSQL becomes healthy,
+Start the ordinary Milestone 2 Compose sequence. PostgreSQL becomes healthy,
 migrations complete, `static-import` uses its configured URL (or the default
-official RENFE source), and the one-shot worker doctor runs only after a real
-active version exists:
+official RENFE source), the bounded spool volume is initialized, and continuous
+ingestion starts only after a real active version exists:
 
 ```sh
 docker compose --env-file .env up --build worker
@@ -272,14 +349,56 @@ npm run test:compose -- .env
 ```
 
 The smoke script adds the test-only `compose.smoke.yaml` override. It bind-mounts
-the representative ZIP read-only and replaces only the static-import command and
-canaries; the production image and ordinary `compose.yaml` contain no fixture.
-Its first path uses the declared `docker compose up worker` dependency chain:
-healthy PostgreSQL, successful migration, fixture import, then worker doctor.
+the representative ZIP read-only and starts deterministic local protobuf feeds.
+It proves the declared startup chain, bounded polling, changed-evidence
+deduplication, worker restart, PostgreSQL interruption, SQLite queuing, recovery,
+ordered replay, no duplicate evidence, no national filtered payload, and doctor.
 It overrides `POSTGRES_PORT` with Docker's `0` (ephemeral) host publication, so it
 never claims the primary stack's configured host port. Its project name, containers,
 network, and volume are isolated and removed on success, failure, `SIGINT`, or
 `SIGTERM`; the primary stack is neither stopped nor mutated.
+
+Run the opt-in bounded real RENFE smoke (one static download and two realtime
+cycles by default) only when external access is intended:
+
+```sh
+ATODOTREN_REAL_REALTIME_SMOKE=1 npm run test:real-realtime
+```
+
+It uses disposable local PostgreSQL and a temporary spool, prints per-feed bytes,
+timings, match classifications, evidence/live/alert counts, verifies empty replay
+and Madrid-only filtered payloads, and cleans all transient data. Ordinary CI does
+not contact RENFE.
+
+The bounded run on 2026-08-17 verified that all three official defaults were live
+GTFS-Realtime 2.0 `FULL_DATASET` protobuf feeds. Two cycles made six successful
+requests totaling 168,792 bytes: 48 Madrid matches, 136 clear non-Madrid entities,
+682 unmatched entities, and zero malformed entities. They produced 12 changed
+evidence rows, suppressed 12 identical repeats, and left six current vehicles and
+12 current alerts. The compressed retained Madrid subset was 4,724 bytes; no
+national protobuf or clear national entity was stored. The SQLite spool remained
+empty and an explicit replay inserted nothing. This short observation does not
+establish feed completeness or satisfy the unattended gate.
+
+Many national trip and vehicle descriptors in the observed feed omitted
+`route_id`. They are therefore counted as unmatched and discarded, not guessed as
+non-Madrid. The default matching-collapse floor is conservatively 2% for this
+national-feed denominator and remains configurable with
+`INGEST_MATCHING_RATE_MINIMUM`; the 48-hour run must establish a useful operating
+baseline before tightening it.
+
+The unattended acceptance gate is intentionally separate from implementation
+verification. Run it later with:
+
+```sh
+ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env
+```
+
+The script samples container CPU/memory and spool peak, then reports poll coverage,
+matching/fallback/ambiguous/malformed rates, changed versus repeated evidence,
+relation/index sizes, endpoint failures, incident/recovery state, and heartbeat
+state. It leaves the stack running for inspection. A short smoke is not evidence
+that this 48-hour gate passed.
 
 ## Diagnosing failures
 
@@ -289,6 +408,8 @@ network, and volume are isolated and removed on success, failure, `SIGINT`, or
 - A migration checksum mismatch: an already-applied migration was edited. Restore it and add a new ordered SQL migration instead.
 - `doctor` reports permissions: confirm `DATABASE_URL` uses `atodotren_worker`, not the migration/admin credential, and rerun migrations with `MIGRATION_DATABASE_URL` using `atodotren_migrator`.
 - `doctor` reports no active static version: inspect recent rejected metadata, correct the mapping/source problem, then run `worker import-static` with a changed/fixed ZIP. A rejected checksum is not silently retried as a new version.
+- `feeds.realtime` is stale: inspect `ingest.poll_run`, endpoint enable/URL values, and worker logs. A configured endpoint can be disabled independently if RENFE withdraws it.
+- Spool growth or replay failure: run `worker doctor`, preserve the spool volume, restore PostgreSQL, then run `worker replay`; do not delete the SQLite file while entries remain.
 - `archive.*`, `csv.*`, `mapping.*`, or `canary.*`: use the bounded error code and counts in the import report; raw national records are intentionally unavailable.
 - A migration reports missing membership: the login must be granted `atodotren_migration_admin` with `ADMIN FALSE, INHERIT FALSE, SET TRUE`. Never grant that role to the runtime login.
 - Docker is unavailable in WSL: enable the distribution under Docker Desktop's WSL integration settings. Container tests fail rather than report a skip.
@@ -327,7 +448,9 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 ## Foundation decisions
 
 - npm workspaces were selected because npm ships with the pinned Node runtime and provides a reproducible `npm ci` lockfile workflow.
-- Only packages needed through Milestone 1 exist: configuration, observability, database, static GTFS, and worker. The web app and realtime/domain packages are created when their milestone begins.
+- Packages through Milestone 2 exist: configuration, observability, database,
+  static GTFS, GTFS-Realtime, and worker. The web app and later analytics/domain
+  packages remain deferred to their milestones.
 - SQL migrations are immutable, checksummed, transaction-scoped, and serialized with a PostgreSQL advisory lock. Kysely is reserved for typed application queries and raw SQL checks.
 - All group roles are project-prefixed and `NOLOGIN`. Local Compose creates `atodotren_worker` with only inherited, non-settable `atodotren_ingest_writer` membership and `atodotren_migrator` with only non-inherited, set-only `atodotren_migration_admin` membership. Group roles cannot be members of any other role, and both runner and doctor reject direct or transitive graph drift. Future migrations grant worker and monitor access per object instead of inheriting blanket write/read defaults.
 - `npm run build` and test compilation remove their generated output first; `npm run clean` removes application, package, script, and test output so deleted sources cannot leave executable artifacts behind.

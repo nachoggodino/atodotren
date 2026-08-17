@@ -18,7 +18,7 @@ export interface DoctorCheck {
 
 export interface DoctorReport {
   readonly ok: true;
-  readonly scope: 'milestone-1';
+  readonly scope: 'milestone-2';
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -27,6 +27,19 @@ export interface DoctorOptions {
   readonly migrationsDirectory: string;
   readonly maxClockSkewMs: number;
   readonly now?: () => Date;
+  readonly realtime?: {
+    readonly endpoints: readonly { readonly kind: string; readonly enabled: boolean; readonly url: string }[];
+    readonly pollFreshnessMs: number;
+    readonly spool: {
+      readonly path: string;
+      readonly writable: boolean;
+      readonly sizeBytes: number;
+      readonly maxBytes: number;
+      readonly pendingCount: number;
+      readonly droppedCount: number;
+    };
+    readonly heartbeatConfigured: boolean;
+  };
 }
 
 interface ConnectionRow {
@@ -257,16 +270,40 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
       mappingCoverage: { routes, trips, stops },
     },
   });
+  const latestPoll = await options.connection.pool.query<{
+    captured_at: Date; feed_kind: string; feed_header_timestamp: string | null;
+  }>(`
+    SELECT captured_at, feed_kind, feed_header_timestamp::text
+    FROM ingest.poll_run WHERE result_class = 'success'
+    ORDER BY captured_at DESC LIMIT 1
+  `);
+  const latest = latestPoll.rows[0];
+  const ageMs = latest === undefined ? null : Math.max(0, now().getTime() - latest.captured_at.getTime());
   checks.push({
     name: 'feeds.realtime',
-    status: 'deferred',
-    details: { reason: 'GTFS-Realtime ingestion begins in Milestone 2' },
+    status: latest !== undefined && ageMs !== null && ageMs <= (options.realtime?.pollFreshnessMs ?? 120_000) ? 'pass' : 'deferred',
+    details: {
+      endpoints: options.realtime?.endpoints.map((endpoint) => ({
+        kind: endpoint.kind, enabled: endpoint.enabled, host: new URL(endpoint.url).hostname,
+      })) ?? [],
+      latestSuccessfulPollAt: latest?.captured_at ?? null,
+      latestFeedKind: latest?.feed_kind ?? null,
+      latestFeedHeaderTimestamp: latest?.feed_header_timestamp ?? null,
+      ageMs,
+      freshnessLimitMs: options.realtime?.pollFreshnessMs ?? 120_000,
+      fresh: ageMs !== null && ageMs <= (options.realtime?.pollFreshnessMs ?? 120_000),
+    },
   });
   checks.push({
     name: 'spool.storage',
-    status: 'deferred',
-    details: { reason: 'The bounded outage spool begins in Milestone 2' },
+    status: options.realtime?.spool.writable === true ? 'pass' : 'deferred',
+    details: options.realtime?.spool ?? { reason: 'Spool was not inspected' },
+  });
+  checks.push({
+    name: 'heartbeat.configuration',
+    status: options.realtime?.heartbeatConfigured === true ? 'pass' : 'deferred',
+    details: { configured: options.realtime?.heartbeatConfigured ?? false },
   });
 
-  return { ok: true, scope: 'milestone-1', checks };
+  return { ok: true, scope: 'milestone-2', checks };
 }

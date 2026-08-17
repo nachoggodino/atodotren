@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/gtfs-realtime/package.json packages/gtfs-realtime/package.json
 COPY packages/gtfs-static/package.json packages/gtfs-static/package.json
 COPY packages/observability/package.json packages/observability/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci
@@ -16,6 +17,7 @@ COPY scripts/clean-generated.ts scripts/clean-generated.ts
 COPY apps/worker apps/worker
 COPY packages/config packages/config
 COPY packages/db packages/db
+COPY packages/gtfs-realtime packages/gtfs-realtime
 COPY packages/gtfs-static packages/gtfs-static
 COPY packages/observability packages/observability
 RUN npm run build
@@ -30,6 +32,7 @@ COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/gtfs-realtime/package.json packages/gtfs-realtime/package.json
 COPY packages/gtfs-static/package.json packages/gtfs-static/package.json
 COPY packages/observability/package.json packages/observability/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
@@ -47,6 +50,8 @@ COPY --from=build --chown=node:node /app/packages/config/package.json ./packages
 COPY --from=build --chown=node:node /app/packages/config/dist ./packages/config/dist
 COPY --from=build --chown=node:node /app/packages/db/package.json ./packages/db/package.json
 COPY --from=build --chown=node:node /app/packages/db/dist ./packages/db/dist
+COPY --from=build --chown=node:node /app/packages/gtfs-realtime/package.json ./packages/gtfs-realtime/package.json
+COPY --from=build --chown=node:node /app/packages/gtfs-realtime/dist ./packages/gtfs-realtime/dist
 COPY --from=build --chown=node:node /app/packages/gtfs-static/package.json ./packages/gtfs-static/package.json
 COPY --from=build --chown=node:node /app/packages/gtfs-static/dist ./packages/gtfs-static/dist
 COPY --from=build --chown=node:node /app/packages/observability/package.json ./packages/observability/package.json

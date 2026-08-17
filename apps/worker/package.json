@@ -18,6 +18,7 @@
   "dependencies": {
     "@atodotren/config": "0.0.0",
     "@atodotren/db": "0.0.0",
+    "@atodotren/gtfs-realtime": "0.0.0",
     "@atodotren/gtfs-static": "0.0.0",
     "@atodotren/observability": "0.0.0"
   }

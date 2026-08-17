@@ -1,4 +1,4 @@
-name: Milestone 1 CI
+name: Milestone 2 CI
 
 on:
   pull_request:
@@ -34,7 +34,7 @@ jobs:
           node-version: 24.15.0
           cache: npm
       - run: npm ci
-      - name: Migration, static fixture import, activation, role security, and doctor contract
+      - name: Migration, static/realtime persistence, replay, role security, and doctor contract
         run: ./scripts/postgres-contract.sh "${{ matrix.postgres-image }}"
 
   container-build:

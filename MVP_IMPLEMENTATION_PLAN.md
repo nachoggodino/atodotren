@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: Milestones 0 and 1 accepted; Milestone 2 is next
+Status: Milestones 0 and 1 accepted; Milestone 2 implementation complete, unattended 48-hour acceptance pending
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -678,6 +678,16 @@ opt-in live import, Madrid-only audit, transactional activation, and doctor resu
 
 Exit: fake-feed tests pass deterministically; the opt-in real-feed smoke test can download/import Madrid static data and persist a small bounded number of real poll cycles into disposable local PostgreSQL; the worker then runs unattended for 48 hours, survives database/network interruption, and replays without duplicate canonical facts.
 
+Implementation verification on 2026-08-17 passed deterministic unit tests,
+PostgreSQL 16.14/18.4 contracts, the Compose database-outage/replay smoke, and a
+bounded two-cycle live run against all three RENFE protobuf endpoints. The live
+run durably stored six compact polls, matched 48 Madrid entities, classified 136
+as clear non-Madrid and 682 as unmatched, found zero malformed entities, inserted
+12 changed evidence rows, and suppressed 12 identical repeats. No national payload
+was retained and explicit replay was empty. The milestone is not fully accepted
+until `ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env` completes and
+its operational report is reviewed.
+
 ### Milestone 3 — Canonical journeys
 
 - journey and journey-stop daily partitions
@@ -835,10 +845,9 @@ A failure at an earlier layer blocks the later deployment layer.
 
 ## 24. Immediate next actions
 
-1. Begin Milestone 2 with GTFS-Realtime protobuf decoding and bounded fake-feed poll cycles.
-2. Match realtime entities against the active static version, then its immediate previous version, without guessing ambiguous journeys.
-3. Add compact poll/evidence persistence, Madrid-only filtered payloads, live state, and quarantine.
-4. Add the bounded SQLite outage spool, ordered replay, heartbeat, and operational alerts.
-5. Run the opt-in realtime smoke and 48-hour pilot before canonical journey work or the public frontend.
+1. Run and review the unattended 48-hour Milestone 2 acceptance command before canonical journey work or the public frontend.
+2. Inspect matching, fallback, ambiguity, malformed, evidence-change, resource, endpoint-outage, and spool metrics from that run.
+3. Exercise configured heartbeat and notification delivery/recovery in the intended deployment environment.
+4. Begin Milestone 3 only after the operational gate is accepted or its findings are resolved.
 
 This ordering deliberately makes the future interface a consumer of measured, understood data rather than a design built around assumptions about Renfe's feed.
