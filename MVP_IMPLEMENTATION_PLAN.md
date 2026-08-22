@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: Milestones 0, 1, and 2 accepted; Milestone 2.1 notification-correctness follow-up complete
+Status: Milestones 0, 1, 2, and 3 accepted; Milestone 2.1 notification-correctness follow-up complete
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -715,6 +715,40 @@ checks; it never mutates incident state.
 
 Exit: sampled journeys can be reconstructed and every stop has a defensible status/evidence explanation.
 
+Implemented and verified on 2026-08-22. Migration `0005` adds daily
+`core.journey` and `core.journey_stop` partitions, the shared Madrid service-time
+conversion boundary, bounded partition creation, closure indexes, immutable first
+presence/closed-row guards, repair lineage, least-privilege runtime writes, and a
+monitor-only canonical health view. The worker exposes bounded `canonicalize`,
+`close-journeys`, and `repair-journeys` JSON commands using short per-journey
+transactions and advisory locks. Continuous ingestion invokes bounded canonicalize
+and close maintenance after every poll cycle, before any future retention deletion.
+
+The representative PostgreSQL fixture built two journeys and all 18 scheduled
+stops. Its four-stop previous-feed journey initially explained one observed stop,
+one skipped stop, and two pending stops; arrival-time selection retained a derived
+−60 seconds beside Renfe's provided −30 seconds and a +30-second discrepancy.
+After its 25:16 service-day end plus two-hour grace, the pending stops became two
+`missing_evidence` rows while observed/skipped evidence remained unchanged. Its
+explicit `canonical-v2` repair version 1 kept it closed with the same complete
+status explanation. In the sparse 14-stop active-feed cancellation fixture, stops
+1 and 10 were observed, stops 2–9 became missing evidence, and stops 11–14 became
+canceled; no finalized stop remained pending. Concurrent replay produced one
+natural-key journey per instance, and direct closed-row, finalized-pending, or
+first-presence mutation was rejected. Later provided/exact evidence upgraded an
+open journey created from inferred/fallback evidence. Repair discovers closed
+journeys directly, advances across repeated bounded calls, and fails explicitly
+when their retained evidence is unavailable without starving repairable journeys.
+
+Unit and PostgreSQL tests cover ordinary, >24:00, midnight-crossing, spring-gap,
+fall-fold, and descriptor-date conversion; negative delays; reported-time
+precedence and provided-delay fallback; discrepancy, stale/duplicate, skipped,
+presence, full/partial cancellation, missing-evidence closure, repair, partitions,
+permissions, and active/previous lineage. PostgreSQL 16.14 and 18.4 contracts,
+the host-architecture image, amd64/arm64 OCI build, and isolated Compose outage/
+replay/doctor smoke passed. The live RENFE check and 48-hour acceptance were not
+rerun; no Milestone 3 behavior depends on new live-feed claims.
+
 ### Milestone 4 — Aggregation and retention
 
 - dirty-bucket tracking and idempotent batch recomputation
@@ -869,7 +903,7 @@ A failure at an earlier layer blocks the later deployment layer.
 
 ## 24. Immediate next actions
 
-1. Begin Milestone 3 from the accepted realtime evidence foundation.
+1. Begin Milestone 4 aggregation and retention from the accepted canonical journey foundation.
 2. Preserve the measured Milestone 2 thresholds until the longer pilot supplies evidence for a change.
 3. Exercise configured heartbeat and notification delivery/recovery in the intended deployment environment when explicitly intended.
 

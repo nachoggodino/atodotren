@@ -98,18 +98,36 @@ void test('ingest and replay dispatch bounded modes with predictable reports', a
     db: {} as never,
     close: () => Promise.resolve(),
   });
-  const ingest = await invoke(['ingest', '--cycles', '2'], environment, {
+  let maintenanceRuns = 0;
+  const ingest = await invoke(['ingest', '--cycles', '2', '--canonical-maintenance'], environment, {
     connect,
-    ingest: (options) => Promise.resolve({
-      cyclesAttempted: options.cycles ?? 0, successfulCycles: 2,
-      postgresPersistedFeeds: 4, spooledFeeds: 0, replayedFeeds: 0,
-      evidenceInserted: 2, evidenceRepeated: 1, matchedMadrid: 4,
-      nonMadrid: 5, unmatched: 0, invalid: 0, responseBytes: 100,
-      stoppedBySignal: false,
-    }),
+    ingest: async (options) => {
+      for (let cycle = 0; cycle < (options.cycles ?? 0); cycle += 1) {
+        await options.afterCycle?.();
+      }
+      return {
+        cyclesAttempted: options.cycles ?? 0, successfulCycles: 2,
+        postgresPersistedFeeds: 4, spooledFeeds: 0, replayedFeeds: 0,
+        evidenceInserted: 2, evidenceRepeated: 1, matchedMadrid: 4,
+        nonMadrid: 5, unmatched: 0, invalid: 0, responseBytes: 100,
+        stoppedBySignal: false,
+      };
+    },
+    canonicalize: () => {
+      maintenanceRuns += 1;
+      return Promise.resolve({
+        errors: {}, journeysCreated: 1, journeysUpdated: 0, journeysClosed: 0,
+        journeyStopsMaterialized: 4,
+      } as never);
+    },
+    closeJourneys: () => {
+      maintenanceRuns += 1;
+      return Promise.resolve({ errors: {}, journeysClosed: 1 } as never);
+    },
   });
   assert.equal(ingest.code, 0);
   assert.equal((JSON.parse(ingest.stdout) as { cyclesAttempted: number }).cyclesAttempted, 2);
+  assert.equal(maintenanceRuns, 4);
   const replay = await invoke(['replay'], environment, {
     connect,
     replay: () => Promise.resolve({ replayed: 3, pending: 0 }),
@@ -163,4 +181,52 @@ void test('import-static exposes strict options and preserves JSON report exit s
   });
   assert.equal(rejected.code, 1);
   assert.equal((JSON.parse(rejected.stdout) as { error: { code: string } }).error.code, 'fixture.invalid');
+});
+
+void test('canonical commands enforce bounded modes and emit JSON reports', async () => {
+  assert.equal((await invoke(['canonicalize', '--help'])).code, 0);
+  assert.equal((await invoke(['canonicalize', '--rebuild'])).code, 2);
+  assert.equal((await invoke(['close-journeys', '--grace-seconds', '86401'])).code, 2);
+  assert.equal((await invoke(['repair-journeys', '--service-date', '2026-08-22'])).code, 2);
+  const environment = { DATABASE_URL: 'postgresql://worker:password@localhost/atodotren' };
+  let closed = false;
+  const connect: NonNullable<DispatcherDependencies['connect']> = () => Promise.resolve({
+    pool: {} as never, db: {} as never, close: () => { closed = true; return Promise.resolve(); },
+  });
+  const baseReport = {
+    journeysCreated: 1, journeysUpdated: 0, journeysClosed: 0, journeyStopsMaterialized: 4,
+    statuses: { pending: 2, reported_only: 0, observed_presence: 1, skipped: 1, canceled: 0, missing_evidence: 0 },
+    discrepancyCount: 1, ignoredStaleEvidence: 0, ignoredDuplicateEvidence: 0,
+    unresolvedInput: 0, ambiguousInput: 0, algorithmVersion: 'canonical-v1', repairVersion: 0,
+    durationMs: 2, errors: {},
+  } as const;
+  const canonicalized = await invoke([
+    'canonicalize', '--service-date', '2026-08-22', '--rebuild', '--limit', '5',
+  ], environment, {
+    connect,
+    canonicalize: (options) => {
+      assert.equal(options.serviceDate, '2026-08-22');
+      assert.equal(options.limit, 5);
+      assert.equal(options.rebuild, true);
+      return Promise.resolve({ command: 'canonicalize', ...baseReport });
+    },
+  });
+  assert.equal(canonicalized.code, 0);
+  assert.equal((JSON.parse(canonicalized.stdout) as { journeyStopsMaterialized: number }).journeyStopsMaterialized, 4);
+  assert.equal(closed, true);
+
+  const unavailableRepair = await invoke([
+    'repair-journeys', '--service-date', '2026-08-22', '--algorithm-version', 'canonical-v2',
+    '--repair-version', '1', '--reason', 'expired-evidence',
+  ], environment, {
+    connect,
+    canonicalize: () => Promise.resolve({
+      command: 'repair-journeys', ...baseReport, algorithmVersion: 'canonical-v2', repairVersion: 1,
+      errors: { repair_evidence_unavailable: 1 },
+    }),
+  });
+  assert.equal(unavailableRepair.code, 1);
+  assert.deepEqual((JSON.parse(unavailableRepair.stdout) as { errors: Record<string, number> }).errors, {
+    repair_evidence_unavailable: 1,
+  });
 });

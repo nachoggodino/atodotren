@@ -16,6 +16,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@atodotren/canonical-journeys": "0.0.0",
     "@atodotren/config": "0.0.0",
     "@atodotren/db": "0.0.0",
     "@atodotren/gtfs-realtime": "0.0.0",

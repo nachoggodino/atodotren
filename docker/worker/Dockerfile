@@ -4,6 +4,7 @@ FROM --platform=$BUILDPLATFORM node:24.15.0-bookworm-slim AS build-dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
+COPY packages/canonical-journeys/package.json packages/canonical-journeys/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/gtfs-realtime/package.json packages/gtfs-realtime/package.json
@@ -15,6 +16,7 @@ FROM build-dependencies AS build
 COPY tsconfig.json tsconfig.base.json ./
 COPY scripts/clean-generated.ts scripts/clean-generated.ts
 COPY apps/worker apps/worker
+COPY packages/canonical-journeys packages/canonical-journeys
 COPY packages/config packages/config
 COPY packages/db packages/db
 COPY packages/gtfs-realtime packages/gtfs-realtime
@@ -30,6 +32,7 @@ FROM node:24.15.0-bookworm-slim AS production-dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/worker/package.json apps/worker/package.json
+COPY packages/canonical-journeys/package.json packages/canonical-journeys/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/gtfs-realtime/package.json packages/gtfs-realtime/package.json
@@ -46,6 +49,8 @@ COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_m
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=build --chown=node:node /app/apps/worker/dist ./apps/worker/dist
+COPY --from=build --chown=node:node /app/packages/canonical-journeys/package.json ./packages/canonical-journeys/package.json
+COPY --from=build --chown=node:node /app/packages/canonical-journeys/dist ./packages/canonical-journeys/dist
 COPY --from=build --chown=node:node /app/packages/config/package.json ./packages/config/package.json
 COPY --from=build --chown=node:node /app/packages/config/dist ./packages/config/dist
 COPY --from=build --chown=node:node /app/packages/db/package.json ./packages/db/package.json

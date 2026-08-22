@@ -4,6 +4,7 @@
     { "path": "./packages/config" },
     { "path": "./packages/observability" },
     { "path": "./packages/db" },
+    { "path": "./packages/canonical-journeys" },
     { "path": "./packages/gtfs-static" },
     { "path": "./packages/gtfs-realtime" },
     { "path": "./apps/worker" }

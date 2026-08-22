@@ -1,6 +1,6 @@
 services:
   fake-feed:
-    image: atodotren-worker:milestone-2
+    image: atodotren-worker:milestone-3
     entrypoint: ["node", "apps/worker/dist/fake-feed-server.js"]
     environment:
       FAKE_FEED_PORT: 4010
@@ -20,7 +20,7 @@ services:
       - ./tests/fixtures/gtfs-static/representative.zip:/fixtures/representative-madrid.zip:ro
 
   worker:
-    command: ["ingest"]
+    command: ["ingest", "--canonical-maintenance"]
     environment:
       NODE_ENV: test
       GTFS_RT_TRIP_UPDATES_URL: http://fake-feed:4010/trip_updates.pb
