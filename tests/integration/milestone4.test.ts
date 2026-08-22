@@ -255,8 +255,8 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
           analytics.histogram_30s(ARRAY[-301,-300,120]),
           analytics.histogram_30s(ARRAY[121,1800,2000])
         ) = analytics.histogram_30s(ARRAY[-301,-300,120,121,1800,2000]) AS associative,
-        analytics.histogram_30s(ARRAY[-301,-300,120,121,1800,2000])[1] AS underflow,
-        analytics.histogram_30s(ARRAY[-301,-300,120,121,1800,2000])[72] AS overflow
+        (analytics.histogram_30s(ARRAY[-301,-300,120,121,1800,2000]))[1] AS underflow,
+        (analytics.histogram_30s(ARRAY[-301,-300,120,121,1800,2000]))[72] AS overflow
     `);
     assert.deepEqual(histogramLaw.rows[0], { associative: true, underflow: 1, overflow: 2 });
 

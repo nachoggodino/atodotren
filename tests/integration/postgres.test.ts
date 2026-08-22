@@ -1101,8 +1101,15 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           arrivalTime: arrivalEpoch, arrivalDelay: -30, startDateSource: 'inferred',
           matchingMethod: 'previous-unique-fallback', matchingVersion: 'integration-v1',
         });
-        const weak = await canonicalizeJourneys({ pool, serviceDate, limit: 10 });
-        assert.deepEqual(weak.errors, {}, JSON.stringify(weak));
+        const weakErrors: unknown[] = [];
+        const weak = await canonicalizeJourneys({
+          pool, serviceDate, limit: 10, onError: (error) => weakErrors.push(error),
+        });
+        assert.deepEqual(
+          weak.errors,
+          {},
+          `${JSON.stringify(weak)} ${weakErrors.map((error) => error instanceof Error ? `${error.name}:${error.message}` : String(error)).join('; ')}`,
+        );
         const weakProvenance = await pool.query<{
           start_date_source: string; matching_method: string; matching_version: string; matching_confidence: number;
         }>(`
