@@ -2005,7 +2005,18 @@ BEGIN
   dropped_rows := ledger.source_row_count;
 
   IF p_retention_family = 'canonical_detail' THEN
+    -- The stop partition must leave the referencing side first. Dropping a
+    -- referenced journey partition directly would otherwise require CASCADE
+    -- because PostgreSQL tracks partition-aware foreign-key dependencies.
+    EXECUTE format(
+      'ALTER TABLE core.journey_stop DETACH PARTITION core.%I',
+      'journey_stop_' || to_char(p_target_date, 'YYYYMMDD')
+    );
     EXECUTE format('DROP TABLE core.%I', 'journey_stop_' || to_char(p_target_date, 'YYYYMMDD'));
+    EXECUTE format(
+      'ALTER TABLE core.journey DETACH PARTITION core.%I',
+      'journey_' || to_char(p_target_date, 'YYYYMMDD')
+    );
     EXECUTE format('DROP TABLE core.%I', 'journey_' || to_char(p_target_date, 'YYYYMMDD'));
   ELSE
     partition_name := p_retention_family || '_' || to_char(p_target_date, 'YYYYMMDD');
