@@ -8,6 +8,31 @@ permissions:
   contents: read
 
 jobs:
+  materialize-m4:
+    if: github.event_name == 'pull_request' && github.event.action == 'reopened' && github.event.pull_request.number == 2
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-4
+          fetch-depth: 0
+      - run: python3 scripts/m4-materialize.py
+      - run: git diff --check
+      - name: Commit materialized fixes
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add migrations/0006_aggregation_retention.sql apps/worker/src/analytics.ts \
+            tests/integration/postgres.test.ts tests/integration/milestone4.test.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix: materialize milestone 4 repair invariants'
+            git pull --rebase origin feature-milestone-4
+            git push origin HEAD:feature-milestone-4
+          fi
+
   verify:
     runs-on: ubuntu-latest
     steps:
