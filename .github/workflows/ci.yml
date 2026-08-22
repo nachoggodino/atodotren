@@ -1,4 +1,4 @@
-name: Milestone 2 CI
+name: Milestone 4 CI
 
 on:
   pull_request:
@@ -8,6 +8,56 @@ permissions:
   contents: read
 
 jobs:
+  m4-materialize-tests:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature-milestone-4'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-4
+          fetch-depth: 0
+      - name: Include migration 0006 in inventory contracts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/integration/postgres.test.ts')
+          text = path.read_text()
+          copy_0005 = """    cp(
+      resolve(process.cwd(), 'migrations/0005_canonical_journeys.sql'),
+      join(directory, '0005_canonical_journeys.sql'),
+    ),
+"""
+          copy_0006 = """    cp(
+      resolve(process.cwd(), 'migrations/0006_aggregation_retention.sql'),
+      join(directory, '0006_aggregation_retention.sql'),
+    ),
+"""
+          if copy_0006 not in text:
+              text = text.replace(copy_0005, copy_0005 + copy_0006, 1)
+          text = text.replace(
+              "        '0005_canonical_journeys.sql',\n      ]);",
+              "        '0005_canonical_journeys.sql',\n        '0006_aggregation_retention.sql',\n      ]);",
+          )
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Commit inventory contract update
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/integration/postgres.test.ts
+          if git diff --cached --quiet; then
+            echo 'Inventory contracts already current.'
+          else
+            git commit -m 'test: include migration 0006 in PostgreSQL inventory contracts'
+            git pull --rebase origin feature-milestone-4
+            git push origin HEAD:feature-milestone-4
+          fi
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +84,7 @@ jobs:
           node-version: 24.15.0
           cache: npm
       - run: npm ci
-      - name: Migration, static/realtime persistence, replay, role security, and doctor contract
+      - name: Migration, static/realtime persistence, replay, role security, doctor, analytics, and retention contract
         run: ./scripts/postgres-contract.sh "${{ matrix.postgres-image }}"
 
   container-build:
