@@ -1,15 +1,14 @@
-name: Milestone 4 CI
+name: M4 Cleanup
 
 on:
   pull_request:
-  push:
 
 permissions:
   contents: read
 
 jobs:
-  materialize-m4:
-    if: github.event_name == 'pull_request' && github.event.action == 'reopened' && github.event.pull_request.number == 2
+  cleanup-m4:
+    if: github.event.action == 'reopened' && github.event.pull_request.number == 2
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -18,67 +17,77 @@ jobs:
         with:
           ref: feature-milestone-4
           fetch-depth: 0
-      - run: python3 scripts/m4-round7.py
-      - run: git diff --check
-      - name: Commit materialized fix
+      - name: Remove bootstrap artifacts and restore final CI
         shell: bash
         run: |
+          git rm -r -f --ignore-unmatch .github/workflows/m4-*.yml .m4bootstrap
+          git rm -f --ignore-unmatch scripts/m4-materialize.py scripts/m4-round*.py
+          cat > .github/workflows/ci.yml <<'YAML'
+          name: Milestone 4 CI
+
+          on:
+            pull_request:
+            push:
+
+          permissions:
+            contents: read
+
+          jobs:
+            verify:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v6
+                - uses: actions/setup-node@v7
+                  with:
+                    node-version: 24.15.0
+                    cache: npm
+                - run: npm ci
+                - run: npm run verify
+
+            postgres-contract:
+              runs-on: ubuntu-latest
+              strategy:
+                fail-fast: false
+                matrix:
+                  postgres-image:
+                    - postgres:16.14-bookworm
+                    - postgres:18.4-bookworm
+              steps:
+                - uses: actions/checkout@v6
+                - uses: actions/setup-node@v7
+                  with:
+                    node-version: 24.15.0
+                    cache: npm
+                - run: npm ci
+                - name: Migration, persistence, security, analytics, and retention contract
+                  run: ./scripts/postgres-contract.sh "${{ matrix.postgres-image }}"
+
+            container-build:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v6
+                - uses: docker/setup-qemu-action@v4
+                  with:
+                    platforms: arm64
+                - uses: docker/setup-buildx-action@v4
+                - name: Build amd64 and arm64 OCI image
+                  uses: docker/build-push-action@v7
+                  with:
+                    context: .
+                    file: docker/worker/Dockerfile
+                    platforms: linux/amd64,linux/arm64
+                    outputs: type=oci,dest=/tmp/atodotren-worker-multiarch.tar
+
+            compose-smoke:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v6
+                - run: ./scripts/compose-smoke.sh example.env
+          YAML
+          git diff --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add migrations/0006_aggregation_retention.sql
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix: detach canonical partitions before retention drop'
-            git pull --rebase origin feature-milestone-4
-            git push origin HEAD:feature-milestone-4
-          fi
-
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.15.0
-          cache: npm
-      - run: npm ci
-      - run: npm run verify
-
-  postgres-contract:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        postgres-image:
-          - postgres:16.14-bookworm
-          - postgres:18.4-bookworm
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.15.0
-          cache: npm
-      - run: npm ci
-      - name: Migration, persistence, security, analytics, and retention contract
-        run: ./scripts/postgres-contract.sh "${{ matrix.postgres-image }}"
-
-  container-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
-      - uses: docker/setup-buildx-action@v4
-      - name: Build amd64 and arm64 OCI image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: docker/worker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          outputs: type=oci,dest=/tmp/atodotren-worker-multiarch.tar
-
-  compose-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - run: ./scripts/compose-smoke.sh example.env
+          git add -A
+          git commit -m 'chore: remove milestone 4 bootstrap artifacts'
+          git pull --rebase origin feature-milestone-4
+          git push origin HEAD:feature-milestone-4
