@@ -1,17 +1,14 @@
 name: M4 Materialize And Gate
 
 on:
-  push:
-    branches:
-      - feature-milestone-4
-    paths:
-      - '.github/workflows/m4-fix-sql.yml'
+  pull_request:
 
 permissions:
   contents: write
 
 jobs:
   materialize-and-gate:
+    if: github.event.pull_request.number == 2
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
