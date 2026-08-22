@@ -31,7 +31,8 @@ replacement semantics. Without a date, the oldest dirty scopes are processed fir
 export const finalizeUsage = `Usage:
   worker finalize [--service-date <YYYY-MM-DD>] [--month <YYYY-MM-01>] [--limit <1-200>]
     [--algorithm-version <version>] [--now <ISO-instant>] [--grace-seconds <0-86400>]
-    [--month-grace-hours <0-168>] [--retention | --authorize-retention |
+    [--month-grace-hours <0-168>] [--acknowledge-incomplete <reason>]
+    [--retention | --authorize-retention |
      --apply-retention --confirm-retention DROP-VERIFIED-PARTITIONS]
     [--live-state-grace-seconds <0-86400>]
 
@@ -39,6 +40,7 @@ Finalization verifies canonical closure, aggregate denominators, algorithm versi
 and checksums. --retention is dry-run only. --authorize-retention may write a
 retention-ledger authorization but never deletes. --apply-retention only drops
 already-authorized known partitions and requires the literal confirmation above.
+Acknowledging an incomplete outage day requires an explicit --service-date.
 `;
 
 export const milestone4RootUsage = rootUsage
@@ -67,6 +69,7 @@ interface FinalizeCliOptions {
   readonly now?: Date;
   readonly graceSeconds?: number;
   readonly monthGraceHours?: number;
+  readonly acknowledgeIncomplete?: string;
   readonly retentionMode: RetentionMode;
   readonly liveStateGraceSeconds?: number;
   readonly help: boolean;
@@ -144,6 +147,7 @@ function parseFinalize(arguments_: readonly string[]): FinalizeCliOptions {
         'service-date': { type: 'string' }, month: { type: 'string' }, limit: { type: 'string' },
         'algorithm-version': { type: 'string' }, now: { type: 'string' },
         'grace-seconds': { type: 'string' }, 'month-grace-hours': { type: 'string' },
+        'acknowledge-incomplete': { type: 'string' },
         retention: { type: 'boolean' }, 'authorize-retention': { type: 'boolean' },
         'apply-retention': { type: 'boolean' }, 'confirm-retention': { type: 'string' },
         'live-state-grace-seconds': { type: 'string' }, help: { type: 'boolean', short: 'h' },
@@ -191,6 +195,13 @@ function parseFinalize(arguments_: readonly string[]): FinalizeCliOptions {
   const liveStateGraceSeconds = boundedInteger(
     parsed.values['live-state-grace-seconds'], '--live-state-grace-seconds', 0, 86_400, finalizeUsage,
   );
+  const acknowledgeIncomplete = parsed.values['acknowledge-incomplete']?.trim();
+  if (acknowledgeIncomplete !== undefined && (acknowledgeIncomplete.length < 1 || acknowledgeIncomplete.length > 200)) {
+    throw new Milestone4UsageError('--acknowledge-incomplete must contain 1 through 200 characters', finalizeUsage);
+  }
+  if (acknowledgeIncomplete !== undefined && date === undefined) {
+    throw new Milestone4UsageError('--acknowledge-incomplete requires --service-date', finalizeUsage);
+  }
   return {
     ...(date === undefined ? {} : { serviceDate: date }),
     ...(month === undefined ? {} : { month }),
@@ -199,6 +210,7 @@ function parseFinalize(arguments_: readonly string[]): FinalizeCliOptions {
     ...(now === undefined ? {} : { now }),
     ...(graceSeconds === undefined ? {} : { graceSeconds }),
     ...(monthGraceHours === undefined ? {} : { monthGraceHours }),
+    ...(acknowledgeIncomplete === undefined ? {} : { acknowledgeIncomplete }),
     ...(liveStateGraceSeconds === undefined ? {} : { liveStateGraceSeconds }),
     retentionMode,
     help: false,
@@ -241,6 +253,7 @@ async function runFinalize(
       ...(options.now === undefined ? {} : { now: options.now }),
       ...(options.graceSeconds === undefined ? {} : { graceSeconds: options.graceSeconds }),
       ...(options.monthGraceHours === undefined ? {} : { monthGraceHours: options.monthGraceHours }),
+      ...(options.acknowledgeIncomplete === undefined ? {} : { acknowledgeIncomplete: options.acknowledgeIncomplete }),
       ...(options.liveStateGraceSeconds === undefined ? {} : { liveStateGraceSeconds: options.liveStateGraceSeconds }),
       retentionMode: options.retentionMode,
     });
@@ -257,6 +270,7 @@ function withAggregateCadence(
 ): DispatcherDependencies {
   if (arguments_[0] !== 'ingest' || !arguments_.includes('--canonical-maintenance')) return dependencies;
   let nextAggregateAt = 0;
+  let finalizationFailureActive = false;
   const now = dependencies.now ?? (() => new Date());
   const actualIngest = dependencies.realtimeIngest ?? runIngest;
   return {
@@ -269,11 +283,30 @@ function withAggregateCadence(
         if (current < nextAggregateAt) return;
         const report = await (dependencies.aggregate ?? aggregateDirty)({ pool: options.pool, limit: 20 });
         if (report.failed > 0) throw new Error('Aggregate maintenance reported bounded errors');
+        const finalization = await (dependencies.finalize ?? finalizeAnalytics)({
+          pool: options.pool,
+          limit: 7,
+          now: new Date(current),
+          retentionMode: 'none',
+        });
+        if (finalization.errors.length > 0 && !finalizationFailureActive) {
+          options.onEvent?.('finalization.maintenance_failed', {
+            errorCount: finalization.errors.length,
+            errors: finalization.errors.slice(0, 10),
+          });
+          finalizationFailureActive = true;
+        } else if (finalization.errors.length === 0 && finalizationFailureActive) {
+          options.onEvent?.('finalization.maintenance_recovered', {});
+          finalizationFailureActive = false;
+        }
         nextAggregateAt = current + 5 * 60_000;
         options.onEvent?.('aggregate.maintenance', {
           scopesAttempted: report.scopesAttempted,
           succeeded: report.succeeded,
           noops: report.noops,
+          serviceDaysFinalized: finalization.serviceDays.length,
+          monthsSealed: finalization.months.length,
+          finalizationErrors: finalization.errors.length,
         });
       },
     }),

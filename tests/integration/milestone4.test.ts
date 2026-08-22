@@ -46,7 +46,13 @@ async function callReport(pool: Pool, sql: string, values: readonly unknown[]): 
   return report as JsonReport;
 }
 
-async function buildMilestone4Fixture(directory: string): Promise<string> {
+async function buildMilestone4Fixture(
+  directory: string,
+  serviceDate: string,
+  missingServiceDate: string,
+  currentServiceDate: string,
+  variant = 'initial',
+): Promise<string> {
   const baseDirectory = resolve('tests/fixtures/gtfs-static/representative');
   const passthrough = ['agency.txt', 'routes.txt', 'stops.txt', 'shapes.txt'] as const;
   const entries = await Promise.all(passthrough.map(async (name) => ({
@@ -56,9 +62,10 @@ async function buildMilestone4Fixture(directory: string): Promise<string> {
 
   const trips = [
     'route_id,service_id,trip_id,trip_headsign,direction_id,shape_id',
-    '10T0001C1,ALL,10TRIP-M4-20,Boundary train,0,10SHAPE-A',
+    `10T0001C1,ALL,10TRIP-M4-20,Boundary train ${variant},0,10SHAPE-A`,
     '10T0001C1,ALL,10TRIP-M4-D1,Reverse train,1,10SHAPE-A',
     '10T0001C1,ALL,10TRIP-M4-CAN,Partial cancellation,0,10SHAPE-A',
+    '10T0001C1,ALL,10TRIP-M4-MISSING,Unseen after midnight train,0,10SHAPE-A',
     '20T0001C1,ALL,20TRIP-M4,National collision,1,20SHAPE-A',
     '',
   ].join('\n');
@@ -84,6 +91,9 @@ async function buildMilestone4Fixture(directory: string): Promise<string> {
     stopTimeRows.push(`10TRIP-M4-CAN,${time},${time},${cancelStops[index]!},${index + 1},0,0,1`);
   }
   stopTimeRows.push(
+    '10TRIP-M4-MISSING,25:00:00,25:00:00,10STOP-A,1,0,0,1',
+    '10TRIP-M4-MISSING,25:10:00,25:10:00,10STOP-B,2,0,0,1',
+    '10TRIP-M4-MISSING,25:20:00,25:20:00,10STOP-C,3,0,0,1',
     '20TRIP-M4,10:00:00,10:00:00,20STOP-A,1,0,0,1',
     '20TRIP-M4,10:30:00,10:30:00,20STOP-B,2,0,0,1',
     '',
@@ -91,16 +101,24 @@ async function buildMilestone4Fixture(directory: string): Promise<string> {
 
   const calendar = [
     'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date',
-    'ALL,1,1,1,1,1,1,1,20200101,20351231',
+    'ALL,0,0,0,0,0,0,0,20200101,20351231',
+    '',
+  ].join('\n');
+  const calendarDates = [
+    'service_id,date,exception_type',
+    `ALL,${serviceDate.replaceAll('-', '')},1`,
+    `ALL,${missingServiceDate.replaceAll('-', '')},1`,
+    `ALL,${currentServiceDate.replaceAll('-', '')},1`,
     '',
   ].join('\n');
 
-  const fixturePath = join(directory, 'milestone4.zip');
+  const fixturePath = join(directory, `milestone4-${variant}.zip`);
   await writeFile(fixturePath, createStoredZip([
     ...entries,
     { name: 'trips.txt', data: trips },
     { name: 'stop_times.txt', data: stopTimeRows.join('\n') },
     { name: 'calendar.txt', data: calendar },
+    { name: 'calendar_dates.txt', data: calendarDates },
   ]));
   return fixturePath;
 }
@@ -201,7 +219,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       },
       migrationsDirectory: resolve(process.cwd(), 'migrations'),
     });
-    assert.equal(migrated.applied.at(-1), '0006_aggregation_retention.sql');
+    assert.equal(migrated.applied.at(-1), '0007_m4_correctness_gates.sql');
 
     pool = new Pool({ connectionString: workerDatabaseUrl, max: 4 });
     const dates = await pool.query<{
@@ -212,6 +230,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       old_poll_date: string;
       old_poll_next: string;
       old_poll_after_next: string;
+      missing_date: string;
     }>(`
       SELECT current_date::text,
         (current_date - 33)::text AS target_date,
@@ -220,6 +239,11 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
         (current_date - 80)::text AS old_poll_date,
         (current_date - 79)::text AS old_poll_next,
         (current_date - 78)::text AS old_poll_after_next
+        ,CASE
+          WHEN date_trunc('month', current_date - 32) = date_trunc('month', current_date - 33)
+            THEN (current_date - 32)::text
+          ELSE (current_date - 34)::text
+        END AS missing_date
     `);
     const dateRow = dates.rows[0];
     assert.ok(dateRow !== undefined);
@@ -229,7 +253,8 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     const neighborDate = dateRow.neighbor_date;
     const asOf = new Date(`${currentDate}T23:00:00Z`);
 
-    const fixturePath = await buildMilestone4Fixture(temporaryDirectory);
+    const missingDate = dateRow.missing_date;
+    const fixturePath = await buildMilestone4Fixture(temporaryDirectory, targetDate, missingDate, currentDate);
     const imported = await importStaticFeed({
       pool,
       source: { kind: 'file', path: fixturePath },
@@ -248,6 +273,49 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     assert.equal(imported.result, 'imported', JSON.stringify(imported));
     const feedVersionId = imported.feedVersionId;
     assert.ok(feedVersionId !== undefined);
+    const replacementFixturePath = await buildMilestone4Fixture(
+      temporaryDirectory, targetDate, missingDate, currentDate, 'replacement',
+    );
+    const replacementImport = await importStaticFeed({
+      pool,
+      source: { kind: 'file', path: replacementFixturePath },
+      mapping: {
+        ...renfeMadridMapping,
+        canaries: {
+          requiredLineCodes: ['C-1'], requiredStationPublicIds: ['atocha', 'aeropuerto-t4'],
+          minimumStations: 3, minimumTrips: 3, requireReferencedShapes: true,
+        },
+      },
+      temporaryDirectory,
+    });
+    assert.equal(replacementImport.result, 'imported', JSON.stringify(replacementImport));
+    assert.notEqual(replacementImport.feedVersionId, feedVersionId);
+    const preferredTimetable = await pool.query<{ rows: string; versions: string }>(`
+      SELECT count(*)::text AS rows, count(DISTINCT feed_version_id)::text AS versions
+      FROM operations.timetable_service_dates($1::date, $1::date)
+    `, [targetDate]);
+    assert.deepEqual(preferredTimetable.rows[0], { rows: '1', versions: '1' });
+
+    const partialCurrentDay = await callReport(
+      pool,
+      'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [currentDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(partialCurrentDay.status, 'blocked');
+    assert.ok((partialCurrentDay.blockers as string[]).includes('service_day_grace_not_elapsed'));
+    const currentLedger = await pool.query<{ expected: string; canonical: string }>(`
+      SELECT (SELECT sum(expected_journey_count)::text FROM operations.expected_service_day
+          WHERE service_date = $1::date) AS expected,
+        (SELECT count(*)::text FROM core.journey WHERE service_date = $1::date) AS canonical
+    `, [currentDate]);
+    assert.deepEqual(currentLedger.rows[0], { expected: '4', canonical: '0' });
+    const partialFinalize = await callReport(
+      pool,
+      'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [currentDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(partialFinalize.status, 'blocked');
+    assert.ok((partialFinalize.blockers as string[]).includes('service_day_grace_not_elapsed'));
 
     const histogramLaw = await databaseAdmin.query<{ associative: boolean; underflow: number; overflow: number }>(`
       SELECT
@@ -412,6 +480,44 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
 
     const closed = await closeJourneys({ pool, serviceDate: targetDate, now: asOf, graceSeconds: 7_200 });
     assert.deepEqual(closed.errors, {}, JSON.stringify(closed));
+    const expectedMaterialization = await callReport(
+      pool,
+      'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [targetDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(expectedMaterialization.journeysCreated, 1);
+    assert.equal(expectedMaterialization.stopsCreated, 3);
+    const timetableJourneyBeforeClaim = await pool.query<{ id: string }>(`
+      SELECT id::text FROM core.journey
+      WHERE service_date = $1::date AND source_trip_id = '10TRIP-M4-MISSING'
+    `, [targetDate]);
+    assert.ok(timetableJourneyBeforeClaim.rows[0]?.id !== undefined);
+    await insertEvidence(pool, {
+      capturedAt: new Date(capturedBase.getTime() + 50_000), feedVersionId, serviceDate: targetDate,
+      tripId: '10TRIP-M4-MISSING', stopSequence: 1, classification: 'reported_prediction',
+      arrivalDelay: 60, discriminator: 'late-timetable-claim',
+    });
+    const claimed = await canonicalizeJourneys({ pool, serviceDate: targetDate, limit: 20 });
+    assert.deepEqual(claimed.errors, {}, JSON.stringify(claimed));
+    const timetableJourneyAfterClaim = await pool.query<{
+      id: string; opportunity_source: string; first_evidence_at: Date | null; journeys: string;
+    }>(`
+      SELECT journey.id::text, journey.opportunity_source, journey.first_evidence_at,
+        (SELECT count(*)::text FROM core.journey AS all_journeys
+         WHERE all_journeys.service_date = $1::date
+           AND all_journeys.source_trip_id = '10TRIP-M4-MISSING') AS journeys
+      FROM core.journey AS journey
+      WHERE journey.service_date = $1::date AND journey.source_trip_id = '10TRIP-M4-MISSING'
+    `, [targetDate]);
+    assert.deepEqual({
+      id: timetableJourneyAfterClaim.rows[0]?.id,
+      opportunitySource: timetableJourneyAfterClaim.rows[0]?.opportunity_source,
+      hasEvidence: timetableJourneyAfterClaim.rows[0]?.first_evidence_at instanceof Date,
+      journeys: timetableJourneyAfterClaim.rows[0]?.journeys,
+    }, {
+      id: timetableJourneyBeforeClaim.rows[0]?.id,
+      opportunitySource: 'realtime_evidence', hasEvidence: true, journeys: '1',
+    });
     const finalAggregateV1 = await callReport(
       pool,
       'SELECT analytics.recompute_daily($1::date, $2::text) AS report',
@@ -435,8 +541,8 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       FROM analytics.daily_stop_call_hour WHERE service_date = $1::date
     `, [targetDate]);
     assert.deepEqual(finalizedStatuses.rows[0], {
-      scheduled: '28', valid: '23', punctual: '11', canceled: '3', skipped: '1',
-      missing: '1', pending: '0', reported: '22', observed: '1',
+      scheduled: '31', valid: '24', punctual: '12', canceled: '3', skipped: '1',
+      missing: '3', pending: '0', reported: '23', observed: '1',
     });
 
     const lockClient = new Client({ connectionString: workerDatabaseUrl });
@@ -470,7 +576,39 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       FROM analytics.daily_schedule_contribution
       WHERE service_date = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
     `, [targetDate]);
-    assert.deepEqual(contributionV1.rows[0], { stop: '28', segment: '25', journey: '3' });
+    assert.deepEqual(contributionV1.rows[0], { stop: '31', segment: '27', journey: '4' });
+    const civilAfterMidnight = await pool.query<{
+      weekday_class: string; scheduled_seconds: number; service_day_seconds: number; civil_date: string;
+    }>(`
+      SELECT weekday_class, scheduled_seconds, service_day_seconds, civil_date::text
+      FROM analytics.daily_schedule_contribution
+      WHERE service_date = $1::date AND family = 'stop' AND service_day_seconds = 90000
+    `, [targetDate]);
+    const nextCivilDate = new Date(new Date(`${targetDate}T00:00:00Z`).getTime() + 86_400_000);
+    const weekdayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+    assert.deepEqual(civilAfterMidnight.rows[0], {
+      weekday_class: weekdayNames[nextCivilDate.getUTCDay()],
+      scheduled_seconds: 3600,
+      service_day_seconds: 90000,
+      civil_date: nextCivilDate.toISOString().slice(0, 10),
+    });
+
+    await insertEvidence(pool, {
+      capturedAt: new Date(capturedBase.getTime() + 60_000),
+      feedVersionId,
+      serviceDate: targetDate,
+      tripId: '10TRIP-M4-20',
+      stopSequence: 20,
+      classification: 'reported_prediction',
+      arrivalDelay: 2_001,
+      discriminator: 'newer-than-canonical-watermark',
+    });
+    const evidenceRetention = await pool.query<{ blockers: string[] }>(`
+      SELECT blockers
+      FROM operations.retention_candidates($1::timestamptz, 'aggregate-v1')
+      WHERE family = 'stop_evidence' AND target_date = $2::date
+    `, [new Date(new Date(`${currentDate}T12:00:00Z`).getTime() + 9 * 86_400_000), currentDate]);
+    assert.ok(evidenceRetention.rows[0]?.blockers.includes('canonical_evidence_watermark_incomplete'));
 
     await pool.query(`
       INSERT INTO ingest.live_vehicle_state (
@@ -532,7 +670,115 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       FROM analytics.daily_schedule_contribution
       WHERE service_date = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
     `, [targetDate]);
-    assert.equal(replacementOpportunity.rows[0]?.opportunities, '56');
+    assert.equal(replacementOpportunity.rows[0]?.opportunities, '62');
+
+    await databaseAdmin.query(`
+      INSERT INTO operations.daily_feed_coverage (
+        service_date, feed_kind, poll_count, successful_poll_count, matched_madrid_count,
+        non_madrid_count, unmatched_count, invalid_count, evidence_changed_count,
+        response_bytes, first_poll_at, last_poll_at, source_checksum
+      ) VALUES ($1::date, 'trip_updates', 1, 1, 3, 0, 0, 0, 3, 1,
+        $1::date::timestamptz, $1::date::timestamptz, repeat('a', 64))
+      ON CONFLICT (service_date, feed_kind) DO UPDATE SET
+        poll_count = EXCLUDED.poll_count,
+        successful_poll_count = EXCLUDED.successful_poll_count
+    `, [targetDate]);
+    const refreshedTargetQuality = await callReport(
+      pool,
+      'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [targetDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(refreshedTargetQuality.qualityStatus, 'complete');
+
+    const missingDayBlock = await callReport(
+      pool,
+      'SELECT operations.seal_month($1::date, $2::text, $3::timestamptz, 0) AS report',
+      [targetMonth, 'aggregate-v1', asOf],
+    );
+    assert.equal(missingDayBlock.status, 'blocked');
+    assert.ok((missingDayBlock.blockers as string[]).includes('not_all_expected_service_days_verified'));
+
+    const missingMaterialization = await callReport(
+      pool,
+      'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [missingDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(missingMaterialization.journeysCreated, 4);
+    await callReport(pool, 'SELECT analytics.recompute_daily($1::date, $2::text) AS report', [missingDate, 'aggregate-v1']);
+    const missingFinalization = await callReport(
+      pool,
+      'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [missingDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(missingFinalization.status, 'verified', JSON.stringify(missingFinalization));
+    await databaseAdmin.query(`
+      INSERT INTO operations.daily_feed_coverage (
+        service_date, feed_kind, poll_count, successful_poll_count, matched_madrid_count,
+        non_madrid_count, unmatched_count, invalid_count, evidence_changed_count,
+        response_bytes, first_poll_at, last_poll_at, source_checksum
+      ) VALUES ($1::date, 'trip_updates', 1, 0, 0, 0, 0, 0, 0, 1,
+        $1::date::timestamptz, $1::date::timestamptz, repeat('b', 64))
+    `, [missingDate]);
+    const refreshedOutageQuality = await callReport(
+      pool,
+      'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [missingDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(refreshedOutageQuality.qualityStatus, 'incomplete');
+    const acknowledgedOutage = await callReport(
+      pool,
+      'SELECT operations.acknowledge_incomplete_service_day($1::date, $2::text) AS report',
+      [missingDate, 'confirmed complete Renfe outage'],
+    );
+    assert.equal(acknowledgedOutage.status, 'incomplete_acknowledged');
+
+    await databaseAdmin.query(`
+      UPDATE analytics.daily_schedule_contribution
+      SET scheduled_opportunities = scheduled_opportunities + 1
+      WHERE id = (
+        SELECT id FROM analytics.daily_schedule_contribution
+        WHERE service_date = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
+        ORDER BY id LIMIT 1
+      )
+    `, [targetDate]);
+    const staleContribution = await callReport(
+      pool,
+      'SELECT operations.seal_month($1::date, $2::text, $3::timestamptz, 0) AS report',
+      [targetMonth, 'aggregate-v1', asOf],
+    );
+    assert.equal(staleContribution.status, 'blocked');
+    assert.ok((staleContribution.blockers as string[]).includes('daily_schedule_contribution_checksum_mismatch'));
+    await databaseAdmin.query(`
+      UPDATE analytics.daily_schedule_contribution
+      SET scheduled_opportunities = scheduled_opportunities - 1
+      WHERE id = (
+        SELECT id FROM analytics.daily_schedule_contribution
+        WHERE service_date = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
+        ORDER BY id LIMIT 1
+      )
+    `, [targetDate]);
+
+    const preGraceSeal = await callReport(
+      pool,
+      `SELECT operations.seal_month($1::date, $2::text,
+         ($1::date + interval '1 month 1 hour')::timestamptz, 48) AS report`,
+      [targetMonth, 'aggregate-v1'],
+    );
+    assert.equal(preGraceSeal.status, 'blocked');
+    assert.ok((preGraceSeal.blockers as string[]).includes('month_sealing_grace_not_elapsed'));
+    const preGraceClassifiedRows = await pool.query<{ rows: string }>(`
+      SELECT count(*)::text AS rows FROM analytics.monthly_schedule_classification
+      WHERE calendar_month = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
+    `, [targetMonth]);
+    assert.equal(preGraceClassifiedRows.rows[0]?.rows, '0');
+
+    const emptyMonth = await callReport(
+      pool,
+      "SELECT operations.seal_month(date '2010-01-01', $1::text, $2::timestamptz, 0) AS report",
+      ['aggregate-v1', asOf],
+    );
+    assert.equal(emptyMonth.status, 'blocked');
+    assert.ok((emptyMonth.blockers as string[]).includes('no_expected_service_days'));
 
     const sealedV1 = await callReport(
       pool,
@@ -540,8 +786,26 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       [targetMonth, 'aggregate-v1', asOf],
     );
     assert.equal(sealedV1.status, 'sealed', JSON.stringify(sealedV1));
+    assert.equal(sealedV1.qualityStatus, 'incomplete_acknowledged');
     const sealedV1Checksum = sealedV1.checksum;
     assert.equal(typeof sealedV1Checksum, 'string');
+    const retainedCalendarClass = await pool.query<{ rows: string; raw_after_midnight: string }>(`
+      SELECT count(*)::text AS rows,
+        count(*) FILTER (WHERE service_day_seconds = 90000 AND scheduled_seconds = 3600)::text
+          AS raw_after_midnight
+      FROM analytics.monthly_schedule_classification
+      WHERE calendar_month = $1::date AND aggregate_algorithm_version = 'aggregate-v1'
+        AND day_class IS NOT NULL AND calendar_classification_version = 'calendar-v1'
+    `, [targetMonth]);
+    assert.ok(Number(retainedCalendarClass.rows[0]?.rows) > 0);
+    assert.equal(retainedCalendarClass.rows[0]?.raw_after_midnight, '6');
+    const compactShape = await pool.query<{ service_date: string; id: string }>(`
+      SELECT count(*) FILTER (WHERE column_name = 'service_date')::text AS service_date,
+        count(*) FILTER (WHERE column_name = 'id')::text AS id
+      FROM information_schema.columns
+      WHERE table_schema = 'analytics' AND table_name = 'monthly_schedule_classification'
+    `);
+    assert.deepEqual(compactShape.rows[0], { service_date: '0', id: '0' });
     const sealedAgain = await callReport(
       pool,
       'SELECT operations.seal_month($1::date, $2::text, $3::timestamptz, 0) AS report',
@@ -602,6 +866,18 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       /month_not_sealed/u,
     );
 
+    await pool.query('SELECT analytics.mark_dirty($1::date, $2::text)', [missingDate, 'aggregate-v2-month-completeness']);
+    const missingAggregateV2 = await callReport(
+      pool, 'SELECT analytics.recompute_daily($1::date, $2::text) AS report', [missingDate, 'aggregate-v2'],
+    );
+    assert.equal(missingAggregateV2.status, 'succeeded');
+    const missingFinalizationV2 = await callReport(
+      pool,
+      'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [missingDate, 'aggregate-v2', asOf],
+    );
+    assert.equal(missingFinalizationV2.status, 'verified', JSON.stringify(missingFinalizationV2));
+
     const sealedV2 = await callReport(
       pool,
       'SELECT operations.seal_month($1::date, $2::text, $3::timestamptz, 0) AS report',
@@ -634,7 +910,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     `, [asOf, targetDate]);
     assert.deepEqual(canonicalCandidate.rows[0]?.blockers, []);
     assert.equal(canonicalCandidate.rows[0]?.authorized, true);
-    assert.equal(canonicalCandidate.rows[0]?.source_rows, '31');
+    assert.equal(canonicalCandidate.rows[0]?.source_rows, '35');
 
     const canonicalDrop = await callReport(
       pool,
@@ -642,7 +918,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       [targetDate, asOf],
     );
     assert.equal(canonicalDrop.status, 'dropped');
-    assert.equal(canonicalDrop.droppedRows, 31);
+    assert.equal(canonicalDrop.droppedRows, 35);
     const partitionState = await pool.query<{ journey: string | null; stops: string | null; neighbor: string | null }>(`
       SELECT to_regclass('core.journey_' || to_char($1::date, 'YYYYMMDD'))::text AS journey,
         to_regclass('core.journey_stop_' || to_char($1::date, 'YYYYMMDD'))::text AS stops,
@@ -715,15 +991,22 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
 
     const permissions = await pool.query<{
       analytics_insert: boolean; ledger_insert: boolean; retention_execute: boolean;
+      internal_finalize_execute: boolean; internal_seal_execute: boolean; guarded_seal_execute: boolean;
     }>(`
       SELECT has_table_privilege(current_user, 'analytics.daily_line_summary', 'INSERT') AS analytics_insert,
         has_table_privilege(current_user, 'operations.retention_ledger', 'INSERT') AS ledger_insert,
-        has_function_privilege(current_user, 'operations.drop_retention_partition(text,date,timestamptz,text)', 'EXECUTE') AS retention_execute
+        has_function_privilege(current_user, 'operations.drop_retention_partition(text,date,timestamptz,text)', 'EXECUTE') AS retention_execute,
+        has_function_privilege(current_user, 'operations.finalize_service_day_from_canonical(date,text,timestamptz,integer)', 'EXECUTE') AS internal_finalize_execute,
+        has_function_privilege(current_user, 'operations.seal_month_from_verified_contributions(date,text,timestamptz,integer)', 'EXECUTE') AS internal_seal_execute,
+        has_function_privilege(current_user, 'operations.seal_month(date,text,timestamptz,integer)', 'EXECUTE') AS guarded_seal_execute
     `);
     assert.deepEqual(permissions.rows[0], {
       analytics_insert: false,
       ledger_insert: false,
       retention_execute: true,
+      internal_finalize_execute: false,
+      internal_seal_execute: false,
+      guarded_seal_execute: true,
     });
     const roleBoundaries = await databaseAdmin.query<{
       web_select: boolean; backup_select: boolean; monitor_health: boolean; monitor_aggregate_select: boolean;
@@ -784,9 +1067,9 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     console.log(JSON.stringify({
       milestone4Acceptance: {
         targetDate,
-        stopOpportunities: 28,
-        journeyOpportunities: 3,
-        segmentOpportunities: 25,
+        stopOpportunities: 31,
+        journeyOpportunities: 4,
+        segmentOpportunities: 27,
         canonicalDroppedRows: canonicalDrop.droppedRows,
         pollDroppedRows: pollDrop.droppedRows,
         deterministicChecksum,

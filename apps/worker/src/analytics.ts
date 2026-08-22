@@ -51,6 +51,7 @@ export interface FinalizeOptions {
   readonly now?: Date;
   readonly graceSeconds?: number;
   readonly monthGraceHours?: number;
+  readonly acknowledgeIncomplete?: string;
   readonly retentionMode?: RetentionMode;
   readonly liveStateGraceSeconds?: number;
 }
@@ -184,22 +185,29 @@ export async function aggregateDirty(options: AggregateOptions): Promise<Aggrega
   };
 }
 
-async function selectFinalizeDates(pool: Pool, serviceDate: string | undefined, algorithmVersion: string, limit: number): Promise<string[]> {
+export async function selectFinalizeDates(
+  pool: Pool,
+  serviceDate: string | undefined,
+  algorithmVersion: string,
+  now: Date,
+  limit: number,
+): Promise<string[]> {
   if (serviceDate !== undefined) return [serviceDate];
   const result = await pool.query<DirtyRow>(`
-    SELECT journey.service_date::text AS service_date
-    FROM core.journey AS journey
-    GROUP BY journey.service_date
-    HAVING bool_and(journey.finalized_at IS NOT NULL)
-      AND NOT EXISTS (
+    SELECT DISTINCT expected.service_date::text AS service_date
+    FROM operations.timetable_service_dates(
+      (($2::timestamptz AT TIME ZONE 'Europe/Madrid')::date - 35),
+      (($2::timestamptz AT TIME ZONE 'Europe/Madrid')::date - 1)
+    ) AS expected
+    WHERE NOT EXISTS (
         SELECT 1 FROM operations.service_day_finalization AS finalization
-        WHERE finalization.service_date = journey.service_date
+        WHERE finalization.service_date = expected.service_date
           AND finalization.aggregate_algorithm_version = $1
           AND finalization.status = 'verified'
-      )
-    ORDER BY journey.service_date
-    LIMIT $2
-  `, [algorithmVersion, limit]);
+    )
+    ORDER BY service_date
+    LIMIT $3
+  `, [algorithmVersion, now, limit]);
   return result.rows.map((row) => row.service_date);
 }
 
@@ -222,6 +230,19 @@ async function selectMonths(
         WHERE seal.calendar_month = date_trunc('month', finalization.service_date)::date
           AND seal.aggregate_algorithm_version = $1
           AND seal.status = 'sealed'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM operations.timetable_service_dates(
+          date_trunc('month', finalization.service_date)::date,
+          (date_trunc('month', finalization.service_date) + interval '1 month - 1 day')::date
+        ) AS expected
+        WHERE NOT EXISTS (
+          SELECT 1 FROM operations.service_day_finalization AS expected_finalization
+          WHERE expected_finalization.service_date = expected.service_date
+            AND expected_finalization.aggregate_algorithm_version = $1
+            AND expected_finalization.status = 'verified'
+        )
       )
     ORDER BY calendar_month
     LIMIT $3
@@ -285,6 +306,13 @@ export async function finalizeAnalytics(options: FinalizeOptions): Promise<Final
   const now = options.now ?? new Date();
   if (Number.isNaN(now.getTime())) throw new RangeError('now must be a valid date');
   const retentionMode = options.retentionMode ?? 'none';
+  const acknowledgement = options.acknowledgeIncomplete?.trim();
+  if (acknowledgement !== undefined && (acknowledgement.length < 1 || acknowledgement.length > 200)) {
+    throw new RangeError('acknowledgeIncomplete must contain 1 through 200 characters');
+  }
+  if (acknowledgement !== undefined && options.serviceDate === undefined) {
+    throw new RangeError('acknowledgeIncomplete requires an explicit serviceDate');
+  }
   const serviceDays: JsonReport[] = [];
   const months: JsonReport[] = [];
   const operationsSummaries: JsonReport[] = [];
@@ -292,9 +320,24 @@ export async function finalizeAnalytics(options: FinalizeOptions): Promise<Final
   const drops: JsonReport[] = [];
   const errors: string[] = [];
 
-  const finalizeDates = await selectFinalizeDates(options.pool, options.serviceDate, algorithmVersion, limit);
+  const finalizeDates = await selectFinalizeDates(options.pool, options.serviceDate, algorithmVersion, now, limit);
   for (const serviceDate of finalizeDates) {
     try {
+      if (acknowledgement !== undefined) {
+        const acknowledged = await options.pool.query<{ report: unknown }>(
+          'SELECT operations.acknowledge_incomplete_service_day($1::date, $2::text) AS report',
+          [serviceDate, acknowledgement],
+        );
+        operationsSummaries.push(jsonValue(acknowledged.rows[0]?.report));
+      }
+      await options.pool.query(
+        'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, $4::integer)',
+        [serviceDate, algorithmVersion, now, graceSeconds],
+      );
+      await options.pool.query(
+        'SELECT analytics.recompute_daily($1::date, $2::text)',
+        [serviceDate, algorithmVersion],
+      );
       const summary = await options.pool.query<{ report: unknown }>(
         'SELECT operations.summarize_operations_date($1::date) AS report',
         [serviceDate],

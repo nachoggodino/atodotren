@@ -6,6 +6,7 @@ import {
   executeMilestone4Cli,
   type Milestone4Dependencies,
 } from '@atodotren/worker/m4-cli';
+import { selectFinalizeDates } from '@atodotren/worker/analytics';
 
 function invoke(
   arguments_: readonly string[],
@@ -50,6 +51,45 @@ void test('Milestone 4 CLI rejects unbounded options and requires explicit reten
   assert.equal((await invoke(['finalize', '--retention', '--authorize-retention'])).code, 2);
   assert.equal((await invoke(['finalize', '--apply-retention'])).code, 2);
   assert.equal((await invoke(['finalize', '--confirm-retention', 'DROP-VERIFIED-PARTITIONS'])).code, 2);
+  assert.equal((await invoke(['finalize', '--acknowledge-incomplete', 'outage'])).code, 2);
+});
+
+void test('automatic finalization scans the retained 35-day window oldest first', async () => {
+  let sql = '';
+  let values: readonly unknown[] = [];
+  const pool = {
+    query: (statement: string, parameters: readonly unknown[]) => {
+      sql = statement;
+      values = parameters;
+      return Promise.resolve({ rows: [{ service_date: '2026-07-20' }] });
+    },
+  } as never;
+  const dates = await selectFinalizeDates(pool, undefined, 'aggregate-v1', new Date('2026-08-23T12:00:00Z'), 7);
+  assert.deepEqual(dates, ['2026-07-20']);
+  assert.match(sql, /::date - 35/u);
+  assert.match(sql, /ORDER BY service_date/u);
+  assert.deepEqual(values, ['aggregate-v1', new Date('2026-08-23T12:00:00Z'), 7]);
+});
+
+void test('finalize passes an explicit outage acknowledgement through to the operation', async () => {
+  const environment = { DATABASE_URL: 'postgresql://worker:password@localhost/atodotren' };
+  let received: string | undefined;
+  const result = await invoke([
+    'finalize', '--service-date', '2026-08-01', '--acknowledge-incomplete', 'confirmed Renfe outage',
+  ], environment, {
+    connect: connection,
+    finalize: (options) => {
+      received = options.acknowledgeIncomplete;
+      return Promise.resolve({
+        command: 'finalize', algorithmVersion: 'aggregate-v1', checkedAt: '2026-08-23T12:00:00.000Z',
+        serviceDays: [], months: [], operationsSummaries: [],
+        retention: { mode: 'none', candidates: [], authorizations: [], drops: [], liveState: null },
+        errors: [], durationMs: 0,
+      });
+    },
+  });
+  assert.equal(result.code, 0);
+  assert.equal(received, 'confirmed Renfe outage');
 });
 
 void test('aggregate dispatches a bounded service date and preserves JSON exit semantics', async () => {
@@ -110,7 +150,7 @@ void test('finalize exposes separate dry-run, authorize, and confirmed apply mod
   assert.deepEqual(modes, ['plan', 'authorize', 'apply']);
 });
 
-void test('canonical maintenance aggregates immediately and then at most once per five minutes', async () => {
+void test('canonical maintenance aggregates and finalizes immediately and then at most once per five minutes', async () => {
   const environment = {
     DATABASE_URL: 'postgresql://worker:password@localhost/atodotren',
     SQLITE_SPOOL_PATH: `/tmp/atodotren-m4-cli-${process.pid}.sqlite`,
@@ -123,6 +163,7 @@ void test('canonical maintenance aggregates immediately and then at most once pe
   let nowIndex = 0;
   let canonicalRuns = 0;
   let aggregateRuns = 0;
+  let finalizationRuns = 0;
   const result = await invoke(['ingest', '--cycles', '3', '--canonical-maintenance'], environment, {
     connect: connection,
     now: () => instants[Math.min(nowIndex++, instants.length - 1)]!,
@@ -153,8 +194,60 @@ void test('canonical maintenance aggregates immediately and then at most once pe
         succeeded: 0, noops: 0, failed: 0, results: [], errors: [], durationMs: 0,
       });
     },
+    finalize: () => {
+      finalizationRuns += 1;
+      return Promise.resolve({
+        command: 'finalize', algorithmVersion: 'aggregate-v1', checkedAt: instants[0]!.toISOString(),
+        serviceDays: [], months: [], operationsSummaries: [],
+        retention: { mode: 'none', candidates: [], authorizations: [], drops: [], liveState: null },
+        errors: [], durationMs: 0,
+      });
+    },
   });
   assert.equal(result.code, 0, result.stdout + result.stderr);
   assert.equal(canonicalRuns, 6);
   assert.equal(aggregateRuns, 2);
+  assert.equal(finalizationRuns, 2);
+});
+
+void test('continuous maintenance deduplicates finalization incidents and emits recovery', async () => {
+  const environment = {
+    DATABASE_URL: 'postgresql://worker:password@localhost/atodotren',
+    SQLITE_SPOOL_PATH: `/tmp/atodotren-m4-warning-${process.pid}.sqlite`,
+  };
+  const instants = [0, 5, 10, 15].map((minutes) => new Date(Date.parse('2026-08-22T10:00:00Z') + minutes * 60_000));
+  let nowIndex = 0;
+  let finalizationRuns = 0;
+  const result = await invoke(['ingest', '--cycles', '4', '--canonical-maintenance'], environment, {
+    connect: connection,
+    now: () => instants[Math.min(nowIndex++, instants.length - 1)]!,
+    realtimeIngest: async (options) => {
+      for (let cycle = 0; cycle < 4; cycle += 1) await options.afterCycle?.();
+      return {
+        cyclesAttempted: 4, successfulCycles: 4, postgresPersistedFeeds: 0, spooledFeeds: 0,
+        replayedFeeds: 0, evidenceInserted: 0, evidenceRepeated: 0, matchedMadrid: 0,
+        nonMadrid: 0, unmatched: 0, invalid: 0, responseBytes: 0, stoppedBySignal: false,
+      };
+    },
+    canonicalize: () => Promise.resolve({
+      errors: {}, journeysCreated: 0, journeysUpdated: 0, journeysClosed: 0, journeyStopsMaterialized: 0,
+    } as never),
+    closeJourneys: () => Promise.resolve({ errors: {}, journeysClosed: 0 } as never),
+    aggregate: () => Promise.resolve({
+      command: 'aggregate', algorithmVersion: 'aggregate-v1', scopesAttempted: 0,
+      succeeded: 0, noops: 0, failed: 0, results: [], errors: [], durationMs: 0,
+    }),
+    finalize: () => {
+      finalizationRuns += 1;
+      return Promise.resolve({
+        command: 'finalize', algorithmVersion: 'aggregate-v1', checkedAt: instants[0]!.toISOString(),
+        serviceDays: [], months: [], operationsSummaries: [],
+        retention: { mode: 'none', candidates: [], authorizations: [], drops: [], liveState: null },
+        errors: finalizationRuns <= 2 ? ['blocked'] : [], durationMs: 0,
+      });
+    },
+  });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  assert.equal((result.stderr.match(/"event":"finalization\.maintenance_failed"/gu) ?? []).length, 1);
+  assert.equal((result.stderr.match(/"event":"finalization\.maintenance_recovered"/gu) ?? []).length, 1);
 });

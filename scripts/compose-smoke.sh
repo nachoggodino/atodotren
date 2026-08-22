@@ -97,6 +97,8 @@ if ! grep -q '"result":"unchanged"' <<<"${repeat_report}"; then
   exit 1
 fi
 compose run --rm --no-deps worker doctor
+compose run --rm --no-deps worker aggregate --limit 1
+compose run --rm --no-deps worker finalize --limit 1 --retention
 
 realtime_state="$(compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --field-separator=, --command "SELECT (SELECT count(*) FROM ingest.stop_evidence WHERE evidence_classification = '\''reported_prediction'\''), (SELECT count(*) FROM ingest.stop_evidence WHERE evidence_classification = '\''observed_presence'\''), (SELECT count(*) FROM ingest.service_alert), (SELECT count(*) FROM ingest.live_vehicle_state)"')"
 IFS=',' read -r prediction_count presence_count alert_count vehicle_count <<<"${realtime_state}"
@@ -120,4 +122,4 @@ if [[ "${health}" != 'healthy' ]]; then
   exit 1
 fi
 
-echo 'Compose smoke test passed: startup ordering, deterministic protobuf polling, worker restart, PostgreSQL interruption, bounded SQLite queuing, ordered recovery, duplicate-safe evidence, Madrid-only filtered payloads, and doctor health all succeeded.'
+echo 'Compose smoke test passed: startup ordering, deterministic protobuf polling, worker restart, PostgreSQL interruption, bounded SQLite queuing, ordered recovery, duplicate-safe evidence, aggregate/finalize commands, Madrid-only filtered payloads, and doctor health all succeeded.'

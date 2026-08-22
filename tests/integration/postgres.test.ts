@@ -95,6 +95,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
       resolve(process.cwd(), 'migrations/0006_aggregation_retention.sql'),
       join(directory, '0006_aggregation_retention.sql'),
     ),
+    cp(
+      resolve(process.cwd(), 'migrations/0007_m4_correctness_gates.sql'),
+      join(directory, '0007_m4_correctness_gates.sql'),
+    ),
   ]);
 }
 
@@ -189,6 +193,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
         '0006_aggregation_retention.sql',
+        '0007_m4_correctness_gates.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -210,6 +215,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
         '0006_aggregation_retention.sql',
+        '0007_m4_correctness_gates.sql',
       ]);
     });
 
@@ -605,6 +611,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0004_realtime_ingestion.sql',
           '0005_canonical_journeys.sql',
           '0006_aggregation_retention.sql',
+          '0007_m4_correctness_gates.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });

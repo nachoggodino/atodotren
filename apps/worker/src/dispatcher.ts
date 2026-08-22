@@ -448,6 +448,8 @@ export async function runIngestCommand(
       onEvent: (event, fields) => {
         if (event.startsWith('notification.')) logger.warn(event, 'Notification operation failed', fields);
         else if (event === 'canonical.maintenance_failed') logger.error(event, 'Canonical maintenance failed', fields);
+        else if (event === 'finalization.maintenance_failed') logger.warn(event, 'Finalization maintenance failed', fields);
+        else if (event === 'finalization.maintenance_recovered') logger.info(event, 'Finalization maintenance recovered', fields);
         else logger.info(event, 'Realtime feed poll completed', fields);
       },
     });

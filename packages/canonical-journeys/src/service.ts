@@ -63,7 +63,13 @@ export interface JourneyProvenance {
   readonly matchingConfidence: number;
 }
 
-interface JourneyRow { id: string; finalized_at: Date | null; repair_version: number; canonical_algorithm_version: string }
+interface JourneyRow {
+  id: string;
+  finalized_at: Date | null;
+  repair_version: number;
+  canonical_algorithm_version: string;
+  opportunity_source: 'realtime_evidence' | 'static_timetable';
+}
 
 export interface CanonicalizeOptions {
   readonly pool: Pool;
@@ -226,30 +232,56 @@ async function processKey(
       matchingVersion: row.matching_version,
     })));
     const journeyResult = await client.query<JourneyRow>(`
-      SELECT id, finalized_at, repair_version, canonical_algorithm_version
+      SELECT id, finalized_at, repair_version, canonical_algorithm_version, opportunity_source
       FROM core.journey
-      WHERE service_date = $1::date AND network_id = $2 AND feed_version_id = $3
-        AND source_trip_id = $4 AND start_time IS NOT DISTINCT FROM $5
+      WHERE service_date = $1::date AND network_id = $2 AND source_trip_id = $4
+        AND (
+          (feed_version_id = $3 AND start_time IS NOT DISTINCT FROM $5)
+          OR (
+            opportunity_source = 'static_timetable'
+            AND line_id = $6 AND branch_id = $7 AND direction IS NOT DISTINCT FROM $8
+            AND service_pattern_id = $9 AND scheduled_start_seconds = $10
+            AND scheduled_end_seconds = $11
+          )
+        )
+      ORDER BY (feed_version_id = $3 AND start_time IS NOT DISTINCT FROM $5) DESC,
+        (opportunity_source = 'static_timetable') DESC
+      LIMIT 1
       FOR UPDATE
-    `, [key.service_date, staticRow.network_id, key.feed_version_id, key.source_trip_id, key.start_time]);
+    `, [key.service_date, staticRow.network_id, key.feed_version_id, key.source_trip_id, key.start_time,
+      staticRow.line_id, staticRow.branch_id, staticRow.direction_id, staticRow.service_pattern_id,
+      staticRow.scheduled_start_seconds, staticRow.scheduled_end_seconds]);
     let journey = journeyResult.rows[0];
     const repairedClosedAt = journey?.finalized_at ?? null;
     if (journey?.finalized_at !== null && journey !== undefined) {
-      if (repairVersion === 0) {
+      const claimingExpectedOpportunity = journey.opportunity_source === 'static_timetable';
+      if (repairVersion === 0 && !claimingExpectedOpportunity) {
         await client.query('ROLLBACK');
         return;
       }
-      if (repairVersion <= journey.repair_version || algorithmVersion === journey.canonical_algorithm_version || repairReason === undefined) {
+      if (!claimingExpectedOpportunity &&
+        (repairVersion <= journey.repair_version || algorithmVersion === journey.canonical_algorithm_version || repairReason === undefined)) {
         await client.query('ROLLBACK');
         report.errors.closed_requires_repair = (report.errors.closed_requires_repair ?? 0) + 1;
         return;
       }
       await client.query(`
         UPDATE core.journey SET lifecycle_status = 'open', finalized_at = NULL,
-          canonical_algorithm_version = $3, repair_version = $4, repaired_at = clock_timestamp(),
-          repair_reason = $5, revision = revision + 1, updated_at = clock_timestamp()
+          canonical_algorithm_version = $3, repair_version = $4,
+          repaired_at = CASE WHEN $4::integer > 0 THEN clock_timestamp() ELSE NULL END,
+          repair_reason = CASE WHEN $4::integer > 0 THEN $5 ELSE NULL END,
+          start_time = $6,
+          feed_version_id = CASE WHEN opportunity_source = 'static_timetable'
+            THEN $9 ELSE feed_version_id END,
+          opportunity_source = CASE WHEN opportunity_source = 'static_timetable'
+            THEN 'realtime_evidence' ELSE opportunity_source END,
+          first_evidence_at = CASE WHEN opportunity_source = 'static_timetable' THEN $7 ELSE first_evidence_at END,
+          last_evidence_at = CASE WHEN opportunity_source = 'static_timetable' THEN $8 ELSE last_evidence_at END,
+          revision = revision + 1, updated_at = clock_timestamp()
         WHERE service_date = $1::date AND id = $2
-      `, [key.service_date, journey.id, algorithmVersion, repairVersion, repairReason]);
+      `, [key.service_date, journey.id, algorithmVersion, repairVersion,
+        claimingExpectedOpportunity ? 'late evidence claimed timetable opportunity' : repairReason,
+        key.start_time, firstEvidence.captured_at, lastEvidence.captured_at, key.feed_version_id]);
       await client.query(`
         UPDATE core.journey_stop SET
           renfe_arrival_at = NULL, renfe_arrival_delay_seconds = NULL,
@@ -263,7 +295,13 @@ async function processKey(
           revision = revision + 1, updated_at = clock_timestamp()
         WHERE service_date = $1::date AND journey_id = $2
       `, [key.service_date, journey.id, algorithmVersion, repairVersion]);
-      journey = { ...journey, finalized_at: null, repair_version: repairVersion, canonical_algorithm_version: algorithmVersion };
+      journey = {
+        ...journey,
+        finalized_at: null,
+        repair_version: repairVersion,
+        canonical_algorithm_version: algorithmVersion,
+        opportunity_source: claimingExpectedOpportunity ? 'realtime_evidence' : journey.opportunity_source,
+      };
     }
     if (journey === undefined) {
       const inserted = await client.query<JourneyRow>(`
@@ -277,7 +315,7 @@ async function processKey(
           $1::date, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
           core.service_instant($1::date, $11, $13), core.service_instant($1::date, $12, $13),
           $14, $15, $16, $17, $18, $19, $20
-        ) RETURNING id, finalized_at, repair_version, canonical_algorithm_version
+        ) RETURNING id, finalized_at, repair_version, canonical_algorithm_version, opportunity_source
       `, [
         key.service_date, staticRow.network_id, key.feed_version_id, key.source_trip_id, key.start_time,
         provenance.startDateSource, staticRow.line_id, staticRow.branch_id, staticRow.direction_id,
@@ -369,10 +407,11 @@ async function processKey(
     }
     await client.query(`
       UPDATE core.journey SET trip_relationship = $3, lifecycle_status = $4,
-        first_evidence_at = LEAST(first_evidence_at, $5), last_evidence_at = GREATEST(last_evidence_at, $6),
+        first_evidence_at = LEAST(COALESCE(first_evidence_at, $5), $5),
+        last_evidence_at = GREATEST(COALESCE(last_evidence_at, $6), $6),
         finalized_at = $7, canonical_algorithm_version = $8,
         start_date_source = $10, matching_method = $11, matching_version = $12,
-        matching_confidence = $13,
+        matching_confidence = $13, opportunity_source = 'realtime_evidence', start_time = $14,
         repair_version = GREATEST(repair_version, $9),
         repaired_at = CASE WHEN $9::integer > 0 THEN COALESCE(repaired_at, clock_timestamp()) ELSE repaired_at END,
         revision = revision + 1, updated_at = clock_timestamp()
@@ -380,7 +419,7 @@ async function processKey(
     `, [key.service_date, journey.id, lastEvidence.trip_relationship,
       canceled ? lifecycle : (finalize === null ? 'open' : 'closed'), firstEvidence.captured_at, lastEvidence.captured_at,
       finalize, algorithmVersion, repairVersion, provenance.startDateSource,
-      provenance.matchingMethod, provenance.matchingVersion, provenance.matchingConfidence]);
+      provenance.matchingMethod, provenance.matchingVersion, provenance.matchingConfidence, key.start_time]);
     if (finalize !== null) report.journeysClosed += 1;
     await client.query('COMMIT');
   } catch (error) {
@@ -413,6 +452,7 @@ export async function canonicalizeJourneys(options: CanonicalizeOptions): Promis
           journey.service_date::text, journey.start_time
         FROM core.journey AS journey
         WHERE journey.service_date = $1::date AND journey.finalized_at IS NOT NULL
+          AND journey.opportunity_source = 'realtime_evidence'
           AND journey.repair_version < $3
           AND journey.canonical_algorithm_version <> $4
         ORDER BY EXISTS (
@@ -441,7 +481,10 @@ export async function canonicalizeJourneys(options: CanonicalizeOptions): Promis
               AND journey.feed_version_id = evidence.feed_version_id
               AND journey.source_trip_id = evidence.source_trip_id
               AND journey.start_time IS NOT DISTINCT FROM evidence.start_time
-              AND journey.finalized_at IS NULL AND evidence.captured_at > journey.last_evidence_at
+              AND (
+                journey.opportunity_source = 'static_timetable'
+                OR (journey.finalized_at IS NULL AND evidence.captured_at > journey.last_evidence_at)
+              )
           ))
         ORDER BY service_date, feed_version_id, source_trip_id, start_time
         LIMIT $2

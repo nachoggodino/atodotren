@@ -18,7 +18,7 @@ export interface DoctorCheck {
 
 export interface DoctorReport {
   readonly ok: true;
-  readonly scope: 'milestone-3';
+  readonly scope: 'milestone-4';
   readonly checks: readonly DoctorCheck[];
 }
 
@@ -305,5 +305,5 @@ export async function runDatabaseDoctor(options: DoctorOptions): Promise<DoctorR
     details: { configured: options.realtime?.heartbeatConfigured ?? false },
   });
 
-  return { ok: true, scope: 'milestone-3', checks };
+  return { ok: true, scope: 'milestone-4', checks };
 }
