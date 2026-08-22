@@ -277,6 +277,8 @@ export async function runIngestCommand(
         ...(config.operations.heartbeatUrl === undefined ? {} : { heartbeatUrl: config.operations.heartbeatUrl }),
         failureThreshold: config.operations.failureThreshold,
         matchingRateMinimum: config.operations.matchingRateMinimum,
+        matchingRateRecoveryMinimum: config.operations.matchingRateRecoveryMinimum,
+        matchingRecoveryThreshold: config.operations.matchingRecoveryThreshold,
         malformedRateMaximum: config.operations.malformedRateMaximum,
         spoolWarningRatio: config.operations.spoolWarningRatio,
         staleAfterMs: config.operations.staleAfterMs,
@@ -284,7 +286,10 @@ export async function runIngestCommand(
       ...(cliOptions.cycles === undefined ? {} : { cycles: cliOptions.cycles }),
       signal: shutdown.signal,
       transports,
-      onEvent: (event, fields) => logger.info(event, 'Realtime feed poll completed', fields),
+      onEvent: (event, fields) => {
+        if (event.startsWith('notification.')) logger.warn(event, 'Notification operation failed', fields);
+        else logger.info(event, 'Realtime feed poll completed', fields);
+      },
     });
     stdout.write(`${JSON.stringify({ command: 'ingest', ...report, spool: spool.stats() })}\n`);
     return report.cyclesAttempted > 0 && report.successfulCycles === report.cyclesAttempted ? 0 : 1;

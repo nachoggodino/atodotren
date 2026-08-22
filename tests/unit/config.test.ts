@@ -49,6 +49,23 @@ void test('accepts a separate migration URL without changing the runtime URL', (
   );
 });
 
+void test('validates matching alert hysteresis boundaries and consecutive recovery count', () => {
+  const config = loadConfig(validEnvironment);
+  assert.equal(config.operations.matchingRateMinimum, 0.02);
+  assert.equal(config.operations.matchingRateRecoveryMinimum, 0.05);
+  assert.equal(config.operations.matchingRecoveryThreshold, 3);
+  assert.throws(
+    () => loadConfig({
+      ...validEnvironment,
+      INGEST_MATCHING_RATE_MINIMUM: '0.05',
+      INGEST_MATCHING_RATE_RECOVERY_MINIMUM: '0.02',
+    }),
+    (error: unknown) => error instanceof ConfigError && error.issues.includes(
+      'INGEST_MATCHING_RATE_RECOVERY_MINIMUM must be greater than INGEST_MATCHING_RATE_MINIMUM',
+    ),
+  );
+});
+
 void test('migration URL falls back only when it is undefined', () => {
   assert.equal(loadConfig(validEnvironment).migrationDatabase.url, validEnvironment.DATABASE_URL);
   for (const value of ['', '   ', '\t']) {

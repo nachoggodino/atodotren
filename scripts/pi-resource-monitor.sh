@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Temporary, acceptance-only host resource helper. Its in-memory alert state is
+# intentionally lost on restart. Product incident state and notifications belong
+# to the worker; do not extend this script into a second operational alert system.
+
 ENV_FILE="${1:-.env}"
 
 STATUS_INTERVAL_SECONDS="${STATUS_INTERVAL_SECONDS:-1800}"
@@ -15,37 +19,31 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
-
-if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
-  echo "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured in $ENV_FILE" >&2
-  exit 1
-fi
-
-for command in docker curl python3 awk df free; do
+for command in docker curl node awk df free; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Required command not found: $command" >&2
     exit 1
   fi
 done
 
+mapfile -t telegram_config < <(
+  docker compose --env-file "$ENV_FILE" config --format json |
+    node -e 'let input=""; process.stdin.on("data",c=>input+=c); process.stdin.on("end",()=>{const env=JSON.parse(input).services.worker.environment; console.log(env.TELEGRAM_BOT_TOKEN ?? ""); console.log(env.TELEGRAM_CHAT_ID ?? "");});'
+)
+TELEGRAM_BOT_TOKEN="${telegram_config[0]:-}"
+TELEGRAM_CHAT_ID="${telegram_config[1]:-}"
+
+if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
+  echo "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be configured in $ENV_FILE" >&2
+  exit 1
+fi
+
 send_telegram() {
   local message="$1"
   local payload
 
   payload="$(
-    python3 - "$TELEGRAM_CHAT_ID" "$message" <<'PY'
-import json
-import sys
-
-print(json.dumps({
-    "chat_id": sys.argv[1],
-    "text": sys.argv[2],
-}))
-PY
+    node -e 'console.log(JSON.stringify({chat_id:process.argv[1],text:process.argv[2]}))' "$TELEGRAM_CHAT_ID" "$message"
   )"
 
   curl \
@@ -65,7 +63,7 @@ safe_send_telegram() {
 
   if ! send_telegram "$message"; then
     echo "WARNING: Telegram delivery failed; monitor will continue running." >&2
-    return 0
+    return 1
   fi
 }
 
@@ -100,21 +98,11 @@ get_worker_running() {
   [[ -n "$worker_id" ]]
 }
 
-get_database_size() {
-  docker compose \
-    --env-file "$ENV_FILE" \
-    exec -T postgres sh -c \
-    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
-      "SELECT pg_size_pretty(pg_database_size(current_database()));"' \
-    2>/dev/null || echo "unavailable"
-}
-
 build_status_message() {
   local ram_line
   local swap_line
   local disk_line
   local load_line
-  local db_size
   local worker_status
 
   ram_line="$(
@@ -141,8 +129,6 @@ build_status_message() {
     }' /proc/loadavg
   )"
 
-  db_size="$(get_database_size)"
-
   if get_worker_running; then
     worker_status="Worker: RUNNING ✅"
   else
@@ -157,7 +143,6 @@ $worker_status
 $ram_line
 $swap_line
 $disk_line
-Database: $db_size
 $load_line
 EOF
 }
@@ -171,12 +156,12 @@ raise_alert() {
   if [[ "${ACTIVE_ALERTS[$key]:-0}" != "1" ]]; then
     echo "ALERT: $message"
 
-    safe_send_telegram "⚠️ Atodotren alert
+    if safe_send_telegram "⚠️ Atodotren alert
 
 $(date '+%Y-%m-%d %H:%M:%S %Z')
-$message"
-
-    ACTIVE_ALERTS["$key"]=1
+$message"; then
+      ACTIVE_ALERTS["$key"]=1
+    fi
   fi
 }
 
@@ -187,12 +172,12 @@ recover_alert() {
   if [[ "${ACTIVE_ALERTS[$key]:-0}" == "1" ]]; then
     echo "RECOVERY: $message"
 
-    safe_send_telegram "✅ Atodotren recovery
+    if safe_send_telegram "✅ Atodotren recovery
 
 $(date '+%Y-%m-%d %H:%M:%S %Z')
-$message"
-
-    ACTIVE_ALERTS["$key"]=0
+$message"; then
+      ACTIVE_ALERTS["$key"]=0
+    fi
   fi
 }
 
@@ -254,16 +239,16 @@ echo "Swap alert:      > ${MAX_SWAP_USED_MIB} MiB used"
 echo "Disk alert:      < ${MIN_DISK_FREE_GIB} GiB free"
 echo
 
-safe_send_telegram "🟢 Atodotren resource monitor started
+safe_send_telegram "🟢 Atodotren acceptance resource monitor started
 
 $(date '+%Y-%m-%d %H:%M:%S %Z')
 
 Status every $((STATUS_INTERVAL_SECONDS / 60)) min
 RAM alert < ${MIN_AVAILABLE_RAM_MIB} MiB available
 Swap alert > ${MAX_SWAP_USED_MIB} MiB
-Disk alert < ${MIN_DISK_FREE_GIB} GiB free"
+Disk alert < ${MIN_DISK_FREE_GIB} GiB free" || true
 
-last_status=0
+last_status="$(date +%s)"
 
 while true; do
   now="$(date +%s)"
@@ -276,7 +261,7 @@ while true; do
     echo "$status_message"
     echo
 
-    safe_send_telegram "$status_message"
+    safe_send_telegram "$status_message" || true
 
     last_status="$now"
   fi

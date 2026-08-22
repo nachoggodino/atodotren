@@ -3,8 +3,9 @@
 Milestone 2 adds portable, provider-neutral Madrid GTFS-Realtime ingestion to the
 accepted static foundation. Deterministic and bounded smoke gates cover protobuf
 polling, active/previous matching, changed evidence, live state, alerts, and SQLite
-outage replay. Full acceptance remains pending the documented unattended 48-hour
-run. The project does not yet build canonical journeys, aggregates, an API, or a frontend.
+outage replay. The unattended 48-hour gate and focused notification-correctness
+follow-up have passed. The project does not yet build canonical journeys,
+aggregates, an API, or a frontend.
 
 ## Prerequisites
 
@@ -161,11 +162,29 @@ docker compose --env-file .env run --rm --no-deps worker replay
 `HEARTBEAT_URL` is optional and is called only after a successful fetch plus
 durable PostgreSQL or spool persistence. Telegram (`TELEGRAM_BOT_TOKEN` plus
 `TELEGRAM_CHAT_ID`) and SMTP (`SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`, with optional
-credentials) are independent. Incidents are deduplicated and normally notify
-after three consecutive observations, with recovery notices. Partial delivery is
-tracked per channel in the running worker, so a successful Telegram delivery is
-not repeated while only a failed SMTP delivery is retried. Ordinary tests use
-fake transports and never send messages.
+credentials) are independent. Each incident key is a sequence of independent
+episodes. An episode normally sends ACTIVE once after three consecutive bad
+observations; a pending episode that recovers earlier closes silently. RECOVERY is
+sent once, and only through channels that delivered ACTIVE for that episode. A
+new episode starts at occurrence one without inheriting prior notification state.
+Partial delivery is tracked per channel in the running worker, so a successful
+Telegram delivery is not repeated while only a failed SMTP delivery is retried.
+`heartbeat.failure` covers failed delivery attempts and is observed healthy after
+the next successful delivery; `heartbeat.stale` separately covers elapsed time
+without a success. Ordinary tests use fake transports and never send messages.
+
+Matching-collapse alerts add hysteresis without changing the 2% aggregate
+acceptance gate: entry requires `INGEST_ALERT_FAILURE_THRESHOLD` consecutive
+observations below `INGEST_MATCHING_RATE_MINIMUM` (defaults 3 and 0.02), while
+recovery requires `INGEST_MATCHING_RECOVERY_THRESHOLD` consecutive observations
+above `INGEST_MATCHING_RATE_RECOVERY_MINIMUM` (defaults 3 and 0.05). The recovery
+boundary must be greater than the entry boundary.
+
+Incident metadata failures and channel failures emit credential-safe structured
+`notification.*_failed` events while durable RENFE ingestion continues. Per-channel
+retry state is process-local: a crash after a channel send but before its database
+marker can rarely duplicate that delivery. A durable per-channel outbox is deferred
+to Milestone 6.
 
 Explicitly test the configured real channels from the built Compose worker only
 when sending a labelled test message and heartbeat is intended:
@@ -406,11 +425,12 @@ Many national trip and vehicle descriptors in the observed feed omitted
 `route_id`. They are therefore counted as unmatched and discarded, not guessed as
 non-Madrid. The default matching-collapse floor is conservatively 2% for this
 national-feed denominator and remains configurable with
-`INGEST_MATCHING_RATE_MINIMUM`; the 48-hour run must establish a useful operating
-baseline before tightening it.
+`INGEST_MATCHING_RATE_MINIMUM`. The completed 48-hour run measured 31.30%
+aggregate matching, so the alert correction does not alter matching logic or
+this gate.
 
 The unattended acceptance gate is intentionally separate from implementation
-verification. Run it later with:
+verification. A future evidence run can use:
 
 ```sh
 ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env
@@ -422,9 +442,12 @@ relation/index sizes, endpoint failures, incident/recovery state, and heartbeat
 state. It leaves the stack running for inspection and exits nonzero if the worker
 is no longer running, the derived minimum poll count is missed, successful poll
 coverage is below 90%, matching/malformed thresholds fail, the spool is nonempty
-or has dropped operations, or an incident remains open. The default minimum poll
-count is 90% of the polls implied by enabled feeds, configured intervals, and run
-duration. Useful overrides are `ATODOTREN_ACCEPTANCE_MIN_POLLS`,
+or has dropped operations, or a notified incident remains unresolved. Pending,
+below-threshold episodes remain in the report for diagnosis but do not fail the
+gate. Resource samples are JSON records; invalid Docker zero-memory readings fall
+back to the container cgroup, or are explicitly marked unavailable. The default
+minimum poll count is 90% of the polls implied by enabled feeds, configured
+intervals, and run duration. Useful overrides are `ATODOTREN_ACCEPTANCE_MIN_POLLS`,
 `ATODOTREN_ACCEPTANCE_MIN_POLL_RATIO`,
 `ATODOTREN_ACCEPTANCE_MIN_SUCCESS_COVERAGE`,
 `ATODOTREN_ACCEPTANCE_MIN_MATCHING_RATE`, and
@@ -433,7 +456,18 @@ from `INGEST_MATCHING_RATE_MINIMUM` and `INGEST_MALFORMED_RATE_MAXIMUM`.
 
 The command uses the Compose `postgres-data` and `realtime-spool` named volumes
 and deliberately leaves both, plus the running stack, available for inspection.
-A short smoke is not evidence that this 48-hour gate passed.
+The accepted run produced 14,384 polls with 99.74% successful coverage, 31.30%
+aggregate Madrid matching, 0.01% malformed entities, zero ambiguous matches,
+161,793 changed evidence rows, and 435,726 identical repeats suppressed. It ended
+with no spool backlog or dropped operations and used approximately 185 MB across
+realtime ingest/operations relations. No second 48-hour run is required for the
+notification correction.
+
+`scripts/pi-resource-monitor.sh` remains a temporary acceptance-only host helper,
+not a production alerting system. It reads only its Telegram settings from the
+resolved Compose configuration, does not query PostgreSQL with administrator
+credentials, and records delivery state only in memory; that state is lost when
+the script restarts.
 
 ## Diagnosing failures
 

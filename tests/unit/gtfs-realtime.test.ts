@@ -9,6 +9,7 @@ import {
   decodeFeed,
   FeedAcquisitionError,
   FeedDecodeError,
+  IncidentTracker,
   matchTrip,
   mergeStaticMatchIndex,
   normalizeFeed,
@@ -21,6 +22,8 @@ import {
   sendOperationalAlert,
   type NormalizedBatch,
   type PollRecord,
+  type IncidentRecord,
+  type IncidentStore,
   type StaticMatchIndex,
   type StaticTripCandidate,
 } from '@atodotren/gtfs-realtime';
@@ -202,6 +205,212 @@ void test('partial alert delivery retries only failed transports and recovery re
   assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 2, smtpCalls: 3 });
 });
 
+class MemoryIncidentStore implements IncidentStore {
+  readonly records = new Map<string, IncidentRecord>();
+  failRead = false;
+  failSave = false;
+  failMark = false;
+  failClose = false;
+
+  public read(incidentKey: string): Promise<IncidentRecord | undefined> {
+    if (this.failRead) return Promise.reject(Object.assign(new Error('hidden connection detail'), { code: 'XX001' }));
+    return Promise.resolve(this.records.get(incidentKey));
+  }
+
+  public saveOpen(options: { readonly incidentKey: string; readonly occurrenceCount: number }): Promise<void> {
+    if (this.failSave) return Promise.reject(Object.assign(new Error('hidden connection detail'), { code: '08006' }));
+    const existing = this.records.get(options.incidentKey);
+    this.records.set(options.incidentKey, {
+      openedAt: existing?.isOpen === true ? existing.openedAt : new Date('2026-08-22T10:00:00Z'),
+      occurrenceCount: options.occurrenceCount,
+      isOpen: true,
+      lastNotifiedAt: existing?.isOpen === true ? existing.lastNotifiedAt : null,
+    });
+    return Promise.resolve();
+  }
+
+  public markNotified(incidentKey: string): Promise<void> {
+    if (this.failMark) return Promise.reject(new Error('hidden connection detail'));
+    const existing = this.records.get(incidentKey);
+    if (existing !== undefined) {
+      this.records.set(incidentKey, { ...existing, lastNotifiedAt: new Date('2026-08-22T10:01:00Z') });
+    }
+    return Promise.resolve();
+  }
+
+  public close(incidentKey: string): Promise<void> {
+    if (this.failClose) return Promise.reject(new Error('hidden connection detail'));
+    const existing = this.records.get(incidentKey);
+    if (existing !== undefined) this.records.set(incidentKey, { ...existing, isOpen: false });
+    return Promise.resolve();
+  }
+}
+
+function incidentHarness(store = new MemoryIncidentStore()): {
+  readonly store: MemoryIncidentStore;
+  readonly deliveries: boolean[];
+  readonly tracker: IncidentTracker;
+  readonly observe: (active: boolean) => Promise<string>;
+} {
+  const deliveries: boolean[] = [];
+  const tracker = new IncidentTracker({
+    store,
+    transports: [{
+      name: 'fake',
+      send: (message) => { deliveries.push(message.recovery); return Promise.resolve(); },
+    }],
+    now: () => new Date('2026-08-22T10:00:00Z'),
+  });
+  return {
+    store, deliveries, tracker,
+    observe: async (active) => tracker.observe({
+      incidentKey: 'test.episode', active, threshold: 3, title: 'Episode', body: 'test',
+    }),
+  };
+}
+
+void test('incident episodes enforce threshold, single delivery, silent pending close, and clean reopening', async () => {
+  const cases: readonly { readonly sequence: readonly boolean[]; readonly expected: readonly boolean[] }[] = [
+    { sequence: [true, true, false], expected: [] },
+    { sequence: [true, true, true], expected: [false] },
+    { sequence: [true, true, true, true, true], expected: [false] },
+    { sequence: [true, true, true, false], expected: [false, true] },
+    { sequence: [true, true, true, false, true, false], expected: [false, true] },
+    { sequence: [true, true, true, false, true, true, false], expected: [false, true] },
+    { sequence: [true, true, true, false, true, true, true, false], expected: [false, true, false, true] },
+  ];
+  for (const item of cases) {
+    const harness = incidentHarness();
+    for (const active of item.sequence) await harness.observe(active);
+    assert.deepEqual(harness.deliveries, item.expected);
+  }
+});
+
+void test('incident persistence prevents restart duplicates and recovered state starts a fresh episode', async () => {
+  const first = incidentHarness();
+  await first.observe(true);
+  await first.observe(true);
+  await first.observe(true);
+  const restarted = incidentHarness(first.store);
+  await restarted.observe(true);
+  assert.deepEqual([...first.deliveries, ...restarted.deliveries], [false]);
+  await restarted.observe(false);
+  const afterRecovery = incidentHarness(first.store);
+  await afterRecovery.observe(true);
+  await afterRecovery.observe(false);
+  assert.deepEqual(afterRecovery.deliveries, []);
+  assert.equal(first.store.records.get('test.episode')?.occurrenceCount, 1);
+  assert.equal(first.store.records.get('test.episode')?.lastNotifiedAt, null);
+});
+
+void test('acceptance semantics retain a below-threshold episode without classifying it as unresolved notified', async () => {
+  const harness = incidentHarness();
+  await harness.observe(true);
+  const pending = harness.store.records.get('test.episode');
+  assert.equal(pending?.isOpen, true);
+  assert.equal(pending?.occurrenceCount, 1);
+  assert.equal(pending?.lastNotifiedAt, null);
+  assert.equal(pending?.isOpen === true && pending.lastNotifiedAt !== null, false);
+});
+
+void test('incident failures emit credential-safe structured events and bound duplicate recovery after a close failure', async () => {
+  const events: { event: string; fields: Readonly<Record<string, unknown>> }[] = [];
+  const readStore = new MemoryIncidentStore();
+  readStore.failRead = true;
+  const readTracker = new IncidentTracker({
+    store: readStore, transports: [], onEvent: (event, fields) => events.push({ event, fields }),
+  });
+  await readTracker.observe({ incidentKey: 'test.read', active: true, threshold: 3, title: 'Read', body: 'test' });
+  assert.equal(events[0]?.event, 'notification.state_read_failed');
+  assert.deepEqual(events[0]?.fields, {
+    incidentKey: 'test.read', operation: 'read', errorName: 'Error', errorCode: 'XX001',
+  });
+
+  const writeStore = new MemoryIncidentStore();
+  writeStore.failSave = true;
+  const writeTracker = new IncidentTracker({
+    store: writeStore, transports: [], onEvent: (event, fields) => events.push({ event, fields }),
+  });
+  await writeTracker.observe({ incidentKey: 'test.write', active: true, threshold: 3, title: 'Write', body: 'test' });
+  assert.equal(events.some(({ event }) => event === 'notification.state_write_failed'), true);
+
+  const closeHarness = incidentHarness();
+  await closeHarness.observe(true); await closeHarness.observe(true); await closeHarness.observe(true);
+  closeHarness.store.failClose = true;
+  await closeHarness.observe(false);
+  await closeHarness.observe(false);
+  assert.deepEqual(closeHarness.deliveries, [false, true]);
+});
+
+void test('partial-channel incident delivery retries only the failed channel and recovers only channels that saw ACTIVE', async () => {
+  const store = new MemoryIncidentStore();
+  let telegramCalls = 0;
+  let smtpCalls = 0;
+  const events: string[] = [];
+  const tracker = new IncidentTracker({
+    store,
+    transports: [
+      { name: 'telegram', send: () => { telegramCalls += 1; return Promise.resolve(); } },
+      { name: 'smtp', send: () => {
+        smtpCalls += 1;
+        return smtpCalls === 1 ? Promise.reject(new Error('SMTP unavailable')) : Promise.resolve();
+      } },
+    ],
+    onEvent: (event) => events.push(event),
+  });
+  const observe = async (active: boolean) => tracker.observe({
+    incidentKey: 'test.partial-episode', active, threshold: 3, title: 'Partial', body: 'test',
+  });
+  await observe(true); await observe(true); await observe(true);
+  assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 1, smtpCalls: 1 });
+  assert.equal(events.includes('notification.delivery_failed'), true);
+  await observe(true);
+  assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 1, smtpCalls: 2 });
+  await observe(false);
+  assert.deepEqual({ telegramCalls, smtpCalls }, { telegramCalls: 2, smtpCalls: 3 });
+
+  let recoveryOnlyTelegram = 0;
+  let neverActiveSmtp = 0;
+  const partialThenHealthy = new IncidentTracker({
+    store: new MemoryIncidentStore(),
+    transports: [
+      { name: 'telegram', send: () => { recoveryOnlyTelegram += 1; return Promise.resolve(); } },
+      { name: 'smtp', send: () => { neverActiveSmtp += 1; return Promise.reject(new Error('down')); } },
+    ],
+  });
+  const partial = async (active: boolean) => partialThenHealthy.observe({
+    incidentKey: 'test.partial-close', active, threshold: 3, title: 'Partial', body: 'test',
+  });
+  await partial(true); await partial(true); await partial(true); await partial(false);
+  assert.deepEqual({ recoveryOnlyTelegram, neverActiveSmtp }, { recoveryOnlyTelegram: 2, neverActiveSmtp: 1 });
+});
+
+void test('heartbeat failure episodes notify and recover only after crossing the threshold', async () => {
+  const notified = incidentHarness();
+  await notified.observe(true); await notified.observe(true); await notified.observe(true); await notified.observe(false);
+  assert.deepEqual(notified.deliveries, [false, true]);
+  assert.equal(notified.store.records.get('test.episode')?.isOpen, false);
+  const pending = incidentHarness();
+  await pending.observe(true); await pending.observe(false);
+  assert.deepEqual(pending.deliveries, []);
+});
+
+void test('matching hysteresis requires consecutive low entry and consecutive high recovery observations', async () => {
+  const harness = incidentHarness();
+  const observeRate = async (rate: number) => harness.tracker.observe({
+    incidentKey: 'test.episode',
+    active: rate < 0.02,
+    recoveryObserved: rate > 0.05,
+    recoveryThreshold: 3,
+    threshold: 3,
+    title: 'Matching', body: String(rate),
+  });
+  for (const rate of [0.019, 0.021, 0.019, 0.021, 0.019]) await observeRate(rate);
+  assert.deepEqual(harness.deliveries, []);
+  for (const rate of [0.019, 0.019, 0.03, 0.049, 0.051, 0.049, 0.051, 0.051, 0.051]) await observeRate(rate);
+  assert.deepEqual(harness.deliveries, [false, true]);
+});
+
 void test('long-running static cache replaces candidates when active/previous identities change', () => {
   const initial: StaticMatchIndex = {
     versionIdentity: { activeFeedVersionId: '10', previousFeedVersionId: '9' },
@@ -221,7 +430,7 @@ void test('cold static-index failure is deferred safely and a later cycle retrie
   const directory = await mkdtemp(join(tmpdir(), 'atodotren-cold-index-'));
   const spool = new OutageSpool(join(directory, 'spool.sqlite'), 2_000_000);
   let loads = 0;
-  let clock = Date.parse('2026-08-17T10:00:00.000Z');
+  let clock = Date.parse('2099-08-17T10:00:00.000Z');
   const body = encode([{
     id: 'tu-cold', tripUpdate: {
       trip: { tripId: '10T1', startDate: '20260817' }, timestamp: 1_725_000_001,
@@ -241,7 +450,8 @@ void test('cold static-index failure is deferred safely and a later cycle retrie
         endpoints: [{ kind: 'trip_updates', url: 'http://localhost/feed', enabled: true }],
         requestTimeoutMs: 1_000, maxResponseBytes: 1_024 * 1024,
         cycleIntervalMs: 1, alertIntervalMs: 60_000, failureThreshold: 3,
-        matchingRateMinimum: 0.02, malformedRateMaximum: 0.25,
+        matchingRateMinimum: 0.02, matchingRateRecoveryMinimum: 0.05,
+        matchingRecoveryThreshold: 3, malformedRateMaximum: 0.25,
         spoolWarningRatio: 0.75, staleAfterMs: 120_000,
       },
       fetchImplementation: () => Promise.resolve(new Response(body, { status: 200 })),
@@ -274,8 +484,8 @@ void test('cold static-index failure is deferred safely and a later cycle retrie
 function poll(id: string): PollRecord {
   return {
     idempotencyKey: id.padEnd(64, '0'), feedKind: 'vehicle_positions',
-    startedAt: '2026-08-17T10:00:00.000Z', completedAt: '2026-08-17T10:00:01.000Z',
-    capturedAt: '2026-08-17T10:00:01.000Z', feedHeaderTimestamp: 1_725_000_000,
+    startedAt: '2099-08-17T10:00:00.000Z', completedAt: '2099-08-17T10:00:01.000Z',
+    capturedAt: '2099-08-17T10:00:01.000Z', feedHeaderTimestamp: 1_725_000_000,
     httpStatus: 200, resultClass: 'success', responseBytes: 100, entityTotal: 1,
     matchedMadridCount: 1, nonMadridCount: 0, unmatchedCount: 0, invalidCount: 0,
     responseDurationMs: 10, persistenceDurationMs: 0,
@@ -288,12 +498,12 @@ void test('SQLite spool is restart-safe, duplicate-safe, bounded, and sheds vehi
   try {
     const spool = new OutageSpool(path, 2_000_000);
     const batch: NormalizedBatch = {
-      feedKind: 'vehicle_positions', capturedAt: '2026-08-17T10:00:01.000Z',
+      feedKind: 'vehicle_positions', capturedAt: '2099-08-17T10:00:01.000Z',
       headerTimestamp: 1_725_000_000, matchedMadridCount: 1, nonMadridCount: 0,
       unmatchedCount: 0, invalidCount: 0, filteredEntities: [],
       operations: [{
         kind: 'vehicle_state', idempotencyKey: 'a'.repeat(64), stateKey: 'state',
-        capturedAt: '2026-08-17T10:00:01.000Z', feedVersionId: '10', sourceTripId: '10T1',
+        capturedAt: '2099-08-17T10:00:01.000Z', feedVersionId: '10', sourceTripId: '10T1',
         lineId: '1', branchId: '2', servicePatternId: '3', entityId: 'x'.repeat(1_350_000),
         currentStatus: 'IN_TRANSIT_TO', feedHeaderTimestamp: 1_725_000_000,
         projectionInput: 'none', contentChecksum: 'b'.repeat(64),
@@ -308,7 +518,7 @@ void test('SQLite spool is restart-safe, duplicate-safe, bounded, and sheds vehi
       feedKind: 'service_alerts',
       operations: [{
         kind: 'service_alert', idempotencyKey: 'c'.repeat(64), sourceAlertId: 'alert',
-        feedHeaderTimestamp: 1_725_000_000, capturedAt: '2026-08-17T10:00:02.000Z',
+        feedHeaderTimestamp: 1_725_000_000, capturedAt: '2099-08-17T10:00:02.000Z',
         activePeriods: [], cause: 'UNKNOWN_CAUSE', effect: 'UNKNOWN_EFFECT',
         headerText: 'important'.repeat(80_000), descriptionText: '',
         contentChecksum: 'd'.repeat(64),

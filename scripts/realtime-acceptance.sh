@@ -76,10 +76,47 @@ metrics_file="$(mktemp /tmp/atodotren-acceptance-metrics.XXXXXX)"
 spool_peak=0
 trap 'rm -f "${metrics_file}"' EXIT
 
+record_resource_sample() {
+  local worker_id="$1"
+  local captured_at
+  local docker_sample
+  local parsed
+  local cgroup_sample
+
+  captured_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  docker_sample="$(docker stats --no-stream --format '{{json .}}' "${worker_id}" 2>/dev/null || true)"
+  if parsed="$(node -e '
+    const raw=process.argv[1]; const capturedAt=process.argv[2];
+    const units={B:1,kB:1e3,KB:1e3,KiB:1024,MB:1e6,MiB:1024**2,GB:1e9,GiB:1024**3};
+    const bytes=value=>{ const match=String(value).trim().match(/^([0-9.]+)\s*([A-Za-z]+)$/); return match ? Number(match[1])*units[match[2]] : NaN; };
+    try { const value=JSON.parse(raw); const [usage,limit]=String(value.MemUsage).split("/").map(bytes); if (!(usage>0) || !(limit>0)) process.exit(1); console.log(JSON.stringify({capturedAt,status:"available",source:"docker_stats",cpu:value.CPUPerc,memoryBytes:Math.round(usage),memoryLimitBytes:Math.round(limit)})); } catch { process.exit(1); }
+  ' "${docker_sample}" "${captured_at}")"; then
+    printf '%s\n' "${parsed}" >>"${metrics_file}"
+    return
+  fi
+
+  cgroup_sample="$(docker exec "${worker_id}" sh -c '
+    if [ -r /sys/fs/cgroup/memory.current ]; then
+      printf "%s,%s" "$(cat /sys/fs/cgroup/memory.current)" "$(cat /sys/fs/cgroup/memory.max)"
+    elif [ -r /sys/fs/cgroup/memory/memory.usage_in_bytes ]; then
+      printf "%s,%s" "$(cat /sys/fs/cgroup/memory/memory.usage_in_bytes)" "$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)"
+    fi
+  ' 2>/dev/null || true)"
+  if parsed="$(node -e '
+    const [usageRaw,limitRaw]=process.argv[1].split(","); const usage=Number(usageRaw); const limit=Number(limitRaw);
+    if (!(usage>0)) process.exit(1);
+    console.log(JSON.stringify({capturedAt:process.argv[2],status:"available",source:"container_cgroup",cpu:null,memoryBytes:usage,memoryLimitBytes:Number.isFinite(limit)&&limit>0?limit:null}));
+  ' "${cgroup_sample}" "${captured_at}")"; then
+    printf '%s\n' "${parsed}" >>"${metrics_file}"
+  else
+    printf '{"capturedAt":"%s","status":"unavailable","source":"none","error":"container_memory_unavailable"}\n' "${captured_at}" >>"${metrics_file}"
+  fi
+}
+
 while [[ "$(date +%s)" -lt "${deadline}" ]]; do
   worker_id="$(compose ps --quiet worker 2>/dev/null || true)"
   if [[ -n "${worker_id}" ]]; then
-    docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' "${worker_id}" >>"${metrics_file}" || true
+    record_resource_sample "${worker_id}"
     if pending_bytes="$(compose exec --no-TTY worker node --input-type=module -e "import { statSync, existsSync } from 'node:fs'; const paths=['/spool/realtime.sqlite','/spool/realtime.sqlite-wal','/spool/realtime.sqlite-shm']; console.log(paths.reduce((n,p)=>n+(existsSync(p)?statSync(p).size:0),0));" 2>/dev/null)"; then
       if [[ "${pending_bytes}" -gt "${spool_peak}" ]]; then spool_peak="${pending_bytes}"; fi
     fi
@@ -123,6 +160,8 @@ SELECT json_build_object(
   'endpoint_failures', (SELECT COALESCE(json_object_agg(feed_kind || '/' || result_class, count), '{}'::json) FROM (SELECT feed_kind, result_class, count(*) FROM polls WHERE result_class <> 'success' GROUP BY feed_kind, result_class) f),
   'relations', (SELECT json_agg(sizes ORDER BY relation) FROM sizes),
   'open_incidents', (SELECT count(*) FROM operations.notification_incident WHERE is_open),
+  'notified_open_incidents', (SELECT count(*) FROM operations.notification_incident WHERE is_open AND last_notified_at IS NOT NULL),
+  'pending_incidents', (SELECT count(*) FROM operations.notification_incident WHERE is_open AND last_notified_at IS NULL),
   'incidents', (SELECT COALESCE(json_agg(notification_incident ORDER BY opened_at), '[]'::json) FROM operations.notification_incident),
   'health', (SELECT row_to_json(ingest_health) FROM operations.ingest_health)
 );
@@ -164,7 +203,7 @@ gates="$(node -e "
     { name:'malformed_rate', passed:report.available === true && Number(report.malformed_rate) <= thresholds.maximumMalformedRate, actual:report.malformed_rate ?? null, expected:thresholds.maximumMalformedRate },
     { name:'spool_pending_operations', passed:spool.available === true && spool.pendingOperations === 0, actual:spool.pendingOperations ?? null, expected:0 },
     { name:'spool_dropped_operations', passed:spool.available === true && spool.droppedOperations === 0, actual:spool.droppedOperations ?? null, expected:0 },
-    { name:'open_notification_incidents', passed:report.available === true && Number(report.open_incidents) === 0, actual:report.open_incidents ?? null, expected:0 },
+    { name:'unresolved_notified_incidents', passed:report.available === true && Number(report.notified_open_incidents) === 0, actual:report.notified_open_incidents ?? null, expected:0 },
   ];
   console.log(JSON.stringify({ passed:checks.every(check => check.passed), failed:checks.filter(check => !check.passed).length, checks }));
 " "${report}" "${spool_report}" "${thresholds}" "${worker_running}")"

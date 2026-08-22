@@ -26,6 +26,8 @@ void test('Compose forwards documented realtime operational thresholds', async (
     ['INGEST_ALERT_FAILURE_THRESHOLD', '3'],
     ['INGEST_STALE_AFTER_MS', '120000'],
     ['INGEST_MATCHING_RATE_MINIMUM', '0.02'],
+    ['INGEST_MATCHING_RATE_RECOVERY_MINIMUM', '0.05'],
+    ['INGEST_MATCHING_RECOVERY_THRESHOLD', '3'],
     ['INGEST_MALFORMED_RATE_MAXIMUM', '0.25'],
     ['SQLITE_SPOOL_WARNING_RATIO', '0.75'],
   ]) {

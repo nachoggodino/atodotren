@@ -56,6 +56,8 @@ export interface OperationsConfig {
   readonly failureThreshold: number;
   readonly staleAfterMs: number;
   readonly matchingRateMinimum: number;
+  readonly matchingRateRecoveryMinimum: number;
+  readonly matchingRecoveryThreshold: number;
   readonly malformedRateMaximum: number;
   readonly spoolWarningRatio: number;
 }
@@ -295,6 +297,11 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
   if ((smtpUser === undefined) !== (smtpPassword === undefined)) {
     issues.push('SMTP_USER and SMTP_PASSWORD must be configured together');
   }
+  const matchingRateMinimum = ratio(environment, 'INGEST_MATCHING_RATE_MINIMUM', 0.02, issues);
+  const matchingRateRecoveryMinimum = ratio(environment, 'INGEST_MATCHING_RATE_RECOVERY_MINIMUM', 0.05, issues);
+  if (matchingRateRecoveryMinimum <= matchingRateMinimum) {
+    issues.push('INGEST_MATCHING_RATE_RECOVERY_MINIMUM must be greater than INGEST_MATCHING_RATE_MINIMUM');
+  }
   const operations: OperationsConfig = {
     ...(heartbeatUrl === undefined ? {} : { heartbeatUrl }),
     ...(telegramToken === undefined || telegramChatId === undefined ? {} : {
@@ -313,7 +320,9 @@ export function loadConfig(environment: Environment = process.env): AppConfig {
     }),
     failureThreshold: boundedInteger(environment, 'INGEST_ALERT_FAILURE_THRESHOLD', 3, 100, issues),
     staleAfterMs: boundedInteger(environment, 'INGEST_STALE_AFTER_MS', 120_000, 86_400_000, issues),
-    matchingRateMinimum: ratio(environment, 'INGEST_MATCHING_RATE_MINIMUM', 0.02, issues),
+    matchingRateMinimum,
+    matchingRateRecoveryMinimum,
+    matchingRecoveryThreshold: boundedInteger(environment, 'INGEST_MATCHING_RECOVERY_THRESHOLD', 3, 100, issues),
     malformedRateMaximum: ratio(environment, 'INGEST_MALFORMED_RATE_MAXIMUM', 0.25, issues),
     spoolWarningRatio: ratio(environment, 'SQLITE_SPOOL_WARNING_RATIO', 0.75, issues),
   };

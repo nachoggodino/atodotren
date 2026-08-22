@@ -9,11 +9,12 @@ import test from 'node:test';
 import { migrateToLatest } from '@atodotren/db';
 import {
   checksum,
+  IncidentTracker,
   loadStaticMatchIndex,
   matchTrip,
   normalizeFeed,
-  observeIncident,
   OutageSpool,
+  PostgresIncidentStore,
   persistBatch,
   replaySpool,
   type DecodedFeed,
@@ -955,7 +956,6 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
 
         const alertDeliveries: boolean[] = [];
         const incident = {
-          pool,
           transports: [{
             name: 'fake',
             send: (message: { readonly recovery: boolean }) => {
@@ -965,12 +965,27 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           }],
           incidentKey: 'integration.threshold', title: 'Threshold alert', body: 'test', threshold: 3,
         };
-        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
-        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
-        assert.equal(await observeIncident({ ...incident, active: true }), 'notified');
-        assert.equal(await observeIncident({ ...incident, active: true }), 'opened');
-        assert.equal(await observeIncident({ ...incident, active: false }), 'recovered');
+        const tracker = new IncidentTracker({
+          store: new PostgresIncidentStore(pool), transports: incident.transports,
+        });
+        assert.equal(await tracker.observe({ ...incident, active: true }), 'opened');
+        assert.equal(await tracker.observe({ ...incident, active: true }), 'opened');
+        assert.equal(await tracker.observe({ ...incident, active: true }), 'notified');
+        assert.equal(await tracker.observe({ ...incident, active: true }), 'opened');
+        assert.equal(await tracker.observe({ ...incident, active: false }), 'recovered');
         assert.deepEqual(alertDeliveries, [false, true]);
+        assert.equal(await tracker.observe({ ...incident, active: true }), 'opened');
+        assert.equal(await tracker.observe({ ...incident, active: false }), 'recovered');
+        assert.deepEqual(alertDeliveries, [false, true]);
+        const reopened = await pool.query<{
+          occurrence_count: number; is_open: boolean; last_notified_at: Date | null;
+        }>(`
+          SELECT occurrence_count, is_open, last_notified_at
+          FROM operations.notification_incident WHERE incident_key = $1
+        `, [incident.incidentKey]);
+        assert.deepEqual(reopened.rows[0], {
+          occurrence_count: 1, is_open: false, last_notified_at: null,
+        });
       } finally {
         await pool.end();
         await rm(directory, { recursive: true, force: true });

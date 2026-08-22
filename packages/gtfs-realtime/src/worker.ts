@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 
 import { acquireFeed, FeedAcquisitionError, type FeedEndpoint } from './acquisition.js';
-import { emitHeartbeat, RetryingAlertDelivery, type AlertTransport } from './alerts.js';
+import { emitHeartbeat, IncidentTracker, PostgresIncidentStore, type AlertTransport } from './alerts.js';
 import { decodeFeed, FeedDecodeError } from './decoder.js';
 import { loadStaticMatchIndex } from './matcher.js';
 import { checksum, normalizeFeed } from './normalize.js';
@@ -24,6 +24,8 @@ export interface IngestRuntimeConfig {
   readonly heartbeatUrl?: string;
   readonly failureThreshold: number;
   readonly matchingRateMinimum: number;
+  readonly matchingRateRecoveryMinimum: number;
+  readonly matchingRecoveryThreshold: number;
   readonly malformedRateMaximum: number;
   readonly spoolWarningRatio: number;
   readonly staleAfterMs: number;
@@ -63,69 +65,6 @@ class StaticIndexUnavailableError extends Error {
   public constructor(options?: ErrorOptions) {
     super('Initial Madrid static matching index is unavailable', options);
     this.name = 'StaticIndexUnavailableError';
-  }
-}
-
-class LocalIncidentTracker {
-  readonly #state = new Map<string, { count: number; notified: boolean }>();
-  readonly #delivery: RetryingAlertDelivery;
-  readonly #pool: Pool;
-
-  public constructor(transports: readonly AlertTransport[], pool: Pool) {
-    this.#delivery = new RetryingAlertDelivery(transports);
-    this.#pool = pool;
-  }
-
-  public async observe(key: string, active: boolean, threshold: number, title: string, body: string): Promise<void> {
-    const previous = this.#state.get(key);
-    const stored = await this.#pool.query<{
-      is_open: boolean;
-      last_notified_at: Date | null;
-      occurrence_count: number;
-    }>(`
-      SELECT is_open, last_notified_at, occurrence_count
-      FROM operations.notification_incident
-      WHERE incident_key = $1
-    `, [key]).then((result) => result.rows[0]).catch(() => undefined);
-    if (!active) {
-      if (previous?.notified === true || (stored?.is_open === true && stored.last_notified_at !== null)) {
-        await this.#delivery.send({
-          incidentKey: key, title: `${title} recovered`, body, recovery: true,
-        });
-      }
-      this.#state.delete(key);
-      await this.#pool.query(`
-        UPDATE operations.notification_incident SET
-          is_open = false, recovered_at = clock_timestamp(), last_observed_at = clock_timestamp()
-        WHERE incident_key = $1 AND is_open
-      `, [key]).catch(() => undefined);
-      return;
-    }
-    const current = {
-      count: (previous?.count ?? (stored?.is_open === true ? stored.occurrence_count : 0)) + 1,
-      notified: previous?.notified ?? (stored?.is_open === true && stored.last_notified_at !== null),
-    };
-    let newlyNotified = false;
-    if (current.count >= threshold && !current.notified) {
-      await this.#delivery.send({ incidentKey: key, title, body, recovery: false });
-      current.notified = true;
-      newlyNotified = true;
-    }
-    this.#state.set(key, current);
-    await this.#pool.query(`
-      INSERT INTO operations.notification_incident (
-        incident_key, opened_at, last_observed_at, last_notified_at,
-        occurrence_count, is_open, details
-      ) VALUES ($1, clock_timestamp(), clock_timestamp(), $2, $3, true, $4::jsonb)
-      ON CONFLICT (incident_key) DO UPDATE SET
-        opened_at = CASE WHEN operations.notification_incident.is_open
-          THEN operations.notification_incident.opened_at ELSE clock_timestamp() END,
-        last_observed_at = clock_timestamp(),
-        last_notified_at = COALESCE(EXCLUDED.last_notified_at, operations.notification_incident.last_notified_at),
-        occurrence_count = EXCLUDED.occurrence_count,
-        is_open = true, recovered_at = NULL, details = EXCLUDED.details
-    `, [key, newlyNotified ? new Date() : null, current.count, JSON.stringify({ title, body })])
-      .catch(() => undefined);
   }
 }
 
@@ -192,7 +131,10 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
   const sleep = options.sleep ?? delay;
   const now = options.now ?? (() => new Date());
   const transports = options.transports ?? [];
-  const incidents = new LocalIncidentTracker(transports, options.pool);
+  const incidents = new IncidentTracker({
+    store: new PostgresIncidentStore(options.pool), transports, now,
+    ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+  });
   const loadStaticIndex = options.loadStaticIndex ?? loadStaticMatchIndex;
   const maximumCycles = options.cycles ?? Number.POSITIVE_INFINITY;
   let lastAlertPoll = 0;
@@ -326,9 +268,19 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
           await emitHeartbeat(options.config.heartbeatUrl, options.fetchImplementation);
           heartbeatAt = now().toISOString();
           lastHeartbeatMs = now().getTime();
+          await incidents.observe({
+            incidentKey: 'heartbeat.failure', active: false,
+            threshold: options.config.failureThreshold,
+            title: 'Heartbeat delivery failed',
+            body: 'External heartbeat delivery succeeded again.',
+          });
         } catch {
-          await incidents.observe('heartbeat.failure', true, options.config.failureThreshold,
-            'Heartbeat delivery failed', 'Ingestion persisted durably but the external heartbeat failed.');
+          await incidents.observe({
+            incidentKey: 'heartbeat.failure', active: true,
+            threshold: options.config.failureThreshold,
+            title: 'Heartbeat delivery failed',
+            body: 'Ingestion persisted durably but the external heartbeat failed.',
+          });
         }
       }
     } else {
@@ -340,27 +292,55 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
     const shed = spoolStats.droppedCount > previousDropped;
     previousDropped = spoolStats.droppedCount;
     await Promise.all([
-      incidents.observe('ingest.repeated_failure', !cycleSuccessful, options.config.failureThreshold,
-        'Repeated ingestion failure', `${consecutiveFailures} consecutive cycle(s) have failed.`),
-      incidents.observe('ingest.matching_collapse', matchingRate < options.config.matchingRateMinimum,
-        options.config.failureThreshold, 'Madrid matching rate collapsed', `Current matching rate: ${matchingRate.toFixed(3)}.`),
-      incidents.observe('ingest.malformed_spike', malformedRate > options.config.malformedRateMaximum,
-        options.config.failureThreshold, 'Malformed realtime entity spike', `Current malformed rate: ${malformedRate.toFixed(3)}.`),
-      incidents.observe('spool.growth', spoolStats.sizeBytes / options.spool.capacityBytes > options.config.spoolWarningRatio,
-        options.config.failureThreshold, 'SQLite spool growth', `Current spool size: ${spoolStats.sizeBytes} bytes.`),
-      incidents.observe('spool.shedding', shed, 1, 'SQLite spool shed operations',
-        `Dropped operation count: ${spoolStats.droppedCount}.`),
-      incidents.observe('spool.replay_failure', replayFailed, options.config.failureThreshold,
-        'SQLite replay failure', 'Ordered PostgreSQL replay did not complete.'),
-      incidents.observe('static.version_mismatch', staticMismatch, options.config.failureThreshold,
-        'Realtime/static version mismatch', 'No usable active/previous static matching index was available.'),
-      incidents.observe('ingest.stale', now().getTime() - lastSuccessfulCycleMs > options.config.staleAfterMs,
-        options.config.failureThreshold, 'Successful ingestion is stale',
-        `No successful durable cycle within ${options.config.staleAfterMs}ms.`),
-      incidents.observe('heartbeat.stale', options.config.heartbeatUrl !== undefined && now().getTime() - lastHeartbeatMs > options.config.staleAfterMs,
-        options.config.failureThreshold, 'External heartbeat is stale',
-        `No successful heartbeat within ${options.config.staleAfterMs}ms.`),
-    ]).catch(() => undefined);
+      incidents.observe({
+        incidentKey: 'ingest.repeated_failure', active: !cycleSuccessful,
+        threshold: options.config.failureThreshold, title: 'Repeated ingestion failure',
+        body: `${consecutiveFailures} consecutive cycle(s) have failed.`,
+      }),
+      incidents.observe({
+        incidentKey: 'ingest.matching_collapse',
+        active: matchingRate < options.config.matchingRateMinimum,
+        recoveryObserved: matchingRate > options.config.matchingRateRecoveryMinimum,
+        recoveryThreshold: options.config.matchingRecoveryThreshold,
+        threshold: options.config.failureThreshold, title: 'Madrid matching rate collapsed',
+        body: `Current matching rate: ${matchingRate.toFixed(3)}.`,
+      }),
+      incidents.observe({
+        incidentKey: 'ingest.malformed_spike', active: malformedRate > options.config.malformedRateMaximum,
+        threshold: options.config.failureThreshold, title: 'Malformed realtime entity spike',
+        body: `Current malformed rate: ${malformedRate.toFixed(3)}.`,
+      }),
+      incidents.observe({
+        incidentKey: 'spool.growth', active: spoolStats.sizeBytes / options.spool.capacityBytes > options.config.spoolWarningRatio,
+        threshold: options.config.failureThreshold, title: 'SQLite spool growth',
+        body: `Current spool size: ${spoolStats.sizeBytes} bytes.`,
+      }),
+      incidents.observe({
+        incidentKey: 'spool.shedding', active: shed, threshold: 1,
+        title: 'SQLite spool shed operations', body: `Dropped operation count: ${spoolStats.droppedCount}.`,
+      }),
+      incidents.observe({
+        incidentKey: 'spool.replay_failure', active: replayFailed,
+        threshold: options.config.failureThreshold, title: 'SQLite replay failure',
+        body: 'Ordered PostgreSQL replay did not complete.',
+      }),
+      incidents.observe({
+        incidentKey: 'static.version_mismatch', active: staticMismatch,
+        threshold: options.config.failureThreshold, title: 'Realtime/static version mismatch',
+        body: 'No usable active/previous static matching index was available.',
+      }),
+      incidents.observe({
+        incidentKey: 'ingest.stale', active: now().getTime() - lastSuccessfulCycleMs > options.config.staleAfterMs,
+        threshold: options.config.failureThreshold, title: 'Successful ingestion is stale',
+        body: `No successful durable cycle within ${options.config.staleAfterMs}ms.`,
+      }),
+      incidents.observe({
+        incidentKey: 'heartbeat.stale',
+        active: options.config.heartbeatUrl !== undefined && now().getTime() - lastHeartbeatMs > options.config.staleAfterMs,
+        threshold: options.config.failureThreshold, title: 'External heartbeat is stale',
+        body: `No successful heartbeat within ${options.config.staleAfterMs}ms.`,
+      }),
+    ]);
     try {
       const durableAt = cycleSuccessful ? now().toISOString() : undefined;
       await updateIngestHealth(options.pool, {

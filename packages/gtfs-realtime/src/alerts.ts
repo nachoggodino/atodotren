@@ -86,12 +86,29 @@ export class RetryingAlertDelivery {
     this.#transports = transports;
   }
 
-  public async send(message: AlertMessage): Promise<void> {
-    const deliveryKey = `${message.incidentKey}:${message.recovery ? 'recovery' : 'active'}`;
+  public get transportCount(): number {
+    return this.#transports.length;
+  }
+
+  public deliveredIndexes(episodeId: string, recovery: boolean): ReadonlySet<number> {
+    return new Set(this.#delivered.get(`${episodeId}:${recovery ? 'recovery' : 'active'}`) ?? []);
+  }
+
+  public clearEpisode(episodeId: string): void {
+    this.#delivered.delete(`${episodeId}:active`);
+    this.#delivered.delete(`${episodeId}:recovery`);
+  }
+
+  public async send(
+    message: AlertMessage,
+    episodeId = message.incidentKey,
+    eligibleIndexes?: ReadonlySet<number>,
+  ): Promise<void> {
+    const deliveryKey = `${episodeId}:${message.recovery ? 'recovery' : 'active'}`;
     const delivered = this.#delivered.get(deliveryKey) ?? new Set<number>();
     const pending = this.#transports
       .map((transport, index) => ({ transport, index }))
-      .filter(({ index }) => !delivered.has(index));
+      .filter(({ index }) => (eligibleIndexes?.has(index) ?? true) && !delivered.has(index));
     const results = await Promise.allSettled(pending.map(async ({ transport }) => transport.send(message)));
     const failures: unknown[] = [];
     results.forEach((result, resultIndex) => {
@@ -104,7 +121,7 @@ export class RetryingAlertDelivery {
       this.#delivered.set(deliveryKey, delivered);
       throw new AggregateError(failures, 'Alert delivery failed');
     }
-    this.#delivered.delete(deliveryKey);
+    this.#delivered.set(deliveryKey, delivered);
   }
 }
 
@@ -154,72 +171,262 @@ export async function testNotificationChannels(options: {
 }
 
 interface IncidentRow {
+  readonly opened_at: Date;
   readonly occurrence_count: number;
   readonly is_open: boolean;
   readonly last_notified_at: Date | null;
 }
 
-export async function observeIncident(options: {
-  readonly pool: Pool;
-  readonly transports: readonly AlertTransport[];
-  readonly incidentKey: string;
-  readonly active: boolean;
-  readonly title: string;
-  readonly body: string;
-  readonly threshold: number;
-  readonly details?: Readonly<Record<string, unknown>>;
-}): Promise<'none' | 'opened' | 'notified' | 'recovered'> {
-  const existing = await options.pool.query<IncidentRow>(`
-    SELECT occurrence_count, is_open, last_notified_at
-    FROM operations.notification_incident WHERE incident_key = $1
-  `, [options.incidentKey]);
-  const row = existing.rows[0];
-  if (!options.active) {
-    if (row?.is_open !== true) return 'none';
-    if (row.last_notified_at !== null) {
-      await sendOperationalAlert(options.transports, {
-        incidentKey: options.incidentKey,
-        title: `${options.title} recovered`,
-        body: options.body,
-        recovery: true,
-      });
-    }
-    await options.pool.query(`
-      UPDATE operations.notification_incident SET
-        is_open = false, recovered_at = clock_timestamp(), last_observed_at = clock_timestamp()
-      WHERE incident_key = $1
-    `, [options.incidentKey]);
-    return 'recovered';
+export interface IncidentRecord {
+  readonly openedAt: Date;
+  readonly occurrenceCount: number;
+  readonly isOpen: boolean;
+  readonly lastNotifiedAt: Date | null;
+}
+
+export interface IncidentStore {
+  read(incidentKey: string): Promise<IncidentRecord | undefined>;
+  saveOpen(options: {
+    readonly incidentKey: string;
+    readonly occurrenceCount: number;
+    readonly details: Readonly<Record<string, unknown>>;
+  }): Promise<void>;
+  markNotified(incidentKey: string): Promise<void>;
+  close(incidentKey: string): Promise<void>;
+}
+
+export class PostgresIncidentStore implements IncidentStore {
+  readonly #pool: Pool;
+
+  public constructor(pool: Pool) {
+    this.#pool = pool;
   }
 
-  const updated = await options.pool.query<IncidentRow>(`
-    INSERT INTO operations.notification_incident (
-      incident_key, opened_at, last_observed_at, occurrence_count, is_open, details
-    ) VALUES ($1, clock_timestamp(), clock_timestamp(), 1, true, $2::jsonb)
-    ON CONFLICT (incident_key) DO UPDATE SET
-      opened_at = CASE WHEN operations.notification_incident.is_open
-        THEN operations.notification_incident.opened_at ELSE clock_timestamp() END,
-      last_observed_at = clock_timestamp(),
-      occurrence_count = CASE WHEN operations.notification_incident.is_open
-        THEN operations.notification_incident.occurrence_count + 1 ELSE 1 END,
-      is_open = true,
-      recovered_at = NULL,
-      last_notified_at = CASE WHEN operations.notification_incident.is_open
-        THEN operations.notification_incident.last_notified_at ELSE NULL END,
-      details = EXCLUDED.details
-    RETURNING occurrence_count, is_open, last_notified_at
-  `, [options.incidentKey, JSON.stringify(options.details ?? {})]);
-  const current = updated.rows[0];
-  if (current === undefined) return 'none';
-  if (current.occurrence_count < options.threshold || current.last_notified_at !== null) return 'opened';
-  await sendOperationalAlert(options.transports, {
-    incidentKey: options.incidentKey, title: options.title, body: options.body, recovery: false,
-  });
-  await options.pool.query(`
-    UPDATE operations.notification_incident SET last_notified_at = clock_timestamp()
-    WHERE incident_key = $1
-  `, [options.incidentKey]);
-  return 'notified';
+  public async read(incidentKey: string): Promise<IncidentRecord | undefined> {
+    const result = await this.#pool.query<IncidentRow>(`
+      SELECT opened_at, occurrence_count, is_open, last_notified_at
+      FROM operations.notification_incident WHERE incident_key = $1
+    `, [incidentKey]);
+    const row = result.rows[0];
+    return row === undefined ? undefined : {
+      openedAt: row.opened_at,
+      occurrenceCount: row.occurrence_count,
+      isOpen: row.is_open,
+      lastNotifiedAt: row.last_notified_at,
+    };
+  }
+
+  public async saveOpen(options: {
+    readonly incidentKey: string;
+    readonly occurrenceCount: number;
+    readonly details: Readonly<Record<string, unknown>>;
+  }): Promise<void> {
+    await this.#pool.query(`
+      INSERT INTO operations.notification_incident (
+        incident_key, opened_at, last_observed_at, last_notified_at,
+        occurrence_count, is_open, recovered_at, details
+      ) VALUES ($1, clock_timestamp(), clock_timestamp(), NULL, $2, true, NULL, $3::jsonb)
+      ON CONFLICT (incident_key) DO UPDATE SET
+        opened_at = CASE WHEN operations.notification_incident.is_open
+          THEN operations.notification_incident.opened_at ELSE clock_timestamp() END,
+        last_observed_at = clock_timestamp(),
+        last_notified_at = CASE WHEN operations.notification_incident.is_open
+          THEN operations.notification_incident.last_notified_at ELSE NULL END,
+        occurrence_count = $2,
+        is_open = true,
+        recovered_at = NULL,
+        details = $3::jsonb
+    `, [options.incidentKey, options.occurrenceCount, JSON.stringify(options.details)]);
+  }
+
+  public async markNotified(incidentKey: string): Promise<void> {
+    await this.#pool.query(`
+      UPDATE operations.notification_incident SET
+        last_notified_at = clock_timestamp(), last_observed_at = clock_timestamp()
+      WHERE incident_key = $1 AND is_open
+    `, [incidentKey]);
+  }
+
+  public async close(incidentKey: string): Promise<void> {
+    await this.#pool.query(`
+      UPDATE operations.notification_incident SET
+        is_open = false, recovered_at = clock_timestamp(), last_observed_at = clock_timestamp()
+      WHERE incident_key = $1 AND is_open
+    `, [incidentKey]);
+  }
+}
+
+export type IncidentObservationResult = 'none' | 'opened' | 'notified' | 'recovered';
+export type IncidentEventHandler = (
+  event: 'notification.state_read_failed' | 'notification.state_write_failed' | 'notification.delivery_failed',
+  fields: Readonly<Record<string, unknown>>,
+) => void;
+
+interface LocalIncidentState {
+  count: number;
+  notified: boolean;
+  open: boolean;
+  recoveryCount: number;
+  episodeId: string;
+}
+
+function safeErrorClassification(error: unknown): Readonly<Record<string, unknown>> {
+  const errorName = error instanceof Error ? error.name : 'NonError';
+  const rawCode = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as { readonly code?: unknown }).code
+    : undefined;
+  const errorCode = typeof rawCode === 'string' && /^[A-Za-z0-9_.-]{1,64}$/u.test(rawCode)
+    ? rawCode
+    : undefined;
+  return { errorName, ...(errorCode === undefined ? {} : { errorCode }) };
+}
+
+export class IncidentTracker {
+  readonly #state = new Map<string, LocalIncidentState>();
+  readonly #store: IncidentStore;
+  readonly #delivery: RetryingAlertDelivery;
+  readonly #onEvent: IncidentEventHandler | undefined;
+  readonly #now: () => Date;
+  #episodeSequence = 0;
+
+  public constructor(options: {
+    readonly store: IncidentStore;
+    readonly transports: readonly AlertTransport[];
+    readonly onEvent?: IncidentEventHandler;
+    readonly now?: () => Date;
+  }) {
+    this.#store = options.store;
+    this.#delivery = new RetryingAlertDelivery(options.transports);
+    this.#onEvent = options.onEvent;
+    this.#now = options.now ?? (() => new Date());
+  }
+
+  async #load(incidentKey: string): Promise<LocalIncidentState> {
+    const cached = this.#state.get(incidentKey);
+    if (cached !== undefined) return cached;
+    try {
+      const stored = await this.#store.read(incidentKey);
+      const state: LocalIncidentState = stored?.isOpen === true ? {
+        count: stored.occurrenceCount,
+        notified: stored.lastNotifiedAt !== null,
+        open: true,
+        recoveryCount: 0,
+        episodeId: `${incidentKey}:${stored.openedAt.toISOString()}`,
+      } : {
+        count: 0, notified: false, open: false, recoveryCount: 0,
+        episodeId: `${incidentKey}:closed`,
+      };
+      this.#state.set(incidentKey, state);
+      return state;
+    } catch (error) {
+      this.#onEvent?.('notification.state_read_failed', {
+        incidentKey, operation: 'read', ...safeErrorClassification(error),
+      });
+      const state: LocalIncidentState = {
+        count: 0, notified: false, open: false, recoveryCount: 0,
+        episodeId: `${incidentKey}:unavailable`,
+      };
+      this.#state.set(incidentKey, state);
+      return state;
+    }
+  }
+
+  async #write(
+    incidentKey: string,
+    operation: 'save_open' | 'mark_notified' | 'close',
+    action: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await action();
+    } catch (error) {
+      this.#onEvent?.('notification.state_write_failed', {
+        incidentKey, operation, ...safeErrorClassification(error),
+      });
+    }
+  }
+
+  public async observe(options: {
+    readonly incidentKey: string;
+    readonly active: boolean;
+    readonly recoveryObserved?: boolean;
+    readonly recoveryThreshold?: number;
+    readonly title: string;
+    readonly body: string;
+    readonly threshold: number;
+    readonly details?: Readonly<Record<string, unknown>>;
+  }): Promise<IncidentObservationResult> {
+    const state = await this.#load(options.incidentKey);
+    const details = options.details ?? { title: options.title, body: options.body };
+    if (options.active) {
+      state.recoveryCount = 0;
+      if (!state.open) {
+        state.count = 1;
+        state.notified = false;
+        state.open = true;
+        state.episodeId = `${options.incidentKey}:${this.#now().toISOString()}:${this.#episodeSequence++}`;
+      } else {
+        state.count += 1;
+      }
+      await this.#write(options.incidentKey, 'save_open', () => this.#store.saveOpen({
+        incidentKey: options.incidentKey, occurrenceCount: state.count, details,
+      }));
+      if (state.count < options.threshold || state.notified || this.#delivery.transportCount === 0) return 'opened';
+      try {
+        await this.#delivery.send({
+          incidentKey: options.incidentKey, title: options.title, body: options.body, recovery: false,
+        }, state.episodeId);
+        state.notified = true;
+        await this.#write(options.incidentKey, 'mark_notified', () => this.#store.markNotified(options.incidentKey));
+        return 'notified';
+      } catch (error) {
+        this.#onEvent?.('notification.delivery_failed', {
+          incidentKey: options.incidentKey, operation: 'deliver_active', ...safeErrorClassification(error),
+        });
+        return 'opened';
+      }
+    }
+
+    if (!state.open) return 'none';
+    if (options.recoveryObserved === false) {
+      state.recoveryCount = 0;
+      if (!state.notified && this.#delivery.deliveredIndexes(state.episodeId, false).size === 0) {
+        state.open = false;
+        state.count = 0;
+        this.#delivery.clearEpisode(state.episodeId);
+        await this.#write(options.incidentKey, 'close', () => this.#store.close(options.incidentKey));
+        return 'recovered';
+      }
+      return 'opened';
+    }
+    state.recoveryCount += 1;
+    if (state.recoveryCount < (options.recoveryThreshold ?? 1)) return 'opened';
+
+    const activeDelivered = state.notified
+      ? new Set(Array.from({ length: this.#delivery.transportCount }, (_, index) => index))
+      : this.#delivery.deliveredIndexes(state.episodeId, false);
+    if (activeDelivered.size > 0) {
+      try {
+        await this.#delivery.send({
+          incidentKey: options.incidentKey,
+          title: `${options.title} recovered`,
+          body: options.body,
+          recovery: true,
+        }, state.episodeId, activeDelivered);
+      } catch (error) {
+        this.#onEvent?.('notification.delivery_failed', {
+          incidentKey: options.incidentKey, operation: 'deliver_recovery', ...safeErrorClassification(error),
+        });
+        return 'opened';
+      }
+    }
+    state.open = false;
+    state.notified = false;
+    state.count = 0;
+    state.recoveryCount = 0;
+    this.#delivery.clearEpisode(state.episodeId);
+    await this.#write(options.incidentKey, 'close', () => this.#store.close(options.incidentKey));
+    return 'recovered';
+  }
 }
 
 export async function emitHeartbeat(url: string, fetchImplementation: typeof fetch = fetch): Promise<void> {

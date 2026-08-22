@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: Milestones 0 and 1 accepted; Milestone 2 implementation complete, unattended 48-hour acceptance pending
+Status: Milestones 0, 1, and 2 accepted; Milestone 2.1 notification-correctness follow-up complete
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -684,16 +684,24 @@ bounded two-cycle live run against all three RENFE protobuf endpoints. The live
 run durably stored six compact polls, matched 48 Madrid entities, classified 136
 as clear non-Madrid and 682 as unmatched, found zero malformed entities, inserted
 12 changed evidence rows, and suppressed 12 identical repeats. No national payload
-was retained and explicit replay was empty. The milestone is not fully accepted
-until `ATODOTREN_ACCEPTANCE_HOURS=48 npm run accept:realtime -- .env` completes and
-its operational report is reviewed.
+was retained and explicit replay was empty.
+
+The 48-hour acceptance completed successfully with 14,384 polls, 99.74%
+successful coverage, 31.30% aggregate Madrid matching, 0.01% malformed entities,
+zero ambiguous matches, 161,793 changed evidence rows, and 435,726 identical
+repeats suppressed. It ended with no spool backlog or dropped operations and
+approximately 185 MB across realtime ingest/operations relations. The subsequent
+Milestone 2.1 corrective pass unified production/test incident handling, isolated
+notification episodes, added matching-alert hysteresis, and corrected heartbeat
+recovery.
 
 Acceptance readiness requires that command to act as a gate, not only a report:
 the worker must still be running, poll volume and successful coverage must meet
 configured minima, matching/malformed rates must remain within their operational
-thresholds, the final spool must be empty with zero shedding, and no notification
-incident may remain open. The worker also exposes a credential-safe opt-in
-`test-notifications` command for real Telegram, SMTP, and heartbeat delivery
+thresholds, the final spool must be empty with zero shedding, and no notified
+incident may remain unresolved. Pending below-threshold observations remain
+diagnostic data but do not fail the gate. The worker also exposes a credential-safe
+opt-in `test-notifications` command for real Telegram, SMTP, and heartbeat delivery
 checks; it never mutates incident state.
 
 ### Milestone 3 — Canonical journeys
@@ -721,6 +729,10 @@ Exit: an expired test partition cannot be dropped before verified aggregates exi
 ### Milestone 5 — Two-week evidence pilot
 
 - run continuously on the Pi 5 or another Docker host
+- implement `worker report`
+- add a configurable low-noise Telegram operational digest, defaulting to daily or disabled
+- report poll freshness/coverage, matching, malformed rate, evidence volume, database growth, static-feed age, spool state, and notified incidents
+- capture host/resource measurements for the Pi pilot
 - inspect Renfe update behavior before and after stops
 - measure matching, stop evidence, feed coverage, inconsistencies, outages, and anomalies
 - measure table/index/WAL growth and local spool behavior
@@ -731,6 +743,9 @@ Exit: approve or adjust thresholds, histogram range, indexes, provider sizing, a
 
 ### Milestone 6 — Managed PostgreSQL selection and deployment
 
+- add external dead-man heartbeat monitoring
+- add durable per-channel notification/outbox behavior across process crashes
+- add managed database/provider monitoring and backup alerts
 - compare suitable managed PostgreSQL plans using measured storage, write rate, connection, backup, and egress requirements
 - create a reusable provider-neutral role-bootstrap command/SQL artifact, then run the complete PostgreSQL contract against the exact PostgreSQL major and configuration selected at the provider
 - deploy migrations and least-privilege roles
@@ -850,12 +865,12 @@ A failure at an earlier layer blocks the later deployment layer.
 - frontend visual system beyond the existing product principles
 - detailed Termo de Madrid animation matching until its source is available
 - expansion beyond Madrid
+- inbound Telegram command bot unless later evidence justifies it
 
 ## 24. Immediate next actions
 
-1. Run and review the unattended 48-hour Milestone 2 acceptance command before canonical journey work or the public frontend.
-2. Inspect matching, fallback, ambiguity, malformed, evidence-change, resource, endpoint-outage, and spool metrics from that run.
-3. Exercise configured heartbeat and notification delivery/recovery in the intended deployment environment.
-4. Begin Milestone 3 only after the operational gate is accepted or its findings are resolved.
+1. Begin Milestone 3 from the accepted realtime evidence foundation.
+2. Preserve the measured Milestone 2 thresholds until the longer pilot supplies evidence for a change.
+3. Exercise configured heartbeat and notification delivery/recovery in the intended deployment environment when explicitly intended.
 
 This ordering deliberately makes the future interface a consumer of measured, understood data rather than a design built around assumptions about Renfe's feed.
