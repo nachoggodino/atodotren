@@ -210,6 +210,10 @@ tests = tests.replace(
     "        '0005_canonical_journeys.sql',\n      ]);",
     "        '0005_canonical_journeys.sql',\n        '0006_aggregation_retention.sql',\n      ]);",
 )
+tests = tests.replace(
+    "          '0005_canonical_journeys.sql',\n        ]);",
+    "          '0005_canonical_journeys.sql',\n          '0006_aggregation_retention.sql',\n        ]);",
+)
 inventory.write_text(tests)
 
 acceptance = Path("tests/integration/milestone4.test.ts")
@@ -224,6 +228,14 @@ acceptance_text = acceptance_text.replace(
 )
 acceptance_text = acceptance_text.replace("${reverseStops[index]}", "${reverseStops[index]!}")
 acceptance_text = acceptance_text.replace("${cancelStops[index]}", "${cancelStops[index]!}")
+acceptance_text = acceptance_text.replace(
+    "const reverseStops = ['10STOP-C', '10STOP-B', '10STOP-A', '10STOP-C'];",
+    "const reverseStops = ['10STOP-C', '10STOP-B', '10STOP-A', '10STOP-B'];",
+)
+acceptance_text = acceptance_text.replace(
+    "const cancelStops = ['10STOP-A', '10STOP-B', '10STOP-C', '10STOP-A'];",
+    "const cancelStops = ['10STOP-A', '10STOP-B', '10STOP-C', '10STOP-B'];",
+)
 acceptance_text = acceptance_text.replace(
     "        sum((SELECT sum(bin) FROM unnest(delay_histogram) AS bin))::text AS histogram_total,",
     "        sum(histogram_bins.total)::text AS histogram_total,",
