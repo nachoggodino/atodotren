@@ -1,0 +1,44 @@
+name: M4 Materialize Recovered Files
+
+on:
+  push:
+    branches:
+      - feature-milestone-4
+    paths:
+      - '.github/workflows/m4-materialize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-4
+      - name: Extract complete recovered TAR member
+        shell: bash
+        run: |
+          set +e
+          tar -xvf .m4bootstrap/recovered/payload.partial migrations/0006_aggregation_retention.sql
+          rc=$?
+          set -e
+          test -s migrations/0006_aggregation_retention.sql
+          bytes="$(wc -c < migrations/0006_aggregation_retention.sql)"
+          echo "tar_rc=${rc} migration_bytes=${bytes}"
+          test "${bytes}" -eq 127193
+          sha256sum migrations/0006_aggregation_retention.sql
+      - name: Commit materialized migration
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add migrations/0006_aggregation_retention.sql
+          if git diff --cached --quiet; then
+            echo 'Migration already materialized.'
+          else
+            git commit -m 'feat: add milestone 4 aggregation and retention schema'
+            git push origin HEAD:feature-milestone-4
+          fi
