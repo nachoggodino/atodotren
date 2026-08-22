@@ -18,7 +18,7 @@ jobs:
         with:
           ref: feature-milestone-4
           fetch-depth: 0
-      - run: python3 scripts/m4-materialize.py && python3 scripts/m4-round2.py
+      - run: python3 scripts/m4-materialize.py && python3 scripts/m4-round2.py && python3 scripts/m4-round3.py
       - run: git diff --check
       - name: Commit materialized fixes
         shell: bash
