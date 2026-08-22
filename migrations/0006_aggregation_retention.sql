@@ -35,7 +35,7 @@ CREATE INDEX aggregation_run_scope_idx
 -- The provisional h30-v1 histogram has 72 integer bins:
 --   [0] < -300 seconds; [1..70] 30-second bins covering [-300, 1800); [71] >= 1800 seconds.
 -- Exact counters/min/max/sums remain authoritative; histogram bounds can be versioned in a later methodology.
-CREATE OR REPLACE FUNCTION analytics.histogram_30s(values integer[])
+CREATE OR REPLACE FUNCTION analytics.histogram_30s(input_values integer[])
 RETURNS integer[]
 LANGUAGE plpgsql
 IMMUTABLE
@@ -46,10 +46,10 @@ DECLARE
   value integer;
   bucket integer;
 BEGIN
-  IF values IS NULL THEN
+  IF input_values IS NULL THEN
     RETURN result;
   END IF;
-  FOREACH value IN ARRAY values LOOP
+  FOREACH value IN ARRAY input_values LOOP
     CONTINUE WHEN value IS NULL;
     IF value < -300 THEN
       bucket := 1;
