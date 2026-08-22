@@ -1,0 +1,4 @@
+incident_key,opened_at,last_observed_at,last_notified_at,occurrence_count,is_open,recovered_at,details
+ingest.stale,2026-08-21 00:30:23.937499+00,2026-08-21 00:31:15.851548+00,,2,f,2026-08-21 00:31:15.851548+00,"{""body"": ""No successful durable cycle within 120000ms."", ""title"": ""Successful ingestion is stale""}"
+ingest.repeated_failure,2026-08-22 09:01:23.8106+00,2026-08-22 09:01:31.480329+00,2026-08-21 00:31:15.609+00,1,f,2026-08-22 09:01:31.480329+00,"{""body"": ""1 consecutive cycle(s) have failed."", ""title"": ""Repeated ingestion failure""}"
+ingest.matching_collapse,2026-08-22 09:13:56.305294+00,2026-08-22 09:14:31.420541+00,2026-08-21 05:32:06.418+00,1,f,2026-08-22 09:14:31.420541+00,"{""body"": ""Current matching rate: 0.000."", ""title"": ""Madrid matching rate collapsed""}"

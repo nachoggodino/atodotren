@@ -1,0 +1,1 @@
+migrate-1  | {"applied":["0001_repository_foundation.sql","0002_static_madrid_foundation.sql","0003_static_mapping_integrity.sql","0004_realtime_ingestion.sql"],"alreadyApplied":[],"timestamp":"2026-08-20T06:39:09.334Z","level":"info","service":"atodotren-migrations","event":"migration.run.completed","message":"Database migration run completed"}

@@ -6,5 +6,5 @@ dist/
 !example.env
 coverage/
 .DS_Store
-*.log
+# *.log
 atodotren-worker-multiarch.tar
