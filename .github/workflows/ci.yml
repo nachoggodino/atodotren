@@ -18,7 +18,7 @@ jobs:
         with:
           ref: feature-milestone-4
           fetch-depth: 0
-      - run: python3 scripts/m4-round4.py
+      - run: python3 scripts/m4-round5.py
       - run: git diff --check
       - name: Commit materialized fix
         shell: bash
@@ -27,7 +27,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add migrations/0006_aggregation_retention.sql
           if ! git diff --cached --quiet; then
-            git commit -m 'fix: make dirty scope target unambiguous'
+            git commit -m 'fix: isolate retention candidate variables'
             git pull --rebase origin feature-milestone-4
             git push origin HEAD:feature-milestone-4
           fi
