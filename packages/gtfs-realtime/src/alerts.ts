@@ -190,9 +190,9 @@ export interface IncidentStore {
     readonly incidentKey: string;
     readonly occurrenceCount: number;
     readonly details: Readonly<Record<string, unknown>>;
-  }): Promise<void>;
-  markNotified(incidentKey: string): Promise<void>;
-  close(incidentKey: string): Promise<void>;
+  }): Promise<boolean>;
+  markNotified(incidentKey: string): Promise<boolean>;
+  close(incidentKey: string): Promise<boolean>;
 }
 
 export class PostgresIncidentStore implements IncidentStore {
@@ -220,8 +220,8 @@ export class PostgresIncidentStore implements IncidentStore {
     readonly incidentKey: string;
     readonly occurrenceCount: number;
     readonly details: Readonly<Record<string, unknown>>;
-  }): Promise<void> {
-    await this.#pool.query(`
+  }): Promise<boolean> {
+    const result = await this.#pool.query(`
       INSERT INTO operations.notification_incident (
         incident_key, opened_at, last_observed_at, last_notified_at,
         occurrence_count, is_open, recovered_at, details
@@ -237,22 +237,25 @@ export class PostgresIncidentStore implements IncidentStore {
         recovered_at = NULL,
         details = $3::jsonb
     `, [options.incidentKey, options.occurrenceCount, JSON.stringify(options.details)]);
+    return result.rowCount === 1;
   }
 
-  public async markNotified(incidentKey: string): Promise<void> {
-    await this.#pool.query(`
+  public async markNotified(incidentKey: string): Promise<boolean> {
+    const result = await this.#pool.query(`
       UPDATE operations.notification_incident SET
         last_notified_at = clock_timestamp(), last_observed_at = clock_timestamp()
       WHERE incident_key = $1 AND is_open
     `, [incidentKey]);
+    return result.rowCount === 1;
   }
 
-  public async close(incidentKey: string): Promise<void> {
-    await this.#pool.query(`
+  public async close(incidentKey: string): Promise<boolean> {
+    const result = await this.#pool.query(`
       UPDATE operations.notification_incident SET
         is_open = false, recovered_at = clock_timestamp(), last_observed_at = clock_timestamp()
       WHERE incident_key = $1 AND is_open
     `, [incidentKey]);
+    return result.rowCount === 1;
   }
 }
 
@@ -334,15 +337,20 @@ export class IncidentTracker {
   async #write(
     incidentKey: string,
     operation: 'save_open' | 'mark_notified' | 'close',
-    action: () => Promise<void>,
-  ): Promise<void> {
+    action: () => Promise<boolean>,
+  ): Promise<boolean> {
     try {
-      await action();
+      const updated = await action();
+      if (updated) return true;
+      this.#onEvent?.('notification.state_write_failed', {
+        incidentKey, operation, errorName: 'StateNotUpdated',
+      });
     } catch (error) {
       this.#onEvent?.('notification.state_write_failed', {
         incidentKey, operation, ...safeErrorClassification(error),
       });
     }
+    return false;
   }
 
   public async observe(options: {
@@ -367,33 +375,53 @@ export class IncidentTracker {
       } else {
         state.count += 1;
       }
-      await this.#write(options.incidentKey, 'save_open', () => this.#store.saveOpen({
+      const saved = await this.#write(options.incidentKey, 'save_open', () => this.#store.saveOpen({
         incidentKey: options.incidentKey, occurrenceCount: state.count, details,
       }));
-      if (state.count < options.threshold || state.notified || this.#delivery.transportCount === 0) return 'opened';
+      if (!saved || state.count < options.threshold || state.notified || this.#delivery.transportCount === 0) {
+        return 'opened';
+      }
       try {
         await this.#delivery.send({
           incidentKey: options.incidentKey, title: options.title, body: options.body, recovery: false,
         }, state.episodeId);
-        state.notified = true;
-        await this.#write(options.incidentKey, 'mark_notified', () => this.#store.markNotified(options.incidentKey));
-        return 'notified';
       } catch (error) {
         this.#onEvent?.('notification.delivery_failed', {
           incidentKey: options.incidentKey, operation: 'deliver_active', ...safeErrorClassification(error),
         });
         return 'opened';
       }
+      const marked = await this.#write(
+        options.incidentKey,
+        'mark_notified',
+        () => this.#store.markNotified(options.incidentKey),
+      );
+      if (!marked) return 'opened';
+      state.notified = true;
+      return 'notified';
     }
 
     if (!state.open) return 'none';
+    const deliveredActive = this.#delivery.deliveredIndexes(state.episodeId, false);
+    if (!state.notified && deliveredActive.size === this.#delivery.transportCount && deliveredActive.size > 0) {
+      const marked = await this.#write(
+        options.incidentKey,
+        'mark_notified',
+        () => this.#store.markNotified(options.incidentKey),
+      );
+      if (!marked) return 'opened';
+      state.notified = true;
+    }
     if (options.recoveryObserved === false) {
       state.recoveryCount = 0;
       if (!state.notified && this.#delivery.deliveredIndexes(state.episodeId, false).size === 0) {
-        state.open = false;
-        state.count = 0;
-        this.#delivery.clearEpisode(state.episodeId);
-        await this.#write(options.incidentKey, 'close', () => this.#store.close(options.incidentKey));
+        const closed = await this.#write(
+          options.incidentKey,
+          'close',
+          () => this.#store.close(options.incidentKey),
+        );
+        if (!closed) return 'opened';
+        this.#finalizeClosed(state);
         return 'recovered';
       }
       return 'opened';
@@ -403,7 +431,7 @@ export class IncidentTracker {
 
     const activeDelivered = state.notified
       ? new Set(Array.from({ length: this.#delivery.transportCount }, (_, index) => index))
-      : this.#delivery.deliveredIndexes(state.episodeId, false);
+      : deliveredActive;
     if (activeDelivered.size > 0) {
       try {
         await this.#delivery.send({
@@ -419,13 +447,22 @@ export class IncidentTracker {
         return 'opened';
       }
     }
+    const closed = await this.#write(
+      options.incidentKey,
+      'close',
+      () => this.#store.close(options.incidentKey),
+    );
+    if (!closed) return 'opened';
+    this.#finalizeClosed(state);
+    return 'recovered';
+  }
+
+  #finalizeClosed(state: LocalIncidentState): void {
     state.open = false;
     state.notified = false;
     state.count = 0;
     state.recoveryCount = 0;
     this.#delivery.clearEpisode(state.episodeId);
-    await this.#write(options.incidentKey, 'close', () => this.#store.close(options.incidentKey));
-    return 'recovered';
   }
 }
 

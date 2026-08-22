@@ -15,6 +15,7 @@ import {
   normalizeFeed,
   OutageSpool,
   parseGtfsTime,
+  PostgresIncidentStore,
   protobufTypes,
   resolveStop,
   RetryingAlertDelivery,
@@ -211,14 +212,18 @@ class MemoryIncidentStore implements IncidentStore {
   failSave = false;
   failMark = false;
   failClose = false;
+  zeroSave = false;
+  zeroMark = false;
+  zeroClose = false;
 
   public read(incidentKey: string): Promise<IncidentRecord | undefined> {
     if (this.failRead) return Promise.reject(Object.assign(new Error('hidden connection detail'), { code: 'XX001' }));
     return Promise.resolve(this.records.get(incidentKey));
   }
 
-  public saveOpen(options: { readonly incidentKey: string; readonly occurrenceCount: number }): Promise<void> {
+  public saveOpen(options: { readonly incidentKey: string; readonly occurrenceCount: number }): Promise<boolean> {
     if (this.failSave) return Promise.reject(Object.assign(new Error('hidden connection detail'), { code: '08006' }));
+    if (this.zeroSave) return Promise.resolve(false);
     const existing = this.records.get(options.incidentKey);
     this.records.set(options.incidentKey, {
       openedAt: existing?.isOpen === true ? existing.openedAt : new Date('2026-08-22T10:00:00Z'),
@@ -226,23 +231,25 @@ class MemoryIncidentStore implements IncidentStore {
       isOpen: true,
       lastNotifiedAt: existing?.isOpen === true ? existing.lastNotifiedAt : null,
     });
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
-  public markNotified(incidentKey: string): Promise<void> {
+  public markNotified(incidentKey: string): Promise<boolean> {
     if (this.failMark) return Promise.reject(new Error('hidden connection detail'));
+    if (this.zeroMark) return Promise.resolve(false);
     const existing = this.records.get(incidentKey);
-    if (existing !== undefined) {
-      this.records.set(incidentKey, { ...existing, lastNotifiedAt: new Date('2026-08-22T10:01:00Z') });
-    }
-    return Promise.resolve();
+    if (existing === undefined || !existing.isOpen) return Promise.resolve(false);
+    this.records.set(incidentKey, { ...existing, lastNotifiedAt: new Date('2026-08-22T10:01:00Z') });
+    return Promise.resolve(true);
   }
 
-  public close(incidentKey: string): Promise<void> {
+  public close(incidentKey: string): Promise<boolean> {
     if (this.failClose) return Promise.reject(new Error('hidden connection detail'));
+    if (this.zeroClose) return Promise.resolve(false);
     const existing = this.records.get(incidentKey);
-    if (existing !== undefined) this.records.set(incidentKey, { ...existing, isOpen: false });
-    return Promise.resolve();
+    if (existing === undefined || !existing.isOpen) return Promise.resolve(false);
+    this.records.set(incidentKey, { ...existing, isOpen: false });
+    return Promise.resolve(true);
   }
 }
 
@@ -340,6 +347,117 @@ void test('incident failures emit credential-safe structured events and bound du
   await closeHarness.observe(false);
   await closeHarness.observe(false);
   assert.deepEqual(closeHarness.deliveries, [false, true]);
+});
+
+void test('failed and zero-row ACTIVE markers converge without repeating delivery and survive restart', async () => {
+  for (const failureMode of ['throw', 'zero-row'] as const) {
+    const harness = incidentHarness();
+    await harness.observe(true);
+    await harness.observe(true);
+    if (failureMode === 'throw') harness.store.failMark = true;
+    else harness.store.zeroMark = true;
+
+    assert.equal(await harness.observe(true), 'opened');
+    assert.deepEqual(harness.deliveries, [false]);
+    assert.equal(harness.store.records.get('test.episode')?.lastNotifiedAt, null);
+
+    harness.store.failMark = false;
+    harness.store.zeroMark = false;
+    assert.equal(await harness.observe(true), 'notified');
+    assert.deepEqual(harness.deliveries, [false]);
+    assert.notEqual(harness.store.records.get('test.episode')?.lastNotifiedAt, null);
+
+    const restarted = incidentHarness(harness.store);
+    assert.equal(await restarted.observe(true), 'opened');
+    assert.deepEqual(restarted.deliveries, []);
+  }
+});
+
+void test('failed and zero-row episode saves defer ACTIVE until persistence converges', async () => {
+  for (const failureMode of ['throw', 'zero-row'] as const) {
+    const harness = incidentHarness();
+    await harness.observe(true);
+    await harness.observe(true);
+    if (failureMode === 'throw') harness.store.failSave = true;
+    else harness.store.zeroSave = true;
+
+    assert.equal(await harness.observe(true), 'opened');
+    assert.deepEqual(harness.deliveries, []);
+    assert.equal(harness.store.records.get('test.episode')?.occurrenceCount, 2);
+    assert.equal(harness.store.records.get('test.episode')?.lastNotifiedAt, null);
+
+    harness.store.failSave = false;
+    harness.store.zeroSave = false;
+    assert.equal(await harness.observe(true), 'notified');
+    assert.deepEqual(harness.deliveries, [false]);
+    assert.notEqual(harness.store.records.get('test.episode')?.lastNotifiedAt, null);
+  }
+});
+
+void test('failed and zero-row closure retries without repeating RECOVERY and stays closed after restart', async () => {
+  for (const failureMode of ['throw', 'zero-row'] as const) {
+    const harness = incidentHarness();
+    await harness.observe(true);
+    await harness.observe(true);
+    await harness.observe(true);
+    if (failureMode === 'throw') harness.store.failClose = true;
+    else harness.store.zeroClose = true;
+
+    assert.equal(await harness.observe(false), 'opened');
+    assert.deepEqual(harness.deliveries, [false, true]);
+    assert.equal(harness.store.records.get('test.episode')?.isOpen, true);
+
+    harness.store.failClose = false;
+    harness.store.zeroClose = false;
+    assert.equal(await harness.observe(false), 'recovered');
+    assert.deepEqual(harness.deliveries, [false, true]);
+    assert.equal(harness.store.records.get('test.episode')?.isOpen, false);
+
+    const restarted = incidentHarness(harness.store);
+    assert.equal(await restarted.observe(false), 'none');
+    assert.deepEqual(restarted.deliveries, []);
+  }
+});
+
+void test('PostgreSQL incident updates require an affected row', async () => {
+  const store = new PostgresIncidentStore({
+    query: () => Promise.resolve({ rows: [], rowCount: 0 }),
+  } as never);
+  assert.equal(await store.saveOpen({
+    incidentKey: 'test.missing', occurrenceCount: 1, details: {},
+  }), false);
+  assert.equal(await store.markNotified('test.missing'), false);
+  assert.equal(await store.close('test.missing'), false);
+});
+
+void test('a neutral observation retries a failed ACTIVE marker without repeating delivery', async () => {
+  const store = new MemoryIncidentStore();
+  const deliveries: boolean[] = [];
+  const events: { readonly event: string; readonly fields: Readonly<Record<string, unknown>> }[] = [];
+  const tracker = new IncidentTracker({
+    store,
+    transports: [{
+      name: 'fake', send: (message) => { deliveries.push(message.recovery); return Promise.resolve(); },
+    }],
+    onEvent: (event, fields) => events.push({ event, fields }),
+  });
+  const observeRate = async (rate: number) => tracker.observe({
+    incidentKey: 'test.neutral-retry', active: rate < 0.02,
+    recoveryObserved: rate > 0.05, recoveryThreshold: 3,
+    threshold: 3, title: 'Matching', body: String(rate),
+  });
+  await observeRate(0.01);
+  await observeRate(0.01);
+  store.zeroMark = true;
+  await observeRate(0.01);
+  assert.deepEqual(deliveries, [false]);
+  assert.equal(events.some(({ event, fields }) =>
+    event === 'notification.state_write_failed' && fields.errorName === 'StateNotUpdated'), true);
+
+  store.zeroMark = false;
+  assert.equal(await observeRate(0.03), 'opened');
+  assert.deepEqual(deliveries, [false]);
+  assert.notEqual(store.records.get('test.neutral-retry')?.lastNotifiedAt, null);
 });
 
 void test('partial-channel incident delivery retries only the failed channel and recovers only channels that saw ACTIVE', async () => {

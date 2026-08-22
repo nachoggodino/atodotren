@@ -182,9 +182,11 @@ boundary must be greater than the entry boundary.
 
 Incident metadata failures and channel failures emit credential-safe structured
 `notification.*_failed` events while durable RENFE ingestion continues. Per-channel
-retry state is process-local: a crash after a channel send but before its database
-marker can rarely duplicate that delivery. A durable per-channel outbox is deferred
-to Milestone 6.
+delivery state is retained while failed database markers retry on later
+observations; zero-row state updates are treated as failures. Retry state remains
+process-local: a crash after a channel send but before its database marker can
+rarely duplicate that delivery. A durable per-channel outbox is deferred to
+Milestone 6.
 
 Explicitly test the configured real channels from the built Compose worker only
 when sending a labelled test message and heartbeat is intended:
