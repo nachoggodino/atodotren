@@ -73,12 +73,12 @@ async function buildMilestone4Fixture(directory: string): Promise<string> {
       `10TRIP-M4-20,${time},${time},${forwardStops[(sequence - 1) % forwardStops.length]!},${sequence},0,0,1`,
     );
   }
-  const reverseStops = ['10STOP-C', '10STOP-B', '10STOP-A', '10STOP-C'];
+  const reverseStops = ['10STOP-C', '10STOP-B', '10STOP-A', '10STOP-B'];
   for (let index = 0; index < reverseStops.length; index += 1) {
     const time = gtfsTime(43_200 + index * 180);
     stopTimeRows.push(`10TRIP-M4-D1,${time},${time},${reverseStops[index]!},${index + 1},0,0,1`);
   }
-  const cancelStops = ['10STOP-A', '10STOP-B', '10STOP-C', '10STOP-A'];
+  const cancelStops = ['10STOP-A', '10STOP-B', '10STOP-C', '10STOP-B'];
   for (let index = 0; index < cancelStops.length; index += 1) {
     const time = gtfsTime(50_400 + index * 180);
     stopTimeRows.push(`10TRIP-M4-CAN,${time},${time},${cancelStops[index]!},${index + 1},0,0,1`);

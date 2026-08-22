@@ -604,6 +604,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0003_static_mapping_integrity.sql',
           '0004_realtime_ingestion.sql',
           '0005_canonical_journeys.sql',
+          '0006_aggregation_retention.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
