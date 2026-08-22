@@ -189,8 +189,10 @@ is discovered from existing closed journeys, not from evidence rows. If their
 retained evidence is unavailable, the report contains `repair_evidence_unavailable`
 and the command exits nonzero. Because changed stop evidence is retained for seven
 days, ordinary repairability is likewise limited to that seven-day window; evidence
-must be preserved separately before attempting an older correction. Commands emit
-concise JSON reports.
+must be preserved separately before attempting an older correction. Repeated
+bounded repair calls skip journeys already at the requested version and continue
+through the date; repairable journeys are processed before expired-evidence errors.
+Commands emit concise JSON reports.
 
 The Compose worker runs `worker ingest --canonical-maintenance`, which performs one
 bounded canonicalization and closure maintenance pass after every polling cycle. It therefore converts

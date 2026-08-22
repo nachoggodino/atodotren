@@ -102,7 +102,9 @@ void test('ingest and replay dispatch bounded modes with predictable reports', a
   const ingest = await invoke(['ingest', '--cycles', '2', '--canonical-maintenance'], environment, {
     connect,
     ingest: async (options) => {
-      await options.afterCycle?.();
+      for (let cycle = 0; cycle < (options.cycles ?? 0); cycle += 1) {
+        await options.afterCycle?.();
+      }
       return {
         cyclesAttempted: options.cycles ?? 0, successfulCycles: 2,
         postgresPersistedFeeds: 4, spooledFeeds: 0, replayedFeeds: 0,
@@ -125,7 +127,7 @@ void test('ingest and replay dispatch bounded modes with predictable reports', a
   });
   assert.equal(ingest.code, 0);
   assert.equal((JSON.parse(ingest.stdout) as { cyclesAttempted: number }).cyclesAttempted, 2);
-  assert.equal(maintenanceRuns, 2);
+  assert.equal(maintenanceRuns, 4);
   const replay = await invoke(['replay'], environment, {
     connect,
     replay: () => Promise.resolve({ replayed: 3, pending: 0 }),

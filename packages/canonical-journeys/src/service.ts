@@ -409,12 +409,21 @@ export async function canonicalizeJourneys(options: CanonicalizeOptions): Promis
   report.unresolvedInput = Number(unresolved.rows[0]?.count ?? 0);
   const keys = repairVersion > 0
     ? await options.pool.query<JourneyKeyRow>(`
-        SELECT feed_version_id, source_trip_id, service_date::text, start_time
-        FROM core.journey
-        WHERE service_date = $1::date AND finalized_at IS NOT NULL
-        ORDER BY feed_version_id, source_trip_id, start_time
+        SELECT journey.feed_version_id, journey.source_trip_id,
+          journey.service_date::text, journey.start_time
+        FROM core.journey AS journey
+        WHERE journey.service_date = $1::date AND journey.finalized_at IS NOT NULL
+          AND journey.repair_version < $3
+          AND journey.canonical_algorithm_version <> $4
+        ORDER BY EXISTS (
+          SELECT 1 FROM ingest.stop_evidence AS evidence
+          WHERE evidence.feed_version_id = journey.feed_version_id
+            AND evidence.source_trip_id = journey.source_trip_id
+            AND evidence.service_date = journey.service_date
+            AND evidence.start_time IS NOT DISTINCT FROM journey.start_time
+        ) DESC, journey.feed_version_id, journey.source_trip_id, journey.start_time
         LIMIT $2
-      `, [options.serviceDate, limit])
+      `, [options.serviceDate, limit, repairVersion, algorithmVersion])
     : await options.pool.query<JourneyKeyRow>(`
         SELECT DISTINCT evidence.feed_version_id, evidence.source_trip_id,
           evidence.service_date::text, evidence.start_time
@@ -438,7 +447,24 @@ export async function canonicalizeJourneys(options: CanonicalizeOptions): Promis
         LIMIT $2
       `, [options.serviceDate ?? null, limit, options.rebuild ?? false]);
   if (repairVersion > 0 && keys.rows.length === 0) {
-    report.errors.repair_target_not_found = 1;
+    const targetState = await options.pool.query<{ closed_count: string; incompatible_count: string }>(`
+      SELECT count(*)::text AS closed_count,
+        count(*) FILTER (
+          WHERE NOT (
+            repair_version = $2 AND canonical_algorithm_version = $3
+          ) AND NOT (
+            repair_version < $2 AND canonical_algorithm_version <> $3
+          )
+        )::text AS incompatible_count
+      FROM core.journey
+      WHERE service_date = $1::date AND finalized_at IS NOT NULL
+    `, [options.serviceDate, repairVersion, algorithmVersion]);
+    const state = targetState.rows[0];
+    if (Number(state?.closed_count ?? 0) === 0) {
+      report.errors.repair_target_not_found = 1;
+    } else if (Number(state?.incompatible_count ?? 0) > 0) {
+      report.errors.closed_requires_repair = Number(state?.incompatible_count ?? 0);
+    }
   }
   for (const key of keys.rows) {
     const client = await options.pool.connect();

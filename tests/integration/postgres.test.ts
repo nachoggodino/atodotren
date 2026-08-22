@@ -1206,11 +1206,28 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           pool.query(`UPDATE core.journey SET updated_at = clock_timestamp() WHERE service_date = $1::date AND source_trip_id = $2`, [serviceDate, regularTrip]),
           /explicit versioned repair/u,
         );
-        const repaired = await canonicalizeJourneys({
-          pool, serviceDate, limit: 10, algorithmVersion: 'canonical-v2', repairVersion: 1,
+        const firstRepairBatch = await canonicalizeJourneys({
+          pool, serviceDate, limit: 1, algorithmVersion: 'canonical-v2', repairVersion: 1,
           repairReason: 'integration correction',
         });
-        assert.equal(Object.keys(repaired.errors).length, 0, JSON.stringify(repaired));
+        assert.equal(Object.keys(firstRepairBatch.errors).length, 0, JSON.stringify(firstRepairBatch));
+        const firstRepairCount = await pool.query<{ count: string }>(`
+          SELECT count(*)::text FROM core.journey
+          WHERE service_date = $1::date AND repair_version = 1
+            AND canonical_algorithm_version = 'canonical-v2'
+        `, [serviceDate]);
+        assert.equal(firstRepairCount.rows[0]?.count, '1');
+        const secondRepairBatch = await canonicalizeJourneys({
+          pool, serviceDate, limit: 1, algorithmVersion: 'canonical-v2', repairVersion: 1,
+          repairReason: 'integration correction',
+        });
+        assert.equal(Object.keys(secondRepairBatch.errors).length, 0, JSON.stringify(secondRepairBatch));
+        const completedRepair = await canonicalizeJourneys({
+          pool, serviceDate, limit: 1, algorithmVersion: 'canonical-v2', repairVersion: 1,
+          repairReason: 'integration correction',
+        });
+        assert.deepEqual(completedRepair.errors, {});
+        assert.equal(completedRepair.journeysUpdated, 0);
         const repairedRegular = await pool.query<{ lifecycle: string; repair_version: number; missing: string }>(`
           SELECT journey.lifecycle_status AS lifecycle, journey.repair_version,
             count(*) FILTER (WHERE stop.evidence_status = 'missing_evidence')::text AS missing

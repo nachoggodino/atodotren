@@ -599,6 +599,56 @@ void test('cold static-index failure is deferred safely and a later cycle retrie
   }
 });
 
+void test('canonical maintenance runs once per cycle and a failure makes only that cycle unsuccessful', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'atodotren-canonical-maintenance-'));
+  const spool = new OutageSpool(join(directory, 'spool.sqlite'), 2_000_000);
+  let maintenanceRuns = 0;
+  let clock = Date.parse('2099-08-17T10:00:00.000Z');
+  const events: string[] = [];
+  const body = encode([{
+    id: 'tu-maintenance', tripUpdate: {
+      trip: { tripId: '10T1', startDate: '20260817' }, timestamp: 1_725_000_001,
+      stopTimeUpdate: [{ stopSequence: 1, arrival: { delay: 30 } }],
+    },
+  }]);
+  const unavailablePool = {
+    connect: () => Promise.reject(new Error('PostgreSQL unavailable')),
+    query: () => Promise.reject(new Error('PostgreSQL unavailable')),
+  };
+  try {
+    const report = await runIngest({
+      pool: unavailablePool as never,
+      spool,
+      cycles: 2,
+      config: {
+        endpoints: [{ kind: 'trip_updates', url: 'http://localhost/feed', enabled: true }],
+        requestTimeoutMs: 1_000, maxResponseBytes: 1_024 * 1_024,
+        cycleIntervalMs: 1, alertIntervalMs: 60_000, failureThreshold: 3,
+        matchingRateMinimum: 0.02, matchingRateRecoveryMinimum: 0.05,
+        matchingRecoveryThreshold: 3, malformedRateMaximum: 0.25,
+        spoolWarningRatio: 0.75, staleAfterMs: 120_000,
+      },
+      fetchImplementation: () => Promise.resolve(new Response(body, { status: 200 })),
+      loadStaticIndex: () => Promise.resolve(index),
+      afterCycle: () => {
+        maintenanceRuns += 1;
+        return maintenanceRuns === 1
+          ? Promise.reject(new Error('Canonical maintenance failed'))
+          : Promise.resolve();
+      },
+      onEvent: (event) => events.push(event),
+      sleep: () => Promise.resolve(),
+      now: () => { const value = new Date(clock); clock += 1_000; return value; },
+    });
+    assert.equal(maintenanceRuns, 2);
+    assert.equal(report.successfulCycles, 1);
+    assert.equal(events.filter((event) => event === 'canonical.maintenance_failed').length, 1);
+  } finally {
+    spool.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 function poll(id: string): PollRecord {
   return {
     idempotencyKey: id.padEnd(64, '0'), feedKind: 'vehicle_positions',

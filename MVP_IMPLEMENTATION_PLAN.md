@@ -737,7 +737,8 @@ canceled; no finalized stop remained pending. Concurrent replay produced one
 natural-key journey per instance, and direct closed-row, finalized-pending, or
 first-presence mutation was rejected. Later provided/exact evidence upgraded an
 open journey created from inferred/fallback evidence. Repair discovers closed
-journeys directly and fails explicitly when their retained evidence is unavailable.
+journeys directly, advances across repeated bounded calls, and fails explicitly
+when their retained evidence is unavailable without starving repairable journeys.
 
 Unit and PostgreSQL tests cover ordinary, >24:00, midnight-crossing, spring-gap,
 fall-fold, and descriptor-date conversion; negative delays; reported-time
