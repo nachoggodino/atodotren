@@ -249,7 +249,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     const feedVersionId = imported.feedVersionId;
     assert.ok(feedVersionId !== undefined);
 
-    const histogramLaw = await pool.query<{ associative: boolean; underflow: number; overflow: number }>(`
+    const histogramLaw = await databaseAdmin.query<{ associative: boolean; underflow: number; overflow: number }>(`
       SELECT
         analytics.histogram_add(
           analytics.histogram_30s(ARRAY[-301,-300,120]),

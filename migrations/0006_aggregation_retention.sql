@@ -584,10 +584,11 @@ BEGIN
     generation = analytics.dirty_scope.generation + 1,
     reason = EXCLUDED.reason;
 
-  UPDATE operations.retention_ledger
+  UPDATE operations.retention_ledger AS ledger
   SET revoked_at = clock_timestamp()
-  WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
-    AND applied_at IS NULL AND revoked_at IS NULL;
+  WHERE ledger.family = 'canonical_detail'
+    AND ledger.target_date = analytics.mark_dirty.target_date
+    AND ledger.applied_at IS NULL AND ledger.revoked_at IS NULL;
 
   -- Open-month schedule contributions are replaceable. If this aggregate version
   -- has already sealed the calendar month, preserve its verification and monthly
