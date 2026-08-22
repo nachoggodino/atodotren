@@ -588,6 +588,30 @@ BEGIN
   SET revoked_at = clock_timestamp()
   WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
     AND applied_at IS NULL AND revoked_at IS NULL;
+
+  -- Open-month schedule contributions are replaceable. If this aggregate version
+  -- has already sealed the calendar month, preserve its verification and monthly
+  -- rows; a repair must then use a newer aggregate algorithm version.
+  DELETE FROM analytics.daily_schedule_contribution AS contribution
+  USING operations.service_day_finalization AS finalization
+  WHERE contribution.service_date = analytics.mark_dirty.target_date
+    AND finalization.service_date = contribution.service_date
+    AND finalization.aggregate_algorithm_version = contribution.aggregate_algorithm_version
+    AND NOT EXISTS (
+      SELECT 1 FROM operations.month_seal AS seal
+      WHERE seal.calendar_month = date_trunc('month', contribution.service_date)::date
+        AND seal.aggregate_algorithm_version = contribution.aggregate_algorithm_version
+        AND seal.status = 'sealed'
+    );
+
+  DELETE FROM operations.service_day_finalization AS finalization
+  WHERE finalization.service_date = analytics.mark_dirty.target_date
+    AND NOT EXISTS (
+      SELECT 1 FROM operations.month_seal AS seal
+      WHERE seal.calendar_month = date_trunc('month', finalization.service_date)::date
+        AND seal.aggregate_algorithm_version = finalization.aggregate_algorithm_version
+        AND seal.status = 'sealed'
+    );
 END
 $function$;
 
@@ -625,6 +649,28 @@ BEGIN
     );
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('aggregate:daily:' || target_date::text, 0));
+
+  IF EXISTS (
+    SELECT 1 FROM operations.month_seal
+    WHERE calendar_month = date_trunc('month', target_date)::date
+      AND aggregate_algorithm_version = algorithm_version
+      AND status = 'sealed'
+  ) THEN
+    SELECT count(*) INTO source_rows FROM core.journey_stop WHERE service_date = target_date;
+    source_checksum_value := analytics.canonical_source_checksum(target_date);
+    INSERT INTO analytics.aggregation_run (
+      service_date, family, aggregate_algorithm_version, generation, started_at, completed_at,
+      status, source_row_count, aggregate_row_count, source_checksum, blocker
+    ) VALUES (
+      target_date, 'daily', algorithm_version, dirty_generation, run_started, clock_timestamp(),
+      'blocked', source_rows, 0, source_checksum_value, 'sealed_version_requires_new_algorithm'
+    );
+    RETURN jsonb_build_object(
+      'serviceDate', target_date, 'status', 'blocked', 'sourceRows', source_rows,
+      'aggregateRows', 0, 'sourceChecksum', source_checksum_value,
+      'blocker', 'sealed_version_requires_new_algorithm'
+    );
+  END IF;
 
   DELETE FROM analytics.daily_stop_call_hour WHERE service_date = target_date;
   DELETE FROM analytics.daily_journey_hour WHERE service_date = target_date;
@@ -2055,19 +2101,12 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, analytics, operations
 AS $function$
+DECLARE
+  affected_date date;
 BEGIN
-  INSERT INTO analytics.dirty_scope (service_date, family, reason)
-  SELECT DISTINCT changed.service_date, family.value, 'canonical-insert'
-  FROM new_rows AS changed
-  CROSS JOIN (VALUES ('daily'::text), ('schedule'::text)) AS family(value)
-  ON CONFLICT (service_date, family) DO UPDATE SET
-    dirty_since = LEAST(analytics.dirty_scope.dirty_since, EXCLUDED.dirty_since),
-    generation = analytics.dirty_scope.generation + 1,
-    reason = EXCLUDED.reason;
-  UPDATE operations.retention_ledger ledger
-  SET revoked_at = clock_timestamp()
-  WHERE ledger.family = 'canonical_detail' AND ledger.applied_at IS NULL AND ledger.revoked_at IS NULL
-    AND ledger.target_date IN (SELECT DISTINCT service_date FROM new_rows);
+  FOR affected_date IN SELECT DISTINCT service_date FROM new_rows LOOP
+    PERFORM analytics.mark_dirty(affected_date, 'canonical-insert');
+  END LOOP;
   RETURN NULL;
 END
 $function$;
@@ -2078,23 +2117,14 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, analytics, operations
 AS $function$
+DECLARE
+  affected_date date;
 BEGIN
-  INSERT INTO analytics.dirty_scope (service_date, family, reason)
-  SELECT DISTINCT changed.service_date, family.value, 'canonical-update'
-  FROM (
+  FOR affected_date IN
     SELECT service_date FROM new_rows UNION SELECT service_date FROM old_rows
-  ) AS changed
-  CROSS JOIN (VALUES ('daily'::text), ('schedule'::text)) AS family(value)
-  ON CONFLICT (service_date, family) DO UPDATE SET
-    dirty_since = LEAST(analytics.dirty_scope.dirty_since, EXCLUDED.dirty_since),
-    generation = analytics.dirty_scope.generation + 1,
-    reason = EXCLUDED.reason;
-  UPDATE operations.retention_ledger ledger
-  SET revoked_at = clock_timestamp()
-  WHERE ledger.family = 'canonical_detail' AND ledger.applied_at IS NULL AND ledger.revoked_at IS NULL
-    AND ledger.target_date IN (
-      SELECT service_date FROM new_rows UNION SELECT service_date FROM old_rows
-    );
+  LOOP
+    PERFORM analytics.mark_dirty(affected_date, 'canonical-update');
+  END LOOP;
   RETURN NULL;
 END
 $function$;

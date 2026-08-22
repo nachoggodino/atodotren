@@ -162,8 +162,10 @@ export async function aggregateDirty(options: AggregateOptions): Promise<Aggrega
       );
       const report = jsonValue(result.rows[0]?.report);
       results.push(report);
-      if (reportStatus(report) === 'noop') noops += 1;
-      else succeeded += 1;
+      const status = reportStatus(report);
+      if (status === 'noop') noops += 1;
+      else if (status === 'succeeded') succeeded += 1;
+      else errors.push(`${serviceDate}: aggregation ${status}`);
     } catch (error) {
       errors.push(`${serviceDate}: ${message(error)}`);
     }

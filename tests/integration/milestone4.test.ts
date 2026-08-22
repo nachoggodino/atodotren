@@ -70,18 +70,18 @@ async function buildMilestone4Fixture(directory: string): Promise<string> {
   for (let sequence = 1; sequence <= 20; sequence += 1) {
     const time = gtfsTime(36_000 + (sequence - 1) * 120);
     stopTimeRows.push(
-      `10TRIP-M4-20,${time},${time},${forwardStops[(sequence - 1) % forwardStops.length]},${sequence},0,0,1`,
+      `10TRIP-M4-20,${time},${time},${forwardStops[(sequence - 1) % forwardStops.length]!},${sequence},0,0,1`,
     );
   }
   const reverseStops = ['10STOP-C', '10STOP-B', '10STOP-A', '10STOP-C'];
   for (let index = 0; index < reverseStops.length; index += 1) {
     const time = gtfsTime(43_200 + index * 180);
-    stopTimeRows.push(`10TRIP-M4-D1,${time},${time},${reverseStops[index]},${index + 1},0,0,1`);
+    stopTimeRows.push(`10TRIP-M4-D1,${time},${time},${reverseStops[index]!},${index + 1},0,0,1`);
   }
   const cancelStops = ['10STOP-A', '10STOP-B', '10STOP-C', '10STOP-A'];
   for (let index = 0; index < cancelStops.length; index += 1) {
     const time = gtfsTime(50_400 + index * 180);
-    stopTimeRows.push(`10TRIP-M4-CAN,${time},${time},${cancelStops[index]},${index + 1},0,0,1`);
+    stopTimeRows.push(`10TRIP-M4-CAN,${time},${time},${cancelStops[index]!},${index + 1},0,0,1`);
   }
   stopTimeRows.push(
     '20TRIP-M4,10:00:00,10:00:00,20STOP-A,1,0,0,1',
@@ -273,7 +273,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
         tripId: '10TRIP-M4-20',
         stopSequence: index + 1,
         classification: 'reported_prediction',
-        arrivalDelay: boundaryDelays[index],
+        arrivalDelay: boundaryDelays[index]!,
         discriminator: `boundary-${index}`,
       });
     }
@@ -336,10 +336,11 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
         sum(over_five_to_ten_count)::text AS five_ten,
         sum(over_ten_to_fifteen_count)::text AS ten_fifteen,
         sum(over_fifteen_count)::text AS over_fifteen,
-        sum((SELECT sum(bin) FROM unnest(delay_histogram) AS bin))::text AS histogram_total,
+        sum(histogram_bins.total)::text AS histogram_total,
         sum(delay_histogram[1])::text AS underflow,
         sum(delay_histogram[72])::text AS overflow
       FROM analytics.daily_stop_call_hour
+      CROSS JOIN LATERAL (SELECT sum(bin)::bigint AS total FROM unnest(delay_histogram) AS bin) AS histogram_bins
       WHERE service_date = $1::date AND scheduled_hour = 10
     `, [targetDate]);
     assert.deepEqual(boundary.rows[0], {

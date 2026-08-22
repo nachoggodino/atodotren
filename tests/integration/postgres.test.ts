@@ -91,6 +91,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
       resolve(process.cwd(), 'migrations/0005_canonical_journeys.sql'),
       join(directory, '0005_canonical_journeys.sql'),
     ),
+    cp(
+      resolve(process.cwd(), 'migrations/0006_aggregation_retention.sql'),
+      join(directory, '0006_aggregation_retention.sql'),
+    ),
   ]);
 }
 
@@ -184,6 +188,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0003_static_mapping_integrity.sql',
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
+        '0006_aggregation_retention.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -204,6 +209,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0003_static_mapping_integrity.sql',
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
+        '0006_aggregation_retention.sql',
       ]);
     });
 
