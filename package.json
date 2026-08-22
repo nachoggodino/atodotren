@@ -17,7 +17,7 @@
     "build": "node scripts/clean-generated.ts build && tsc -b",
     "clean": "node scripts/clean-generated.ts all",
     "db:migrate": "npm run build --silent && node apps/worker/dist/migrate.js",
-    "docker:build": "docker build --file docker/worker/Dockerfile --tag atodotren-worker:milestone-2 .",
+    "docker:build": "docker build --file docker/worker/Dockerfile --tag atodotren-worker:milestone-3 .",
     "docker:build:multiarch": "docker buildx build --platform linux/amd64,linux/arm64 --file docker/worker/Dockerfile --output type=oci,dest=atodotren-worker-multiarch.tar .",
     "fixture:static": "node scripts/build-static-fixture.ts",
     "lint": "eslint . --max-warnings 0",

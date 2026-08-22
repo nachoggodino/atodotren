@@ -164,3 +164,36 @@ void test('import-static exposes strict options and preserves JSON report exit s
   assert.equal(rejected.code, 1);
   assert.equal((JSON.parse(rejected.stdout) as { error: { code: string } }).error.code, 'fixture.invalid');
 });
+
+void test('canonical commands enforce bounded modes and emit JSON reports', async () => {
+  assert.equal((await invoke(['canonicalize', '--help'])).code, 0);
+  assert.equal((await invoke(['canonicalize', '--rebuild'])).code, 2);
+  assert.equal((await invoke(['close-journeys', '--grace-seconds', '86401'])).code, 2);
+  assert.equal((await invoke(['repair-journeys', '--service-date', '2026-08-22'])).code, 2);
+  const environment = { DATABASE_URL: 'postgresql://worker:password@localhost/atodotren' };
+  let closed = false;
+  const connect: NonNullable<DispatcherDependencies['connect']> = () => Promise.resolve({
+    pool: {} as never, db: {} as never, close: () => { closed = true; return Promise.resolve(); },
+  });
+  const baseReport = {
+    journeysCreated: 1, journeysUpdated: 0, journeysClosed: 0, journeyStopsMaterialized: 4,
+    statuses: { pending: 2, reported_only: 0, observed_presence: 1, skipped: 1, canceled: 0, missing_evidence: 0 },
+    discrepancyCount: 1, ignoredStaleEvidence: 0, ignoredDuplicateEvidence: 0,
+    unresolvedInput: 0, ambiguousInput: 0, algorithmVersion: 'canonical-v1', repairVersion: 0,
+    durationMs: 2, errors: {},
+  } as const;
+  const canonicalized = await invoke([
+    'canonicalize', '--service-date', '2026-08-22', '--rebuild', '--limit', '5',
+  ], environment, {
+    connect,
+    canonicalize: (options) => {
+      assert.equal(options.serviceDate, '2026-08-22');
+      assert.equal(options.limit, 5);
+      assert.equal(options.rebuild, true);
+      return Promise.resolve({ command: 'canonicalize', ...baseReport });
+    },
+  });
+  assert.equal(canonicalized.code, 0);
+  assert.equal((JSON.parse(canonicalized.stdout) as { journeyStopsMaterialized: number }).journeyStopsMaterialized, 4);
+  assert.equal(closed, true);
+});

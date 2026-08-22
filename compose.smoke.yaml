@@ -1,6 +1,6 @@
 services:
   fake-feed:
-    image: atodotren-worker:milestone-2
+    image: atodotren-worker:milestone-3
     entrypoint: ["node", "apps/worker/dist/fake-feed-server.js"]
     environment:
       FAKE_FEED_PORT: 4010

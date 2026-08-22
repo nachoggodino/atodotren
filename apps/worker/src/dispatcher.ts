@@ -4,6 +4,12 @@ import { parseArgs } from 'node:util';
 
 import { ConfigError, loadConfig } from '@atodotren/config';
 import {
+  canonicalizeJourneys,
+  closeJourneys,
+  DEFAULT_ALGORITHM_VERSION,
+  type CanonicalReport,
+} from '@atodotren/canonical-journeys';
+import {
   createDatabaseConnection,
   runDatabaseDoctor,
   type DatabaseConnection,
@@ -32,6 +38,9 @@ const packageVersion = (JSON.parse(
 const plannedCommands = [
   'ingest',
   'import-static',
+  'canonicalize',
+  'close-journeys',
+  'repair-journeys',
   'aggregate',
   'finalize',
   'replay',
@@ -49,6 +58,9 @@ Usage:
 Commands:
   ingest          Poll and persist Madrid GTFS-Realtime evidence
   import-static   Import and transactionally activate Madrid static GTFS
+  canonicalize   Build or refresh bounded canonical journeys from retained evidence
+  close-journeys Close journeys past scheduled end plus the configured grace
+  repair-journeys  Explicitly rebuild closed journeys with a new version
   aggregate       Recompute dirty aggregate buckets (planned for a later milestone)
   finalize        Finalize eligible service days (planned for a later milestone)
   replay          Replay the local outage spool and exit
@@ -97,6 +109,15 @@ checksum idempotency still applies. Exit 0 means imported or unchanged, 1 means
 configuration/download/validation/database failure, and 2 means invalid usage.
 `;
 
+export const canonicalUsage = `Usage:
+  worker canonicalize [--service-date <YYYY-MM-DD>] [--limit <1-10000>] [--rebuild] [--algorithm-version <version>]
+  worker close-journeys [--service-date <YYYY-MM-DD>] [--limit <1-10000>] [--grace-seconds <0-86400>] [--now <ISO-instant>]
+  worker repair-journeys --service-date <YYYY-MM-DD> --algorithm-version <new-version> --repair-version <positive-integer> --reason <text> [--limit <1-10000>]
+
+All commands are bounded and emit one JSON report. Rebuild replays a specified
+date for open/disposable data; closed data requires the explicit repair command.
+`;
+
 export class UsageError extends Error {
   public readonly usage: string;
 
@@ -118,6 +139,123 @@ export interface DispatcherDependencies {
   readonly ingest?: typeof runIngest;
   readonly replay?: typeof runReplay;
   readonly notificationTest?: typeof testNotificationChannels;
+  readonly canonicalize?: typeof canonicalizeJourneys;
+  readonly closeJourneys?: typeof closeJourneys;
+}
+
+interface CanonicalCliOptions {
+  readonly serviceDate?: string;
+  readonly limit?: number;
+  readonly algorithmVersion: string;
+  readonly rebuild: boolean;
+  readonly repairVersion?: number;
+  readonly repairReason?: string;
+  readonly graceSeconds?: number;
+  readonly now?: Date;
+  readonly help: boolean;
+}
+
+function positiveInteger(value: string | undefined, name: string, maximum: number): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) {
+    throw new UsageError(`${name} must be an integer from 1 through ${maximum}`, canonicalUsage);
+  }
+  return parsed;
+}
+
+function parseCanonicalOptions(arguments_: readonly string[], command: 'canonicalize' | 'close-journeys' | 'repair-journeys'): CanonicalCliOptions {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...arguments_], allowPositionals: false, strict: true,
+      options: {
+        'service-date': { type: 'string' }, limit: { type: 'string' }, rebuild: { type: 'boolean' },
+        'algorithm-version': { type: 'string' }, 'repair-version': { type: 'string' },
+        reason: { type: 'string' }, 'grace-seconds': { type: 'string' }, now: { type: 'string' },
+        help: { type: 'boolean', short: 'h' },
+      },
+    });
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : 'Invalid canonical options', canonicalUsage);
+  }
+  if (parsed.values.help === true) return { algorithmVersion: DEFAULT_ALGORITHM_VERSION, rebuild: false, help: true };
+  const serviceDate = parsed.values['service-date'];
+  if (serviceDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/u.test(serviceDate)) {
+    throw new UsageError('--service-date must use YYYY-MM-DD', canonicalUsage);
+  }
+  const limit = positiveInteger(parsed.values.limit, '--limit', 10_000);
+  const algorithmVersion = parsed.values['algorithm-version'] ?? DEFAULT_ALGORITHM_VERSION;
+  if (!/^[a-z0-9_.-]{1,40}$/u.test(algorithmVersion)) throw new UsageError('Invalid --algorithm-version', canonicalUsage);
+  if (command === 'canonicalize') {
+    if (parsed.values.rebuild === true && serviceDate === undefined) throw new UsageError('--rebuild requires --service-date', canonicalUsage);
+    if (parsed.values['repair-version'] !== undefined || parsed.values.reason !== undefined || parsed.values['grace-seconds'] !== undefined || parsed.values.now !== undefined) {
+      throw new UsageError('canonicalize received options for another command', canonicalUsage);
+    }
+  }
+  let repairVersion: number | undefined;
+  if (command === 'repair-journeys') {
+    repairVersion = positiveInteger(parsed.values['repair-version'], '--repair-version', 2_147_483_647);
+    if (serviceDate === undefined || repairVersion === undefined || parsed.values.reason?.trim() === '' || parsed.values.reason === undefined || parsed.values['algorithm-version'] === undefined) {
+      throw new UsageError('repair-journeys requires service date, new algorithm version, repair version, and reason', canonicalUsage);
+    }
+    if (parsed.values.rebuild === true || parsed.values['grace-seconds'] !== undefined || parsed.values.now !== undefined) throw new UsageError('repair-journeys received incompatible options', canonicalUsage);
+  }
+  let graceSeconds: number | undefined;
+  let now: Date | undefined;
+  if (command === 'close-journeys') {
+    const rawGrace = parsed.values['grace-seconds'];
+    if (rawGrace !== undefined) {
+      graceSeconds = Number(rawGrace);
+      if (!Number.isSafeInteger(graceSeconds) || graceSeconds < 0 || graceSeconds > 86_400) throw new UsageError('--grace-seconds must be from 0 through 86400', canonicalUsage);
+    }
+    if (parsed.values.now !== undefined) {
+      now = new Date(parsed.values.now);
+      if (Number.isNaN(now.getTime())) throw new UsageError('--now must be an ISO instant', canonicalUsage);
+    }
+    if (parsed.values.rebuild === true || parsed.values['repair-version'] !== undefined || parsed.values.reason !== undefined) throw new UsageError('close-journeys received incompatible options', canonicalUsage);
+  }
+  return {
+    ...(serviceDate === undefined ? {} : { serviceDate }), ...(limit === undefined ? {} : { limit }),
+    algorithmVersion, rebuild: parsed.values.rebuild ?? false,
+    ...(repairVersion === undefined ? {} : { repairVersion }),
+    ...(parsed.values.reason === undefined ? {} : { repairReason: parsed.values.reason }),
+    ...(graceSeconds === undefined ? {} : { graceSeconds }), ...(now === undefined ? {} : { now }), help: false,
+  };
+}
+
+export async function runCanonicalCommand(
+  command: 'canonicalize' | 'close-journeys' | 'repair-journeys',
+  options: CanonicalCliOptions,
+  dependencies: DispatcherDependencies = {},
+): Promise<0 | 1> {
+  const config = loadConfig(dependencies.environment ?? process.env);
+  const connection = await (dependencies.connect ?? createDatabaseConnection)(config.database);
+  try {
+    let report: CanonicalReport;
+    if (command === 'close-journeys') {
+      report = await (dependencies.closeJourneys ?? closeJourneys)({
+        pool: connection.pool, algorithmVersion: options.algorithmVersion,
+        ...(options.serviceDate === undefined ? {} : { serviceDate: options.serviceDate }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+        ...(options.graceSeconds === undefined ? {} : { graceSeconds: options.graceSeconds }),
+        ...(options.now === undefined ? {} : { now: options.now }),
+      });
+    } else {
+      report = await (dependencies.canonicalize ?? canonicalizeJourneys)({
+        pool: connection.pool, algorithmVersion: options.algorithmVersion,
+        rebuild: options.rebuild,
+        ...(options.serviceDate === undefined ? {} : { serviceDate: options.serviceDate }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+        ...(options.repairVersion === undefined ? {} : { repairVersion: options.repairVersion }),
+        ...(options.repairReason === undefined ? {} : { repairReason: options.repairReason }),
+      });
+    }
+    (dependencies.stdout ?? process.stdout).write(`${JSON.stringify(report)}\n`);
+    return Object.keys(report.errors).length === 0 ? 0 : 1;
+  } finally {
+    await connection.close();
+  }
 }
 
 interface ImportStaticCliOptions {
@@ -470,6 +608,14 @@ export async function dispatchCli(
     }
     if (commandArguments.length > 0) throw new UsageError('Command replay does not accept options', replayUsage);
     return runReplayCommand(dependencies);
+  }
+  if (first === 'canonicalize' || first === 'close-journeys' || first === 'repair-journeys') {
+    const options = parseCanonicalOptions(commandArguments, first);
+    if (options.help) {
+      stdout.write(canonicalUsage);
+      return 0;
+    }
+    return runCanonicalCommand(first, options, dependencies);
   }
   if (first === 'test-notifications') {
     if (commandArguments.length === 1 && ['--help', '-h'].includes(commandArguments[0] ?? '')) {

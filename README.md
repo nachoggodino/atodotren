@@ -1,11 +1,10 @@
 # Atodotren
 
-Milestone 2 adds portable, provider-neutral Madrid GTFS-Realtime ingestion to the
-accepted static foundation. Deterministic and bounded smoke gates cover protobuf
-polling, active/previous matching, changed evidence, live state, alerts, and SQLite
-outage replay. The unattended 48-hour gate and focused notification-correctness
-follow-up have passed. The project does not yet build canonical journeys,
-aggregates, an API, or a frontend.
+Milestone 3 adds provider-neutral canonical Madrid journeys to the accepted static
+and GTFS-Realtime evidence foundation. Retained evidence is replayed into complete,
+versioned, stop-by-stop journeys with schedule lineage, honest evidence statuses,
+bounded closure, and explicit repair. The project does not yet build aggregates,
+retention deletion, a public API, managed-provider deployment, or a frontend.
 
 ## Prerequisites
 
@@ -82,9 +81,10 @@ spool writability/size/pending/dropped counts, and heartbeat configuration.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 2
+The CLI contract is visible with `npm run worker -- --help`. Milestone 3
 implements `worker doctor`, `worker import-static`, `worker ingest`,
-`worker replay`, and the opt-in `worker test-notifications`. Usage errors exit `2`;
+`worker replay`, `worker canonicalize`, `worker close-journeys`,
+`worker repair-journeys`, and the opt-in `worker test-notifications`. Usage errors exit `2`;
 configuration, acquisition, validation, database, and runtime failures exit `1`;
 a successful import or explicit HTTP/checksum unchanged result exits `0`. The
 later `aggregate`, `finalize`, and `report` commands remain unimplemented. Command
@@ -125,6 +125,99 @@ identity and replaced when either identity changes. A warm cache remains usable
 during a PostgreSQL outage. A cold worker that cannot load its first static index
 records or spools a compact `static.index_unavailable` failed poll and retries
 later; it does not count a discarded national feed as a successful matching cycle.
+
+## Canonical journeys
+
+`core.journey` identifies a resolved trip instance by network, service date, exact
+static feed version, source trip, and optional start time. `core.journey_stop`
+contains every scheduled arrival call from that exact version, including calls
+with no realtime evidence. Both are daily partitions on `service_date`; the
+bounded partition helper covers 30 completed service days plus an operational
+buffer without deleting anything.
+
+Canonical stop statuses are:
+
+- `pending`: the journey is open and the stop has no stop-specific evidence.
+- `reported_only`: Renfe supplied arrival time and/or signed delay but there is no
+  captured `STOPPED_AT` presence.
+- `observed_presence`: at least one valid `STOPPED_AT` observation exists. Its
+  first timestamp is immutable; reported arrival fields remain alongside it.
+- `skipped`: an explicit stop-level `SKIPPED` transition. Earlier predictions are
+  retained for explanation, but the stop is excluded from later delay distributions.
+- `canceled`: explicit trip cancellation covers this not-yet-completed stop. With
+  no completed stop it covers the full route; otherwise the conservative cutoff
+  is the greatest sequence with captured stopped presence.
+- `missing_evidence`: assigned only at closure to a still-pending stop. Feed
+  disappearance is never interpreted as cancellation.
+
+Skipped, canceled, and missing stops never receive fabricated zero delay. A
+defensibly matched `arrival.time` selects its exact signed difference from the
+scheduled instant; otherwise Renfe's signed `arrival.delay` is the fallback. Both
+inputs and their discrepancy remain independently inspectable as integer seconds,
+including negative values. A live delay propagated downstream is never persisted
+as historical stop evidence.
+
+GTFS-Realtime `start_date` is authoritative. Evidence without a defensible service
+date cannot create a journey; date provenance remains provided, explicitly
+inferred, or unavailable. Schedule conversion interprets service date plus integer
+GTFS seconds in the network IANA timezone (`Europe/Madrid`) and stores UTC
+`timestamptz`. Thus `25:00:00` lands on the next civil day. A nonexistent spring
+wall time moves forward by the DST gap; an ambiguous fall time selects the later
+standard-time occurrence, matching PostgreSQL `AT TIME ZONE` deterministically.
+
+Run a bounded pass, rebuild open data for a disposable/test date, close eligible
+journeys with a two-hour grace, or explicitly repair closed data:
+
+```sh
+npm run worker -- canonicalize --limit 100
+npm run worker -- canonicalize --service-date 2026-08-22 --rebuild
+npm run worker -- close-journeys --limit 100 --grace-seconds 7200
+npm run worker -- repair-journeys --service-date 2026-08-22 \
+  --algorithm-version canonical-v2 --repair-version 1 --reason correction-ticket-123
+```
+
+Canonicalization takes a transaction-scoped advisory lock per journey and performs
+no network I/O. Newer predictions replace older ones; identical and stale evidence
+is counted and ignored. Explicit cancellation may close immediately. Otherwise
+closure occurs only after the timezone-derived scheduled end plus grace, including
+after-midnight services. Closed rows reject ordinary updates; repair must increase
+the repair version, change the algorithm version, and record a reason. Commands
+emit concise JSON reports.
+
+Inspect one journey and every stop's explanation:
+
+```sql
+SELECT j.service_date, j.source_trip_id, j.lifecycle_status,
+       j.feed_version_id, j.matching_method, j.canonical_algorithm_version,
+       s.stop_sequence, s.source_stop_id, s.station_id,
+       s.scheduled_arrival_at, s.renfe_arrival_at,
+       s.renfe_arrival_delay_seconds, s.derived_delay_seconds,
+       s.delay_discrepancy_seconds, s.selected_delay_seconds,
+       s.selected_delay_source, s.first_stopped_presence_at,
+       s.evidence_status, s.evidence_selected_captured_at
+FROM core.journey AS j
+JOIN core.journey_stop AS s
+  ON s.service_date = j.service_date AND s.journey_id = j.id
+WHERE j.service_date = DATE '2026-08-22' AND j.source_trip_id = 'source-trip-id'
+ORDER BY s.stop_sequence;
+```
+
+Inspect a 30-day station/train matrix:
+
+```sql
+SELECT s.service_date, j.line_id, j.source_trip_id, s.stop_sequence,
+       s.station_id, s.scheduled_arrival_at, s.renfe_arrival_at,
+       s.selected_delay_seconds, s.evidence_status
+FROM core.journey_stop AS s
+JOIN core.journey AS j
+  ON j.service_date = s.service_date AND j.id = s.journey_id
+WHERE s.station_id = 1 AND s.service_date >= current_date - 30
+ORDER BY s.service_date DESC, j.scheduled_start_at, s.stop_sequence;
+```
+
+`renfe_arrival_at` is Renfe's reported expected-arrival instant, not an exact
+physical arrival timestamp. `first_stopped_presence_at` proves only captured
+presence at the stop and never replaces the reported arrival field.
 
 Inspect recent poll quality:
 
@@ -363,10 +456,10 @@ The archive is written to the ignored file `atodotren-worker-multiarch.tar`. If 
 
 TypeScript compilation runs on the build platform, while `npm ci --omit=dev` runs
 separately on each target platform. The spool uses Node 24's built-in SQLite, so
-Milestone 2 introduces no third-party native addon; both architectures still run
+Milestone 3 introduces no third-party native addon; both architectures still run
 their own production dependency installation.
 
-Start the ordinary Milestone 2 Compose sequence. PostgreSQL becomes healthy,
+Start the ordinary Milestone 3 Compose sequence. PostgreSQL becomes healthy,
 migrations complete, `static-import` uses its configured URL (or the default
 official RENFE source), the bounded spool volume is initialized, and continuous
 ingestion starts only after a real active version exists:
@@ -519,9 +612,9 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 ## Foundation decisions
 
 - npm workspaces were selected because npm ships with the pinned Node runtime and provides a reproducible `npm ci` lockfile workflow.
-- Packages through Milestone 2 exist: configuration, observability, database,
-  static GTFS, GTFS-Realtime, and worker. The web app and later analytics/domain
-  packages remain deferred to their milestones.
+- Packages through Milestone 3 exist: configuration, observability, database,
+  static GTFS, GTFS-Realtime, canonical journeys, and worker. The web app and
+  later analytics packages remain deferred to their milestones.
 - SQL migrations are immutable, checksummed, transaction-scoped, and serialized with a PostgreSQL advisory lock. Kysely is reserved for typed application queries and raw SQL checks.
 - All group roles are project-prefixed and `NOLOGIN`. Local Compose creates `atodotren_worker` with only inherited, non-settable `atodotren_ingest_writer` membership and `atodotren_migrator` with only non-inherited, set-only `atodotren_migration_admin` membership. Group roles cannot be members of any other role, and both runner and doctor reject direct or transitive graph drift. Future migrations grant worker and monitor access per object instead of inheriting blanket write/read defaults.
 - `npm run build` and test compilation remove their generated output first; `npm run clean` removes application, package, script, and test output so deleted sources cannot leave executable artifacts behind.
