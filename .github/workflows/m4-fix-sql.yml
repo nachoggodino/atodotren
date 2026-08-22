@@ -1,0 +1,43 @@
+name: M4 Fix Migration Syntax
+
+on:
+  push:
+    branches:
+      - feature-milestone-4
+    paths:
+      - '.github/workflows/m4-fix-sql.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-4
+      - name: Fix reserved histogram parameter
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('migrations/0006_aggregation_retention.sql')
+          s = p.read_text()
+          s = s.replace('FUNCTION analytics.histogram_30s(values integer[])', 'FUNCTION analytics.histogram_30s(input_values integer[])')
+          s = s.replace('  IF values IS NULL THEN\n    RETURN result;\n  END IF;\n  FOREACH value IN ARRAY values LOOP', '  IF input_values IS NULL THEN\n    RETURN result;\n  END IF;\n  FOREACH value IN ARRAY input_values LOOP')
+          p.write_text(s)
+          PY
+          grep -n 'histogram_30s' migrations/0006_aggregation_retention.sql | head
+          sha256sum migrations/0006_aggregation_retention.sql
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add migrations/0006_aggregation_retention.sql
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix: avoid reserved histogram parameter in migration'
+            git push origin HEAD:feature-milestone-4
+          fi
