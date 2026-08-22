@@ -1,5 +1,6 @@
 name: M4 Update Migration Inventory Tests
 
+# serialized rerun including rotated-login inventory expectation
 on:
   push:
     branches:
@@ -41,7 +42,7 @@ jobs:
           old = "        '0005_canonical_journeys.sql',\n      ]);"
           new = "        '0005_canonical_journeys.sql',\n        '0006_aggregation_retention.sql',\n      ]);"
           count = text.count(old)
-          if count not in (0, 2):
+          if count not in (0, 3):
               raise SystemExit(f'unexpected migration expectation count: {count}')
           text = text.replace(old, new)
           path.write_text(text)
