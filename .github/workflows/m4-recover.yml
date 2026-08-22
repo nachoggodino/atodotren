@@ -1,0 +1,54 @@
+name: M4 Recover Payload
+
+on:
+  push:
+    branches:
+      - feature-milestone-4
+    paths:
+      - '.github/workflows/m4-recover.yml'
+      - '.m4bootstrap/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-4
+      - name: Recover partial gzip stream
+        shell: bash
+        run: |
+          set -u
+          cat .m4bootstrap/chunk-* > /tmp/m4.b64
+          base64 -d /tmp/m4.b64 > /tmp/m4.gz
+          mkdir -p .m4bootstrap/recovered
+          python3 - <<'PY'
+          import pathlib, zlib
+          data = pathlib.Path('/tmp/m4.gz').read_bytes()
+          d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+          out = b''
+          try:
+              out += d.decompress(data)
+              out += d.flush()
+          except zlib.error as exc:
+              print(f'partial gzip recovery: {exc}')
+          pathlib.Path('.m4bootstrap/recovered/payload.partial').write_bytes(out)
+          print(f'compressed bytes={len(data)} recovered bytes={len(out)} eof={d.eof}')
+          print(out[:512].decode('utf-8', errors='replace'))
+          PY
+      - name: Commit recovered payload
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .m4bootstrap/recovered/payload.partial
+          if git diff --cached --quiet; then
+            echo 'No recovery change to commit.'
+          else
+            git commit -m 'chore: recover staged milestone 4 payload'
+            git push origin HEAD:feature-milestone-4
+          fi
