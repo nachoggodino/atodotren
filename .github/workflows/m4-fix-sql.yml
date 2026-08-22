@@ -1,5 +1,6 @@
 name: M4 Fix Migration Syntax
 
+# serialized rerun
 on:
   push:
     branches:
