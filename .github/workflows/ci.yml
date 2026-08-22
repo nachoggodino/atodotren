@@ -18,13 +18,14 @@ jobs:
         with:
           ref: feature-milestone-4
           fetch-depth: 0
-      - name: Include migration 0006 in inventory contracts
+      - name: Materialize migration 0006 inventory and open-month repair invariants
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('tests/integration/postgres.test.ts')
-          text = path.read_text()
+
+          tests = Path('tests/integration/postgres.test.ts')
+          text = tests.read_text()
           copy_0005 = """    cp(
       resolve(process.cwd(), 'migrations/0005_canonical_journeys.sql'),
       join(directory, '0005_canonical_journeys.sql'),
@@ -41,19 +42,65 @@ jobs:
               "        '0005_canonical_journeys.sql',\n      ]);",
               "        '0005_canonical_journeys.sql',\n        '0006_aggregation_retention.sql',\n      ]);",
           )
-          path.write_text(text)
+          tests.write_text(text)
+
+          migration = Path('migrations/0006_aggregation_retention.sql')
+          sql = migration.read_text()
+          old = """  UPDATE operations.retention_ledger
+  SET revoked_at = clock_timestamp()
+  WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
+    AND applied_at IS NULL AND revoked_at IS NULL;
+END
+$function$;
+"""
+          new = """  UPDATE operations.retention_ledger
+  SET revoked_at = clock_timestamp()
+  WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
+    AND applied_at IS NULL AND revoked_at IS NULL;
+
+  -- An open month has one replaceable contribution per service day/methodology.
+  -- Preserve sealed results: repairing a sealed month requires a newer aggregate version.
+  DELETE FROM analytics.daily_schedule_contribution AS contribution
+  USING operations.service_day_finalization AS finalization
+  WHERE contribution.service_date = analytics.mark_dirty.target_date
+    AND finalization.service_date = contribution.service_date
+    AND finalization.aggregate_algorithm_version = contribution.aggregate_algorithm_version
+    AND NOT EXISTS (
+      SELECT 1 FROM operations.month_seal AS seal
+      WHERE seal.calendar_month = date_trunc('month', contribution.service_date)::date
+        AND seal.aggregate_algorithm_version = contribution.aggregate_algorithm_version
+        AND seal.status = 'sealed'
+    );
+
+  DELETE FROM operations.service_day_finalization AS finalization
+  WHERE finalization.service_date = analytics.mark_dirty.target_date
+    AND NOT EXISTS (
+      SELECT 1 FROM operations.month_seal AS seal
+      WHERE seal.calendar_month = date_trunc('month', finalization.service_date)::date
+        AND seal.aggregate_algorithm_version = finalization.aggregate_algorithm_version
+        AND seal.status = 'sealed'
+    );
+END
+$function$;
+"""
+          if new not in sql:
+              if old not in sql:
+                  raise SystemExit('mark_dirty anchor missing')
+              sql = sql.replace(old, new, 1)
+          migration.write_text(sql)
           PY
           git diff --check
-      - name: Commit inventory contract update
+          sha256sum migrations/0006_aggregation_retention.sql
+      - name: Commit materialized milestone 4 invariants
         shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add tests/integration/postgres.test.ts
+          git add tests/integration/postgres.test.ts migrations/0006_aggregation_retention.sql
           if git diff --cached --quiet; then
-            echo 'Inventory contracts already current.'
+            echo 'Milestone 4 invariants already current.'
           else
-            git commit -m 'test: include migration 0006 in PostgreSQL inventory contracts'
+            git commit -m 'fix: preserve open-month replacement and migration contracts'
             git pull --rebase origin feature-milestone-4
             git push origin HEAD:feature-milestone-4
           fi
