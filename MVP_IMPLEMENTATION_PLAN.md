@@ -721,7 +721,8 @@ conversion boundary, bounded partition creation, closure indexes, immutable firs
 presence/closed-row guards, repair lineage, least-privilege runtime writes, and a
 monitor-only canonical health view. The worker exposes bounded `canonicalize`,
 `close-journeys`, and `repair-journeys` JSON commands using short per-journey
-transactions and advisory locks.
+transactions and advisory locks. Continuous ingestion invokes bounded canonicalize
+and close maintenance after every poll cycle, before any future retention deletion.
 
 The representative PostgreSQL fixture built two journeys and all 18 scheduled
 stops. Its four-stop previous-feed journey initially explained one observed stop,
@@ -730,10 +731,13 @@ one skipped stop, and two pending stops; arrival-time selection retained a deriv
 After its 25:16 service-day end plus two-hour grace, the pending stops became two
 `missing_evidence` rows while observed/skipped evidence remained unchanged. Its
 explicit `canonical-v2` repair version 1 kept it closed with the same complete
-status explanation. The 14-stop active-feed cancellation fixture retained its
-first ten observed stops and marked only the remaining four canceled. Concurrent
-replay produced one natural-key journey per instance, and direct closed-row or
-first-presence mutation was rejected.
+status explanation. In the sparse 14-stop active-feed cancellation fixture, stops
+1 and 10 were observed, stops 2–9 became missing evidence, and stops 11–14 became
+canceled; no finalized stop remained pending. Concurrent replay produced one
+natural-key journey per instance, and direct closed-row, finalized-pending, or
+first-presence mutation was rejected. Later provided/exact evidence upgraded an
+open journey created from inferred/fallback evidence. Repair discovers closed
+journeys directly and fails explicitly when their retained evidence is unavailable.
 
 Unit and PostgreSQL tests cover ordinary, >24:00, midnight-crossing, spring-gap,
 fall-fold, and descriptor-date conversion; negative delays; reported-time

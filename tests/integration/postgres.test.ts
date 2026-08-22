@@ -1050,7 +1050,10 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           version: string, trip: string, sequence: number | null,
           classification: 'reported_prediction' | 'observed_presence' | 'stop_skipped' | 'trip_cancellation',
           offset: number,
-          extra: { arrivalTime?: number; arrivalDelay?: number } = {},
+          extra: {
+            arrivalTime?: number; arrivalDelay?: number;
+            startDateSource?: 'provided' | 'inferred'; matchingMethod?: string; matchingVersion?: string;
+          } = {},
         ): Promise<void> => {
           const identity = checksum([version, trip, sequence, classification, offset]);
           await pool.query(`
@@ -1062,12 +1065,12 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
               matching_method, matching_version, evidence_classification
             )
             SELECT $1, $2, $3, $2, CASE WHEN $4 = 'observed_presence' THEN 'vehicle_positions' ELSE 'trip_updates' END,
-              $5, $6, $7::date, 'provided', stop_time.stop_id, $8, station_map.station_id,
+              $5, $6, $7::date, $12, stop_time.stop_id, $8, station_map.station_id,
               $9, $10, CASE WHEN $4 = 'trip_cancellation' THEN 'CANCELED' ELSE 'SCHEDULED' END,
               CASE WHEN $4 = 'stop_skipped' THEN 'SKIPPED' ELSE 'SCHEDULED' END,
               extract(epoch FROM $1::timestamptz)::bigint,
-              CASE WHEN $5 = $11 THEN 'active-exact-trip' ELSE 'previous-exact-trip' END,
-              'integration-v1', $4
+              COALESCE($13, CASE WHEN $5 = $11 THEN 'active-exact-trip' ELSE 'previous-exact-trip' END),
+              $14, $4
             FROM (SELECT 1) AS singleton
             LEFT JOIN gtfs_static.stop_time AS stop_time
               ON stop_time.feed_version_id = $5 AND stop_time.trip_id = $6 AND stop_time.stop_sequence = $8
@@ -1075,7 +1078,8 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
               ON station_map.feed_version_id = stop_time.feed_version_id AND station_map.stop_id = stop_time.stop_id
           `, [new Date(baseCaptured.getTime() + offset * 1000), identity, `${trip}:${sequence ?? 'trip'}:${classification}`,
             classification, version, trip, serviceDate, sequence, extra.arrivalTime ?? null,
-            extra.arrivalDelay ?? null, activeVersion]);
+            extra.arrivalDelay ?? null, activeVersion, extra.startDateSource ?? 'provided',
+            extra.matchingMethod ?? null, extra.matchingVersion ?? 'integration-v1']);
         };
 
         const scheduled = await pool.query<{ epoch: string }>(`
@@ -1086,42 +1090,65 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           WHERE stop_time.feed_version_id = $2 AND stop_time.trip_id = $3 AND stop_sequence = 1
         `, [serviceDate, previousVersion, regularTrip]);
         const arrivalEpoch = Number(scheduled.rows[0]?.epoch) - 60;
-        await insertStopEvidence(previousVersion, regularTrip, 1, 'reported_prediction', 1, { arrivalTime: arrivalEpoch, arrivalDelay: -30 });
-        await insertStopEvidence(previousVersion, regularTrip, 1, 'observed_presence', 2);
-        await insertStopEvidence(previousVersion, regularTrip, 2, 'stop_skipped', 3);
-        for (let sequence = 1; sequence <= 10; sequence += 1) {
-          await insertStopEvidence(activeVersion, '10TRIP-CAN', sequence, 'observed_presence', 10 + sequence);
-        }
+        await insertStopEvidence(previousVersion, regularTrip, 1, 'reported_prediction', 1, {
+          arrivalTime: arrivalEpoch, arrivalDelay: -30, startDateSource: 'inferred',
+          matchingMethod: 'previous-unique-fallback', matchingVersion: 'integration-v1',
+        });
+        const weak = await canonicalizeJourneys({ pool, serviceDate, limit: 10 });
+        assert.deepEqual(weak.errors, {}, JSON.stringify(weak));
+        const weakProvenance = await pool.query<{
+          start_date_source: string; matching_method: string; matching_version: string; matching_confidence: number;
+        }>(`
+          SELECT start_date_source, matching_method, matching_version, matching_confidence
+          FROM core.journey WHERE service_date = $1::date AND source_trip_id = $2
+        `, [serviceDate, regularTrip]);
+        assert.ok(Math.abs((weakProvenance.rows[0]?.matching_confidence ?? 0) - 0.85) < 0.0001);
+        assert.deepEqual({ ...weakProvenance.rows[0], matching_confidence: 0.85 }, {
+          start_date_source: 'inferred', matching_method: 'previous-unique-fallback',
+          matching_version: 'integration-v1', matching_confidence: 0.85,
+        });
+        await insertStopEvidence(previousVersion, regularTrip, 1, 'observed_presence', 2, {
+          startDateSource: 'provided', matchingMethod: 'previous-exact-trip', matchingVersion: 'integration-v2',
+        });
+        await insertStopEvidence(previousVersion, regularTrip, 2, 'stop_skipped', 3, {
+          matchingMethod: 'previous-exact-trip', matchingVersion: 'integration-v2',
+        });
+        await insertStopEvidence(activeVersion, '10TRIP-CAN', 1, 'observed_presence', 11);
+        await insertStopEvidence(activeVersion, '10TRIP-CAN', 10, 'observed_presence', 20);
         await insertStopEvidence(activeVersion, '10TRIP-CAN', null, 'trip_cancellation', 30);
 
         const canonicalErrors: unknown[] = [];
         const first = await canonicalizeJourneys({ pool, serviceDate, limit: 10, onError: (error) => canonicalErrors.push(error) });
         assert.deepEqual(first.errors, {}, `${JSON.stringify(first)} ${canonicalErrors.map(String).join('; ')}`);
-        assert.equal(first.journeysCreated, 2, JSON.stringify(first));
-        assert.equal(first.journeyStopsMaterialized, 18);
+        assert.equal(first.journeysCreated, 1, JSON.stringify(first));
+        assert.equal(first.journeysUpdated, 1, JSON.stringify(first));
+        assert.equal(first.journeyStopsMaterialized, 14);
         assert.deepEqual(first.statuses, {
-          pending: 2, reported_only: 0, observed_presence: 11,
-          skipped: 1, canceled: 4, missing_evidence: 0,
+          pending: 2, reported_only: 0, observed_presence: 3,
+          skipped: 1, canceled: 4, missing_evidence: 8,
         });
         assert.equal(first.discrepancyCount, 1);
         const canonical = await pool.query<{
-          trip_id: string; lifecycle: string; matching_method: string; stop_count: string;
-          observed: string; skipped: string; canceled: string; pending: string;
+          trip_id: string; lifecycle: string; matching_method: string; matching_version: string;
+          start_date_source: string; matching_confidence: number; stop_count: string;
+          observed: string; skipped: string; canceled: string; pending: string; missing: string;
         }>(`
           SELECT journey.source_trip_id AS trip_id, journey.lifecycle_status AS lifecycle,
-            journey.matching_method, count(stop.*)::text AS stop_count,
+            journey.matching_method, journey.matching_version, journey.start_date_source,
+            journey.matching_confidence, count(stop.*)::text AS stop_count,
             count(*) FILTER (WHERE stop.evidence_status = 'observed_presence')::text AS observed,
             count(*) FILTER (WHERE stop.evidence_status = 'skipped')::text AS skipped,
             count(*) FILTER (WHERE stop.evidence_status = 'canceled')::text AS canceled,
-            count(*) FILTER (WHERE stop.evidence_status = 'pending')::text AS pending
+            count(*) FILTER (WHERE stop.evidence_status = 'pending')::text AS pending,
+            count(*) FILTER (WHERE stop.evidence_status = 'missing_evidence')::text AS missing
           FROM core.journey AS journey JOIN core.journey_stop AS stop
             ON stop.service_date = journey.service_date AND stop.journey_id = journey.id
           WHERE journey.service_date = $1::date
           GROUP BY journey.id, journey.service_date ORDER BY journey.source_trip_id
         `, [serviceDate]);
         assert.deepEqual(canonical.rows, [
-          { trip_id: '10TRIP-CAN', lifecycle: 'partially_canceled', matching_method: 'active-exact-trip', stop_count: '14', observed: '10', skipped: '0', canceled: '4', pending: '0' },
-          { trip_id: regularTrip, lifecycle: 'open', matching_method: 'previous-exact-trip', stop_count: '4', observed: '1', skipped: '1', canceled: '0', pending: '2' },
+          { trip_id: '10TRIP-CAN', lifecycle: 'partially_canceled', matching_method: 'active-exact-trip', matching_version: 'integration-v1', start_date_source: 'provided', matching_confidence: 1, stop_count: '14', observed: '2', skipped: '0', canceled: '4', pending: '0', missing: '8' },
+          { trip_id: regularTrip, lifecycle: 'open', matching_method: 'previous-exact-trip', matching_version: 'integration-v2', start_date_source: 'provided', matching_confidence: 1, stop_count: '4', observed: '1', skipped: '1', canceled: '0', pending: '2', missing: '0' },
         ].sort((left, right) => left.trip_id.localeCompare(right.trip_id)));
         const explained = await pool.query<{
           provided: number; derived: number; discrepancy: number; selected: number;
@@ -1149,6 +1176,16 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
             SELECT id FROM core.journey WHERE service_date = $1::date AND source_trip_id = $2
           ) AND stop_sequence = 1
         `, [serviceDate, regularTrip]), /First stopped presence is immutable/u);
+        await assert.rejects(pool.query(`
+          UPDATE core.journey_stop SET finalized_at = clock_timestamp()
+          WHERE service_date = $1::date AND journey_id = (
+            SELECT id FROM core.journey WHERE service_date = $1::date AND source_trip_id = $2
+          ) AND stop_sequence = 3
+        `, [serviceDate, regularTrip]), /journey_stop.*check|violates check/iu);
+        await assert.rejects(pool.query(`
+          UPDATE core.journey SET lifecycle_status = 'closed', finalized_at = clock_timestamp()
+          WHERE service_date = $1::date AND source_trip_id = $2
+        `, [serviceDate, regularTrip]), /Cannot finalize journey with pending stops/u);
 
         const repeated = await Promise.all([
           canonicalizeJourneys({ pool, serviceDate, limit: 10 }),
@@ -1183,6 +1220,14 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           GROUP BY journey.service_date, journey.id
         `, [serviceDate, regularTrip]);
         assert.deepEqual(repairedRegular.rows[0], { lifecycle: 'closed', repair_version: 1, missing: '2' });
+
+        await adminClient.query('DELETE FROM ingest.stop_evidence WHERE service_date = $1::date', [serviceDate]);
+        const expiredRepair = await canonicalizeJourneys({
+          pool, serviceDate, limit: 10, algorithmVersion: 'canonical-v3', repairVersion: 2,
+          repairReason: 'expired evidence probe',
+        });
+        assert.deepEqual(expiredRepair.errors, { repair_evidence_unavailable: 2 });
+        assert.equal(expiredRepair.journeysUpdated, 0);
 
         const sqlTimes = await pool.query<{ ordinary: Date; over_24: Date; spring: Date; fall: Date }>(`
           SELECT core.service_instant('2026-02-10', 3600, 'Europe/Madrid') AS ordinary,

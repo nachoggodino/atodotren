@@ -5,6 +5,7 @@ import {
   applyCancellation,
   applyStopEvidence,
   emptyStop,
+  selectJourneyProvenance,
   serviceTimeToInstant,
   type CanonicalEvidence,
 } from '@atodotren/canonical-journeys';
@@ -77,8 +78,30 @@ void test('skip retains predictions while cancellation uses observed progress co
   assert.deepEqual(full.map((stop) => stop.status), ['canceled', 'canceled', 'canceled']);
 
   const partial = Array.from({ length: 14 }, (_, index) => emptyStop(index + 1, new Date()));
-  for (const stop of partial.slice(0, 10)) stop.firstPresenceAt = new Date();
+  partial[0]!.firstPresenceAt = new Date();
+  partial[0]!.status = 'observed_presence';
+  partial[9]!.firstPresenceAt = new Date();
+  partial[9]!.status = 'observed_presence';
   assert.equal(applyCancellation(partial), 'partially_canceled');
-  assert.deepEqual(partial.slice(0, 10).map((stop) => stop.status), Array(10).fill('pending'));
+  assert.deepEqual(partial.slice(0, 10).map((stop) => stop.status), [
+    'observed_presence', ...Array.from({ length: 8 }, () => 'missing_evidence'), 'observed_presence',
+  ]);
   assert.deepEqual(partial.slice(10).map((stop) => stop.status), Array(4).fill('canceled'));
+});
+
+void test('journey provenance deterministically prefers provided dates and exact matching', () => {
+  const selected = selectJourneyProvenance([
+    {
+      capturedAt: new Date('2026-08-22T10:00:00Z'), idempotencyKey: 'a'.repeat(64),
+      startDateSource: 'inferred', matchingMethod: 'previous-unique-fallback', matchingVersion: 'matching-v1',
+    },
+    {
+      capturedAt: new Date('2026-08-22T10:01:00Z'), idempotencyKey: 'b'.repeat(64),
+      startDateSource: 'provided', matchingMethod: 'previous-exact-trip', matchingVersion: 'matching-v2',
+    },
+  ]);
+  assert.deepEqual(selected, {
+    startDateSource: 'provided', matchingMethod: 'previous-exact-trip',
+    matchingVersion: 'matching-v2', matchingConfidence: 1,
+  });
 });

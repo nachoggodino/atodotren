@@ -48,6 +48,21 @@ interface EvidenceRow {
   start_date_source: 'provided' | 'inferred';
 }
 
+export interface EvidenceProvenanceInput {
+  readonly capturedAt: Date;
+  readonly idempotencyKey: string;
+  readonly startDateSource: 'provided' | 'inferred';
+  readonly matchingMethod: string;
+  readonly matchingVersion: string;
+}
+
+export interface JourneyProvenance {
+  readonly startDateSource: 'provided' | 'inferred';
+  readonly matchingMethod: string;
+  readonly matchingVersion: string;
+  readonly matchingConfidence: number;
+}
+
 interface JourneyRow { id: string; finalized_at: Date | null; repair_version: number; canonical_algorithm_version: string }
 
 export interface CanonicalizeOptions {
@@ -107,6 +122,24 @@ function classifyError(error: unknown): string {
 
 function keyText(key: JourneyKeyRow): string {
   return `${key.feed_version_id}\u001f${key.source_trip_id}\u001f${key.service_date}\u001f${key.start_time ?? ''}`;
+}
+
+export function selectJourneyProvenance(evidence: readonly EvidenceProvenanceInput[]): JourneyProvenance {
+  if (evidence.length === 0) throw new RangeError('Journey provenance requires evidence');
+  const matching = [...evidence].sort((left, right) => {
+    const strength = Number(right.matchingMethod.includes('exact')) - Number(left.matchingMethod.includes('exact'));
+    if (strength !== 0) return strength;
+    const captured = right.capturedAt.getTime() - left.capturedAt.getTime();
+    if (captured !== 0) return captured;
+    return right.idempotencyKey.localeCompare(left.idempotencyKey);
+  })[0];
+  if (matching === undefined) throw new RangeError('Journey provenance requires evidence');
+  return {
+    startDateSource: evidence.some((item) => item.startDateSource === 'provided') ? 'provided' : 'inferred',
+    matchingMethod: matching.matchingMethod,
+    matchingVersion: matching.matchingVersion,
+    matchingConfidence: matching.matchingMethod.includes('exact') ? 1 : 0.85,
+  };
 }
 
 function asEvidence(row: EvidenceRow): CanonicalEvidence {
@@ -179,9 +212,19 @@ async function processKey(
     const firstEvidence = evidenceResult.rows[0];
     const lastEvidence = evidenceResult.rows.at(-1);
     if (firstEvidence === undefined || lastEvidence === undefined) {
+      if (repairVersion > 0) {
+        report.errors.repair_evidence_unavailable = (report.errors.repair_evidence_unavailable ?? 0) + 1;
+      }
       await client.query('ROLLBACK');
       return;
     }
+    const provenance = selectJourneyProvenance(evidenceResult.rows.map((row) => ({
+      capturedAt: row.captured_at,
+      idempotencyKey: row.idempotency_key,
+      startDateSource: row.start_date_source,
+      matchingMethod: row.matching_method,
+      matchingVersion: row.matching_version,
+    })));
     const journeyResult = await client.query<JourneyRow>(`
       SELECT id, finalized_at, repair_version, canonical_algorithm_version
       FROM core.journey
@@ -237,10 +280,10 @@ async function processKey(
         ) RETURNING id, finalized_at, repair_version, canonical_algorithm_version
       `, [
         key.service_date, staticRow.network_id, key.feed_version_id, key.source_trip_id, key.start_time,
-        firstEvidence.start_date_source, staticRow.line_id, staticRow.branch_id, staticRow.direction_id,
+        provenance.startDateSource, staticRow.line_id, staticRow.branch_id, staticRow.direction_id,
         staticRow.service_pattern_id, staticRow.scheduled_start_seconds, staticRow.scheduled_end_seconds,
-        staticRow.timezone, lastEvidence.trip_relationship, firstEvidence.matching_method,
-        firstEvidence.matching_version, firstEvidence.matching_method.includes('exact') ? 1 : 0.85,
+        staticRow.timezone, lastEvidence.trip_relationship, provenance.matchingMethod,
+        provenance.matchingVersion, provenance.matchingConfidence,
         algorithmVersion, firstEvidence.captured_at, lastEvidence.captured_at,
       ]);
       journey = inserted.rows[0];
@@ -267,7 +310,7 @@ async function processKey(
       ON CONFLICT (service_date, journey_id, stop_sequence) DO NOTHING
       RETURNING stop_sequence
     `, [key.service_date, journey.id, key.feed_version_id, key.source_trip_id, staticRow.timezone,
-      firstEvidence.matching_method, firstEvidence.matching_version, algorithmVersion, repairVersion]);
+      provenance.matchingMethod, provenance.matchingVersion, algorithmVersion, repairVersion]);
     report.journeyStopsMaterialized += materialized.rowCount ?? 0;
     const stopResult = await client.query<StopRow>(`
       SELECT stop_sequence, source_stop_id AS stop_id, station_id, scheduled_arrival_seconds AS arrival_seconds,
@@ -308,6 +351,7 @@ async function processKey(
           evidence_first_captured_at = $12, evidence_selected_captured_at = $13,
           evidence_selected_source_at = $14, evidence_selected_idempotency_key = $15,
           stop_relationship = $16, canonical_algorithm_version = $17,
+          matching_method = $19, matching_version = $20,
           repair_version = GREATEST(repair_version, $18),
           repaired_at = CASE WHEN $18::integer > 0 THEN COALESCE(repaired_at, clock_timestamp()) ELSE repaired_at END,
           updated_at = clock_timestamp()
@@ -316,7 +360,7 @@ async function processKey(
         state.derivedDelay, state.discrepancy, state.firstPresenceAt, state.selectedDelay,
         state.selectedDelaySource, state.status, state.firstCapturedAt, state.selectedCapturedAt,
         state.selectedSourceAt, state.selectedIdempotencyKey, state.stopRelationship,
-        algorithmVersion, repairVersion]);
+        algorithmVersion, repairVersion, provenance.matchingMethod, provenance.matchingVersion]);
     }
     const finalize = canceled ? lastEvidence.captured_at : repairedClosedAt;
     if (finalize !== null) {
@@ -327,13 +371,16 @@ async function processKey(
       UPDATE core.journey SET trip_relationship = $3, lifecycle_status = $4,
         first_evidence_at = LEAST(first_evidence_at, $5), last_evidence_at = GREATEST(last_evidence_at, $6),
         finalized_at = $7, canonical_algorithm_version = $8,
+        start_date_source = $10, matching_method = $11, matching_version = $12,
+        matching_confidence = $13,
         repair_version = GREATEST(repair_version, $9),
         repaired_at = CASE WHEN $9::integer > 0 THEN COALESCE(repaired_at, clock_timestamp()) ELSE repaired_at END,
         revision = revision + 1, updated_at = clock_timestamp()
       WHERE service_date = $1::date AND id = $2
     `, [key.service_date, journey.id, lastEvidence.trip_relationship,
       canceled ? lifecycle : (finalize === null ? 'open' : 'closed'), firstEvidence.captured_at, lastEvidence.captured_at,
-      finalize, algorithmVersion, repairVersion]);
+      finalize, algorithmVersion, repairVersion, provenance.startDateSource,
+      provenance.matchingMethod, provenance.matchingVersion, provenance.matchingConfidence]);
     if (finalize !== null) report.journeysClosed += 1;
     await client.query('COMMIT');
   } catch (error) {
@@ -353,32 +400,46 @@ export async function canonicalizeJourneys(options: CanonicalizeOptions): Promis
   if ((repairVersion > 0) !== (options.repairReason !== undefined)) {
     throw new RangeError('repairVersion and repairReason must be provided together');
   }
+  if (repairVersion > 0 && options.serviceDate === undefined) {
+    throw new RangeError('repair requires an explicit serviceDate');
+  }
   const unresolved = await options.pool.query<{ count: string }>(`
     SELECT count(*)::text FROM ingest.stop_evidence WHERE service_date IS NULL
   `);
   report.unresolvedInput = Number(unresolved.rows[0]?.count ?? 0);
-  const keys = await options.pool.query<JourneyKeyRow>(`
-    SELECT DISTINCT evidence.feed_version_id, evidence.source_trip_id,
-      evidence.service_date::text, evidence.start_time
-    FROM ingest.stop_evidence AS evidence
-    WHERE evidence.service_date IS NOT NULL AND ($1::date IS NULL OR evidence.service_date = $1::date)
-      AND ($3::boolean OR $4::integer > 0 OR NOT EXISTS (
-        SELECT 1 FROM core.journey AS journey
-        WHERE journey.service_date = evidence.service_date
-          AND journey.feed_version_id = evidence.feed_version_id
-          AND journey.source_trip_id = evidence.source_trip_id
-          AND journey.start_time IS NOT DISTINCT FROM evidence.start_time
-      ) OR EXISTS (
-        SELECT 1 FROM core.journey AS journey
-        WHERE journey.service_date = evidence.service_date
-          AND journey.feed_version_id = evidence.feed_version_id
-          AND journey.source_trip_id = evidence.source_trip_id
-          AND journey.start_time IS NOT DISTINCT FROM evidence.start_time
-          AND journey.finalized_at IS NULL AND evidence.captured_at > journey.last_evidence_at
-      ))
-    ORDER BY service_date, feed_version_id, source_trip_id, start_time
-    LIMIT $2
-  `, [options.serviceDate ?? null, limit, options.rebuild ?? false, repairVersion]);
+  const keys = repairVersion > 0
+    ? await options.pool.query<JourneyKeyRow>(`
+        SELECT feed_version_id, source_trip_id, service_date::text, start_time
+        FROM core.journey
+        WHERE service_date = $1::date AND finalized_at IS NOT NULL
+        ORDER BY feed_version_id, source_trip_id, start_time
+        LIMIT $2
+      `, [options.serviceDate, limit])
+    : await options.pool.query<JourneyKeyRow>(`
+        SELECT DISTINCT evidence.feed_version_id, evidence.source_trip_id,
+          evidence.service_date::text, evidence.start_time
+        FROM ingest.stop_evidence AS evidence
+        WHERE evidence.service_date IS NOT NULL AND ($1::date IS NULL OR evidence.service_date = $1::date)
+          AND ($3::boolean OR NOT EXISTS (
+            SELECT 1 FROM core.journey AS journey
+            WHERE journey.service_date = evidence.service_date
+              AND journey.feed_version_id = evidence.feed_version_id
+              AND journey.source_trip_id = evidence.source_trip_id
+              AND journey.start_time IS NOT DISTINCT FROM evidence.start_time
+          ) OR EXISTS (
+            SELECT 1 FROM core.journey AS journey
+            WHERE journey.service_date = evidence.service_date
+              AND journey.feed_version_id = evidence.feed_version_id
+              AND journey.source_trip_id = evidence.source_trip_id
+              AND journey.start_time IS NOT DISTINCT FROM evidence.start_time
+              AND journey.finalized_at IS NULL AND evidence.captured_at > journey.last_evidence_at
+          ))
+        ORDER BY service_date, feed_version_id, source_trip_id, start_time
+        LIMIT $2
+      `, [options.serviceDate ?? null, limit, options.rebuild ?? false]);
+  if (repairVersion > 0 && keys.rows.length === 0) {
+    report.errors.repair_target_not_found = 1;
+  }
   for (const key of keys.rows) {
     const client = await options.pool.connect();
     try {

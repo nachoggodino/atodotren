@@ -78,6 +78,8 @@ export function applyCancellation(states: readonly CanonicalStopState[]): 'cance
       state.status = 'canceled';
       state.selectedDelay = null;
       state.selectedDelaySource = null;
+    } else if (state.status === 'pending') {
+      state.status = 'missing_evidence';
     }
   }
   return cutoff === null ? 'canceled' : 'partially_canceled';

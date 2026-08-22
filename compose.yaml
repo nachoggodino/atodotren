@@ -68,7 +68,7 @@ services:
 
   worker:
     image: atodotren-worker:milestone-3
-    command: ["ingest"]
+    command: ["ingest", "--canonical-maintenance"]
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}

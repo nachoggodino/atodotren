@@ -43,6 +43,7 @@ export interface IngestRunOptions {
   readonly now?: () => Date;
   readonly onEvent?: (event: string, fields: Readonly<Record<string, unknown>>) => void;
   readonly loadStaticIndex?: typeof loadStaticMatchIndex;
+  readonly afterCycle?: () => Promise<void>;
 }
 
 export interface IngestRunReport {
@@ -257,6 +258,15 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         unmatched: poll.unmatchedCount, nonMadrid: poll.nonMadridCount, invalid: poll.invalidCount,
         responseBytes: poll.responseBytes, responseDurationMs: poll.responseDurationMs,
       });
+    }
+
+    if (!(options.signal?.aborted ?? false) && options.afterCycle !== undefined) {
+      try {
+        await options.afterCycle();
+      } catch {
+        cycleSuccessful = false;
+        options.onEvent?.('canonical.maintenance_failed', {});
+      }
     }
 
     if (cycleSuccessful && endpoints.length > 0) {

@@ -20,7 +20,7 @@ services:
       - ./tests/fixtures/gtfs-static/representative.zip:/fixtures/representative-madrid.zip:ro
 
   worker:
-    command: ["ingest"]
+    command: ["ingest", "--canonical-maintenance"]
     environment:
       NODE_ENV: test
       GTFS_RT_TRIP_UPDATES_URL: http://fake-feed:4010/trip_updates.pb

@@ -121,6 +121,7 @@ CREATE TABLE core.journey_stop (
   CHECK ((selected_delay_seconds IS NULL) = (selected_delay_source IS NULL)),
   CHECK (selected_delay_source <> 'arrival_time' OR selected_delay_seconds = derived_delay_seconds),
   CHECK (selected_delay_source <> 'provided_delay' OR selected_delay_seconds = renfe_arrival_delay_seconds),
+  CHECK (finalized_at IS NULL OR evidence_status <> 'pending'),
   CHECK (evidence_status NOT IN ('pending', 'missing_evidence', 'canceled')
     OR selected_delay_seconds IS NULL OR evidence_selected_captured_at IS NOT NULL)
 ) PARTITION BY RANGE (service_date);
@@ -150,6 +151,13 @@ BEGIN
     END IF;
   ELSE
     old_closed := OLD.finalized_at IS NOT NULL;
+    IF NEW.finalized_at IS NOT NULL AND OLD.finalized_at IS NULL AND EXISTS (
+      SELECT 1 FROM core.journey_stop
+      WHERE service_date = OLD.service_date AND journey_id = OLD.id
+        AND evidence_status = 'pending'
+    ) THEN
+      RAISE EXCEPTION 'Cannot finalize journey with pending stops';
+    END IF;
   END IF;
   IF old_closed AND NOT (
     NEW.repair_version > OLD.repair_version

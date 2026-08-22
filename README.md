@@ -100,7 +100,7 @@ endpoint has a validated URL and independent enable flag in `example.env`.
 Run continuously, once, or for a bounded number of cycles:
 
 ```sh
-npm run worker -- ingest
+npm run worker -- ingest --canonical-maintenance
 npm run worker -- ingest --once
 npm run worker -- ingest --cycles 2
 ```
@@ -164,6 +164,9 @@ GTFS seconds in the network IANA timezone (`Europe/Madrid`) and stores UTC
 `timestamptz`. Thus `25:00:00` lands on the next civil day. A nonexistent spring
 wall time moves forward by the DST gap; an ambiguous fall time selects the later
 standard-time occurrence, matching PostgreSQL `AT TIME ZONE` deterministically.
+Across retained evidence, provenance is selected independently and deterministically:
+provided service dates outrank inferred dates, and exact matching outranks fallback
+matching. A stronger later observation upgrades an open journey and all stop lineage.
 
 Run a bounded pass, rebuild open data for a disposable/test date, close eligible
 journeys with a two-hour grace, or explicitly repair closed data:
@@ -181,8 +184,19 @@ no network I/O. Newer predictions replace older ones; identical and stale eviden
 is counted and ignored. Explicit cancellation may close immediately. Otherwise
 closure occurs only after the timezone-derived scheduled end plus grace, including
 after-midnight services. Closed rows reject ordinary updates; repair must increase
-the repair version, change the algorithm version, and record a reason. Commands
-emit concise JSON reports.
+the repair version, change the algorithm version, and record a reason. Repair work
+is discovered from existing closed journeys, not from evidence rows. If their
+retained evidence is unavailable, the report contains `repair_evidence_unavailable`
+and the command exits nonzero. Because changed stop evidence is retained for seven
+days, ordinary repairability is likewise limited to that seven-day window; evidence
+must be preserved separately before attempting an older correction. Commands emit
+concise JSON reports.
+
+The Compose worker runs `worker ingest --canonical-maintenance`, which performs one
+bounded canonicalization and closure maintenance pass after every polling cycle. It therefore converts
+durable evidence into canonical history continuously; a maintenance failure marks
+the ingestion cycle unsuccessful and is retried on the next cycle. Manual commands
+remain available for inspection, disposable rebuilds, and explicit repairs.
 
 Inspect one journey and every stop's explanation:
 
@@ -232,7 +246,8 @@ LIMIT 20;
 ```
 
 Detailed poll and quarantine rows target 30 days, Madrid-filtered compressed
-payloads 48 hours, and changed stop evidence seven days. Migration 0004 creates
+payloads 48 hours, and changed stop evidence seven days. Complete canonicalization
+must therefore precede future evidence-partition deletion. Migration 0004 creates
 daily partitions through a bounded stock-PostgreSQL helper; the later generalized
 retention/finalization framework is intentionally not part of this milestone.
 
