@@ -18,7 +18,7 @@ jobs:
         with:
           ref: feature-milestone-4
           fetch-depth: 0
-      - name: Materialize migration 0006 inventory and open-month repair invariants
+      - name: Materialize migration 0006 inventory and repair invalidation
         shell: bash
         run: |
           python3 - <<'PY'
@@ -37,6 +37,8 @@ jobs:
     ),
 """
           if copy_0006 not in text:
+              if copy_0005 not in text:
+                  raise SystemExit('0005 copy anchor missing')
               text = text.replace(copy_0005, copy_0005 + copy_0006, 1)
           text = text.replace(
               "        '0005_canonical_journeys.sql',\n      ]);",
@@ -46,20 +48,22 @@ jobs:
 
           migration = Path('migrations/0006_aggregation_retention.sql')
           sql = migration.read_text()
-          old = """  UPDATE operations.retention_ledger
+
+          old_mark_dirty = """  UPDATE operations.retention_ledger
   SET revoked_at = clock_timestamp()
   WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
     AND applied_at IS NULL AND revoked_at IS NULL;
 END
 $function$;
 """
-          new = """  UPDATE operations.retention_ledger
+          new_mark_dirty = """  UPDATE operations.retention_ledger
   SET revoked_at = clock_timestamp()
   WHERE family = 'canonical_detail' AND target_date = analytics.mark_dirty.target_date
     AND applied_at IS NULL AND revoked_at IS NULL;
 
-  -- An open month has one replaceable contribution per service day/methodology.
-  -- Preserve sealed results: repairing a sealed month requires a newer aggregate version.
+  -- One anonymous daily contribution is replaceable while its month is open.
+  -- A sealed month is immutable for this aggregate version and is repaired only
+  -- through a newer aggregate/methodology version.
   DELETE FROM analytics.daily_schedule_contribution AS contribution
   USING operations.service_day_finalization AS finalization
   WHERE contribution.service_date = analytics.mark_dirty.target_date
@@ -83,10 +87,105 @@ $function$;
 END
 $function$;
 """
-          if new not in sql:
-              if old not in sql:
+          if new_mark_dirty not in sql:
+              if old_mark_dirty not in sql:
                   raise SystemExit('mark_dirty anchor missing')
-              sql = sql.replace(old, new, 1)
+              sql = sql.replace(old_mark_dirty, new_mark_dirty, 1)
+
+          old_insert_trigger = """CREATE OR REPLACE FUNCTION analytics.mark_canonical_insert_dirty()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, analytics, operations
+AS $function$
+BEGIN
+  INSERT INTO analytics.dirty_scope (service_date, family, reason)
+  SELECT DISTINCT changed.service_date, family.value, 'canonical-insert'
+  FROM new_rows AS changed
+  CROSS JOIN (VALUES ('daily'::text), ('schedule'::text)) AS family(value)
+  ON CONFLICT (service_date, family) DO UPDATE SET
+    dirty_since = LEAST(analytics.dirty_scope.dirty_since, EXCLUDED.dirty_since),
+    generation = analytics.dirty_scope.generation + 1,
+    reason = EXCLUDED.reason;
+  UPDATE operations.retention_ledger ledger
+  SET revoked_at = clock_timestamp()
+  WHERE ledger.family = 'canonical_detail' AND ledger.applied_at IS NULL AND ledger.revoked_at IS NULL
+    AND ledger.target_date IN (SELECT DISTINCT service_date FROM new_rows);
+  RETURN NULL;
+END
+$function$;
+"""
+          new_insert_trigger = """CREATE OR REPLACE FUNCTION analytics.mark_canonical_insert_dirty()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, analytics, operations
+AS $function$
+DECLARE
+  affected_date date;
+BEGIN
+  FOR affected_date IN SELECT DISTINCT service_date FROM new_rows LOOP
+    PERFORM analytics.mark_dirty(affected_date, 'canonical-insert');
+  END LOOP;
+  RETURN NULL;
+END
+$function$;
+"""
+          if new_insert_trigger not in sql:
+              if old_insert_trigger not in sql:
+                  raise SystemExit('insert dirty trigger anchor missing')
+              sql = sql.replace(old_insert_trigger, new_insert_trigger, 1)
+
+          old_update_trigger = """CREATE OR REPLACE FUNCTION analytics.mark_canonical_update_dirty()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, analytics, operations
+AS $function$
+BEGIN
+  INSERT INTO analytics.dirty_scope (service_date, family, reason)
+  SELECT DISTINCT changed.service_date, family.value, 'canonical-update'
+  FROM (
+    SELECT service_date FROM new_rows UNION SELECT service_date FROM old_rows
+  ) AS changed
+  CROSS JOIN (VALUES ('daily'::text), ('schedule'::text)) AS family(value)
+  ON CONFLICT (service_date, family) DO UPDATE SET
+    dirty_since = LEAST(analytics.dirty_scope.dirty_since, EXCLUDED.dirty_since),
+    generation = analytics.dirty_scope.generation + 1,
+    reason = EXCLUDED.reason;
+  UPDATE operations.retention_ledger ledger
+  SET revoked_at = clock_timestamp()
+  WHERE ledger.family = 'canonical_detail' AND ledger.applied_at IS NULL AND ledger.revoked_at IS NULL
+    AND ledger.target_date IN (
+      SELECT service_date FROM new_rows UNION SELECT service_date FROM old_rows
+    );
+  RETURN NULL;
+END
+$function$;
+"""
+          new_update_trigger = """CREATE OR REPLACE FUNCTION analytics.mark_canonical_update_dirty()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, analytics, operations
+AS $function$
+DECLARE
+  affected_date date;
+BEGIN
+  FOR affected_date IN
+    SELECT service_date FROM new_rows UNION SELECT service_date FROM old_rows
+  LOOP
+    PERFORM analytics.mark_dirty(affected_date, 'canonical-update');
+  END LOOP;
+  RETURN NULL;
+END
+$function$;
+"""
+          if new_update_trigger not in sql:
+              if old_update_trigger not in sql:
+                  raise SystemExit('update dirty trigger anchor missing')
+              sql = sql.replace(old_update_trigger, new_update_trigger, 1)
+
           migration.write_text(sql)
           PY
           git diff --check
@@ -100,7 +199,7 @@ $function$;
           if git diff --cached --quiet; then
             echo 'Milestone 4 invariants already current.'
           else
-            git commit -m 'fix: preserve open-month replacement and migration contracts'
+            git commit -m 'fix: invalidate open-month aggregates on canonical repair'
             git pull --rebase origin feature-milestone-4
             git push origin HEAD:feature-milestone-4
           fi
