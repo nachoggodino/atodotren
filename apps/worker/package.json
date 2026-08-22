@@ -7,6 +7,14 @@
     "./dispatcher": {
       "types": "./dist/dispatcher.d.ts",
       "default": "./dist/dispatcher.js"
+    },
+    "./m4-cli": {
+      "types": "./dist/m4-cli.d.ts",
+      "default": "./dist/m4-cli.js"
+    },
+    "./analytics": {
+      "types": "./dist/analytics.d.ts",
+      "default": "./dist/analytics.js"
     }
   },
   "bin": {
