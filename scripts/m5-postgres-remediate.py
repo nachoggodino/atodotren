@@ -27,10 +27,9 @@ if text.count(needle) != 1:
     raise SystemExit('0009 reporting schema grant target missing or duplicated')
 text = text.replace(needle, addition)
 
-# Do not wrap the older security-invoker health views: nested security-invoker
-# relations intentionally propagate caller privileges. Build the approved report
-# views directly over their underlying facts so the view owner mediates read-only
-# access without granting the Telegram role access to ingestion/canonical tables.
+# Do not wrap older security-invoker health views. Build approved report views
+# directly over their facts so the view owner mediates read-only access without
+# granting Telegram direct access to ingestion/canonical tables.
 ingest_view_old = """CREATE OR REPLACE VIEW operations.report_ingest_health
 WITH (security_barrier = true)
 AS
@@ -86,8 +85,6 @@ if text.count(canonical_view_old) != 1:
 text = text.replace(canonical_view_old, canonical_view_new)
 migration.write_text(text)
 
-# Milestone 4 acceptance remains behaviorally unchanged but runs the repository's
-# complete additive migration inventory.
 replace(
     'tests/integration/milestone4.test.ts',
     "assert.equal(migrated.applied.at(-1), '0008_timetable_metric_identity.sql');",
@@ -110,20 +107,31 @@ if text.count(copy_needle) != 1:
     raise SystemExit('copyCurrentMigrations 0008 target missing or duplicated')
 text = text.replace(copy_needle, copy_addition)
 
-list_needle = """        '0007_m4_correctness_gates.sql',
+standard_list = """        '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
       ]);"""
-list_replacement = """        '0007_m4_correctness_gates.sql',
+standard_replacement = """        '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
         '0009_reporting_telegram.sql',
       ]);"""
-if text.count(list_needle) != 3:
-    raise SystemExit(f'expected three current migration inventory assertions, found {text.count(list_needle)}')
-text = text.replace(list_needle, list_replacement)
+if text.count(standard_list) != 2:
+    raise SystemExit(f'expected two standard current migration inventories, found {text.count(standard_list)}')
+text = text.replace(standard_list, standard_replacement)
+
+rotated_list = """          '0007_m4_correctness_gates.sql',
+          '0008_timetable_metric_identity.sql',
+        ]);"""
+rotated_replacement = """          '0007_m4_correctness_gates.sql',
+          '0008_timetable_metric_identity.sql',
+          '0009_reporting_telegram.sql',
+        ]);"""
+if text.count(rotated_list) != 1:
+    raise SystemExit(f'expected one rotated migration inventory, found {text.count(rotated_list)}')
+text = text.replace(rotated_list, rotated_replacement)
 postgres.write_text(text)
 
-# Close Telegram test connections before the outer database teardown. A t.after
-# hook executes too late for this test because the outer finally drops the database.
+# Close Telegram test connections before outer database teardown. t.after executes
+# after the outer finally and would otherwise observe administrator termination.
 m5 = Path('tests/integration/milestone5.test.ts')
 text = m5.read_text()
 after_block = """    t.after(async () => {
