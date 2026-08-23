@@ -56,11 +56,6 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
     const telegram2 = new Client({ connectionString: telegramDatabaseUrl });
     await telegram.connect();
     await telegram2.connect();
-    t.after(async () => {
-      await telegram.end().catch(() => undefined);
-      await telegram2.end().catch(() => undefined);
-    });
-
     await t.test('approved report reads and private Telegram state writes succeed', async () => {
       await telegram.query('SELECT * FROM operations.report_daily_summary LIMIT 1');
       await telegram.query('SELECT * FROM operations.report_ingest_health LIMIT 1');
@@ -108,6 +103,9 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
         await databaseAdmin.end();
       }
     });
+
+    await telegram.end();
+    await telegram2.end();
   } finally {
     await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1', [databaseName]);
     await admin.query(`DROP DATABASE IF EXISTS ${databaseName}`);

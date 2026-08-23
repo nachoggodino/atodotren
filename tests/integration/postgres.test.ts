@@ -103,6 +103,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
       resolve(process.cwd(), 'migrations/0008_timetable_metric_identity.sql'),
       join(directory, '0008_timetable_metric_identity.sql'),
     ),
+    cp(
+      resolve(process.cwd(), 'migrations/0009_reporting_telegram.sql'),
+      join(directory, '0009_reporting_telegram.sql'),
+    ),
   ]);
 }
 
@@ -199,6 +203,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0006_aggregation_retention.sql',
         '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
+        '0009_reporting_telegram.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -222,6 +227,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0006_aggregation_retention.sql',
         '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
+        '0009_reporting_telegram.sql',
       ]);
     });
 
@@ -619,6 +625,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0006_aggregation_retention.sql',
           '0007_m4_correctness_gates.sql',
           '0008_timetable_metric_identity.sql',
+          '0009_reporting_telegram.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });

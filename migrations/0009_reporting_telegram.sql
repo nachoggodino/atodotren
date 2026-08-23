@@ -23,6 +23,10 @@ END
 $report_role$;
 
 GRANT USAGE ON SCHEMA operations TO atodotren_reporting_reader;
+GRANT USAGE ON SCHEMA analytics TO atodotren_reporting_reader;
+GRANT EXECUTE ON FUNCTION analytics.histogram_add(integer[], integer[]),
+  analytics.histogram_sum(integer[])
+TO atodotren_reporting_reader;
 
 CREATE TABLE operations.reporting_alias (
   entity_kind text NOT NULL CHECK (entity_kind IN ('line', 'station')),
@@ -303,21 +307,27 @@ CREATE OR REPLACE VIEW operations.report_ingest_health
 WITH (security_barrier = true)
 AS
 SELECT
-  last_durable_cycle_at,
-  last_postgres_cycle_at,
-  consecutive_failures,
-  spool_pending_count,
-  spool_bytes,
-  spool_dropped_count,
-  updated_at,
-  latest_successful_poll_at,
-  live_vehicle_count,
-  open_incident_count
-FROM operations.realtime_health;
+  health.last_durable_cycle_at,
+  health.last_postgres_cycle_at,
+  health.consecutive_failures,
+  health.spool_pending_count,
+  health.spool_bytes,
+  health.spool_dropped_count,
+  health.updated_at,
+  (SELECT max(poll.captured_at) FROM ingest.poll_run AS poll WHERE poll.result_class = 'success') AS latest_successful_poll_at,
+  (SELECT count(*) FROM ingest.live_vehicle_state) AS live_vehicle_count,
+  (SELECT count(*) FROM operations.notification_incident AS incident WHERE incident.is_open) AS open_incident_count
+FROM operations.ingest_health AS health;
 
 CREATE OR REPLACE VIEW operations.report_canonical_health
 WITH (security_barrier = true)
-AS SELECT * FROM operations.canonical_health;
+AS
+SELECT
+  count(*) FILTER (WHERE journey.finalized_at IS NULL) AS open_journeys,
+  count(*) FILTER (WHERE journey.finalized_at IS NOT NULL) AS closed_journeys,
+  min(journey.scheduled_end_at) FILTER (WHERE journey.finalized_at IS NULL) AS oldest_open_scheduled_end_at,
+  max(journey.updated_at) AS latest_canonical_update_at
+FROM core.journey AS journey;
 
 CREATE OR REPLACE VIEW operations.report_finalization
 WITH (security_barrier = true)
