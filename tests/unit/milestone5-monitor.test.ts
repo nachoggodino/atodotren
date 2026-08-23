@@ -3,13 +3,13 @@ import test from 'node:test';
 
 import type { DatabaseConnection } from '@atodotren/db';
 
-import { executeMilestone5Cli } from '../../apps/worker/src/m5-cli.js';
-import { ReportingService } from '../../apps/worker/src/reporting-service.js';
-import type { ResourceCollector, ResourceSample } from '../../apps/worker/src/resources.js';
-import { loadTelegramOperationsConfig } from '../../apps/worker/src/telegram-config.js';
-import { TelegramOperationalMonitor } from '../../apps/worker/src/telegram-monitor.js';
-import type { TelegramStateStore } from '../../apps/worker/src/telegram-state.js';
-import type { TelegramBotApi } from '../../apps/worker/src/telegram-transport.js';
+import { executeMilestone5Cli } from '@atodotren/worker/m5-cli';
+import { ReportingService } from '@atodotren/worker/reporting-service';
+import type { ResourceCollector, ResourceSample } from '@atodotren/worker/resources';
+import { loadTelegramOperationsConfig } from '@atodotren/worker/telegram-config';
+import { TelegramOperationalMonitor } from '@atodotren/worker/telegram-monitor';
+import type { TelegramStateStore } from '@atodotren/worker/telegram-state';
+import type { TelegramBotApi } from '@atodotren/worker/telegram-transport';
 
 const now = new Date('2026-08-23T12:00:00.000Z');
 

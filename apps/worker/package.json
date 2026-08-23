@@ -15,6 +15,50 @@
     "./analytics": {
       "types": "./dist/analytics.d.ts",
       "default": "./dist/analytics.js"
+    },
+    "./m5-cli": {
+      "types": "./dist/m5-cli.d.ts",
+      "default": "./dist/m5-cli.js"
+    },
+    "./reporting-core": {
+      "types": "./dist/reporting-core.d.ts",
+      "default": "./dist/reporting-core.js"
+    },
+    "./reporting-service": {
+      "types": "./dist/reporting-service.d.ts",
+      "default": "./dist/reporting-service.js"
+    },
+    "./resources": {
+      "types": "./dist/resources.d.ts",
+      "default": "./dist/resources.js"
+    },
+    "./telegram-commands": {
+      "types": "./dist/telegram-commands.d.ts",
+      "default": "./dist/telegram-commands.js"
+    },
+    "./telegram-config": {
+      "types": "./dist/telegram-config.d.ts",
+      "default": "./dist/telegram-config.js"
+    },
+    "./telegram-monitor": {
+      "types": "./dist/telegram-monitor.d.ts",
+      "default": "./dist/telegram-monitor.js"
+    },
+    "./telegram-operations": {
+      "types": "./dist/telegram-operations.d.ts",
+      "default": "./dist/telegram-operations.js"
+    },
+    "./telegram-scheduler": {
+      "types": "./dist/telegram-scheduler.d.ts",
+      "default": "./dist/telegram-scheduler.js"
+    },
+    "./telegram-state": {
+      "types": "./dist/telegram-state.d.ts",
+      "default": "./dist/telegram-state.js"
+    },
+    "./telegram-transport": {
+      "types": "./dist/telegram-transport.d.ts",
+      "default": "./dist/telegram-transport.js"
     }
   },
   "bin": {

@@ -8,17 +8,17 @@ import {
   currentMadridServiceDate,
   normalizeLookup,
   parseReportDate,
-} from '../../apps/worker/src/reporting-core.js';
-import { ReportingService } from '../../apps/worker/src/reporting-service.js';
-import { parseTelegramCommand } from '../../apps/worker/src/telegram-commands.js';
-import { loadTelegramOperationsConfig } from '../../apps/worker/src/telegram-config.js';
-import { isAuthorizedUpdate, runTelegramOperations } from '../../apps/worker/src/telegram-operations.js';
-import { decideDigest, madridMinuteOfDay } from '../../apps/worker/src/telegram-scheduler.js';
+} from '@atodotren/worker/reporting-core';
+import { ReportingService } from '@atodotren/worker/reporting-service';
+import { parseTelegramCommand } from '@atodotren/worker/telegram-commands';
+import { loadTelegramOperationsConfig } from '@atodotren/worker/telegram-config';
+import { isAuthorizedUpdate, runTelegramOperations } from '@atodotren/worker/telegram-operations';
+import { decideDigest, madridMinuteOfDay } from '@atodotren/worker/telegram-scheduler';
 import {
   TelegramBotApi,
   TelegramWebhookConflictError,
   type TelegramUpdate,
-} from '../../apps/worker/src/telegram-transport.js';
+} from '@atodotren/worker/telegram-transport';
 
 const fixedNow = new Date('2026-08-23T11:30:00.000Z');
 
