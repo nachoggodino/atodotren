@@ -137,7 +137,10 @@ fi
 
 compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=ON_ERROR_STOP=1 --command "INSERT INTO operations.notification_incident (incident_key, opened_at, last_observed_at, occurrence_count, is_open, details) VALUES ('\''spool.shedding'\'', clock_timestamp(), clock_timestamp(), 1, true, '\''{}'\''::jsonb) ON CONFLICT (incident_key) DO UPDATE SET opened_at=EXCLUDED.opened_at,last_observed_at=EXCLUDED.last_observed_at,occurrence_count=1,is_open=true,recovered_at=NULL"' >/dev/null
 incident_baseline="$(fake_telegram_count)"
-for _attempt in {1..15}; do
+# telegram-ops intentionally scans durable incidents on a 60-second maintenance
+# cadence. Cover one complete cadence plus scheduling margin rather than assuming
+# the insertion happens immediately before the next scan.
+for _attempt in {1..75}; do
   current="$(fake_telegram_count)"
   if [[ "${current}" -gt "${incident_baseline}" ]]; then break; fi
   sleep 1
@@ -150,7 +153,7 @@ if [[ "${active_count}" != '1' ]]; then
 fi
 
 compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=ON_ERROR_STOP=1 --command "UPDATE operations.notification_incident SET is_open=false,recovered_at=clock_timestamp(),last_observed_at=clock_timestamp() WHERE incident_key='\''spool.shedding'\''"' >/dev/null
-for _attempt in {1..15}; do
+for _attempt in {1..75}; do
   recovery_count="$(compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command "SELECT count(*) FROM operations.telegram_delivery WHERE delivery_type='\''incident_recovery'\'' AND delivered_at IS NOT NULL"')"
   if [[ "${recovery_count}" == '1' ]]; then break; fi
   sleep 1
