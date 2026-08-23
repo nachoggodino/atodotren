@@ -140,7 +140,7 @@ export class TelegramUpdateFallbackState {
   public markLocalDelivery(updateId: number, key: string, messageId: number): void {
     this.#delivered.set(updateId, { key, messageId });
     while (this.#delivered.size > this.#maxEntries) {
-      const oldest = this.#delivered.keys().next().value as number | undefined;
+      const oldest = this.#delivered.keys().next().value;
       if (oldest === undefined) break;
       this.#delivered.delete(oldest);
     }
@@ -153,7 +153,7 @@ export class TelegramUpdateFallbackState {
 
   #trimSet(values: Set<number>): void {
     while (values.size > this.#maxEntries) {
-      const oldest = values.values().next().value as number | undefined;
+      const oldest = values.values().next().value;
       if (oldest === undefined) break;
       values.delete(oldest);
     }

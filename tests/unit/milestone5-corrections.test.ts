@@ -124,8 +124,10 @@ void test('meaningful Telegram health is fresh after progress, stale later, and 
 void test('one-shot Telegram test refuses without confirmation and sends exactly once without PostgreSQL configuration', async () => {
   const calls: Array<{ method: string; body: Readonly<Record<string, unknown>> }> = [];
   const fakeFetch: typeof fetch = async (input, init) => {
-    const method = String(input).split('/').at(-1) ?? '';
-    calls.push({ method, body: JSON.parse(String(init?.body ?? '{}')) as Readonly<Record<string, unknown>> });
+    const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const method = requestUrl.split('/').at(-1) ?? '';
+    const rawBody = typeof init?.body === 'string' ? init.body : '{}';
+    calls.push({ method, body: JSON.parse(rawBody) as Readonly<Record<string, unknown>> });
     return new Response(JSON.stringify({ ok: true, result: { message_id: 77 } }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   const output: string[] = [];
