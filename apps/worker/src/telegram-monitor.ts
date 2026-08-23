@@ -134,7 +134,7 @@ export class TelegramOperationalMonitor {
 
   async #postgresAvailable(): Promise<boolean> {
     try {
-      await this.#reporting.pool.query('SELECT 1 AS ok');
+      await this.#reporting.pool.query<Record<string, unknown>>('SELECT 1 AS ok');
       return true;
     } catch {
       return false;
@@ -143,7 +143,7 @@ export class TelegramOperationalMonitor {
 
   async #staticAgeDays(now: Date): Promise<number | null> {
     try {
-      const result = await this.#reporting.pool.query('SELECT active_fetched_at FROM operations.report_static_age ORDER BY network_id LIMIT 1');
+      const result = await this.#reporting.pool.query<Record<string, unknown>>('SELECT active_fetched_at FROM operations.report_static_age ORDER BY network_id LIMIT 1');
       const value = result.rows[0]?.active_fetched_at;
       if (value === null || value === undefined) return null;
       const instant = dateValue(value as Date | string);
@@ -156,7 +156,7 @@ export class TelegramOperationalMonitor {
 
   async #durableIngestionAgeMs(now: Date): Promise<number | null> {
     try {
-      const result = await this.#reporting.pool.query('SELECT last_durable_cycle_at FROM operations.report_ingest_health LIMIT 1');
+      const result = await this.#reporting.pool.query<Record<string, unknown>>('SELECT last_durable_cycle_at FROM operations.report_ingest_health LIMIT 1');
       const value = result.rows[0]?.last_durable_cycle_at;
       if (value === null || value === undefined) return null;
       const instant = dateValue(value as Date | string);

@@ -32,6 +32,12 @@ export default defineConfig(
     },
   },
   {
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
+  {
     files: ['**/*.mjs'],
     languageOptions: {
       globals: {

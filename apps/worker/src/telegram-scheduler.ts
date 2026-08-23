@@ -79,5 +79,14 @@ function shortCurrentStatus(
   openMonitors: number,
 ): string {
   if (ingestion === null) return `ingestion unavailable; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
-  return `last durable ${String(ingestion.last_durable_cycle_at ?? 'n/a')}; spool ${String(ingestion.spool_pending_count ?? 'n/a')} pending; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
+  return `last durable ${displayScalar(ingestion.last_durable_cycle_at)}; spool ${displayScalar(ingestion.spool_pending_count)} pending; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
+}
+
+
+function displayScalar(value: unknown): string {
+  if (value === null || value === undefined) return 'n/a';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return value.toString();
+  return 'unavailable';
 }

@@ -35,7 +35,7 @@ function enabledEnvironment(): Readonly<Record<string, string>> {
   };
 }
 
-test('Madrid service dates and bounded explicit dates are deterministic', () => {
+void test('Madrid service dates and bounded explicit dates are deterministic', () => {
   assert.equal(currentMadridServiceDate(new Date('2026-03-28T23:30:00Z')), '2026-03-29');
   assert.equal(currentMadridServiceDate(new Date('2026-10-24T22:30:00Z')), '2026-10-25');
   assert.equal(parseReportDate('yesterday', fixedNow), '2026-08-22');
@@ -44,7 +44,7 @@ test('Madrid service dates and bounded explicit dates are deterministic', () => 
   assert.throws(() => parseReportDate('2026-02-30', fixedNow), RangeError);
 });
 
-test('lookup normalization is accent-insensitive and histogram median is explicit approximation', () => {
+void test('lookup normalization is accent-insensitive and histogram median is explicit approximation', () => {
   assert.equal(normalizeLookup('  Estación Átocha-Cercanías '), 'estacion atocha cercanias');
   const histogram = Array.from({ length: 72 }, () => 0);
   histogram[11] = 3;
@@ -52,7 +52,7 @@ test('lookup normalization is accent-insensitive and histogram median is explici
   assert.equal(approximateMedianFromHistogram(null, 0), null);
 });
 
-test('command parser supports the bounded Milestone 5 syntax', () => {
+void test('command parser supports the bounded Milestone 5 syntax', () => {
   assert.deepEqual(parseTelegramCommand('/daily yesterday', fixedNow), { name: 'daily', date: '2026-08-22' });
   assert.deepEqual(parseTelegramCommand('/line C-1 2026-08-22', fixedNow), { name: 'line', query: 'C-1', date: '2026-08-22' });
   assert.deepEqual(parseTelegramCommand('/station Nuevos Ministerios', fixedNow), { name: 'station', query: 'Nuevos Ministerios' });
@@ -61,7 +61,7 @@ test('command parser supports the bounded Milestone 5 syntax', () => {
   assert.throws(() => parseTelegramCommand('/daily 2024-01-01', fixedNow), RangeError);
 });
 
-test('authorization requires exact user, chat and private chat type', () => {
+void test('authorization requires exact user, chat and private chat type', () => {
   const config = loadTelegramOperationsConfig(enabledEnvironment());
   const update: TelegramUpdate = {
     update_id: 1,
@@ -73,7 +73,7 @@ test('authorization requires exact user, chat and private chat type', () => {
   assert.equal(isAuthorizedUpdate({ ...update, message: { ...update.message!, chat: { id: 202, type: 'group' } } }, config), false);
 });
 
-test('fuzzy candidates rank exact aliases above partial names and remain bounded', async () => {
+void test('fuzzy candidates rank exact aliases above partial names and remain bounded', async () => {
   const pool = {
     query: async () => ({ rows: [
       { line_id: 2, public_code: 'C-10', name_es: 'Villalba', aliases: [], normalized_slug: 'c 10' },
@@ -88,7 +88,7 @@ test('fuzzy candidates rank exact aliases above partial names and remain bounded
   assert.equal(candidates[0]?.score, 100);
 });
 
-test('digest scheduling follows 04:00, 05:00 and 06:30 Madrid time across DST', () => {
+void test('digest scheduling follows 04:00, 05:00 and 06:30 Madrid time across DST', () => {
   const spring0430 = new Date('2026-03-29T02:30:00Z');
   const spring0530 = new Date('2026-03-29T03:30:00Z');
   const spring0630 = new Date('2026-03-29T04:30:00Z');
@@ -101,11 +101,13 @@ test('digest scheduling follows 04:00, 05:00 and 06:30 Madrid time across DST', 
   assert.equal(madridMinuteOfDay(autumn0530), 330);
 });
 
-test('Bot API startup detects webhook conflict and command registration is chat-scoped', async () => {
+void test('Bot API startup detects webhook conflict and command registration is chat-scoped', async () => {
   const calls: { method: string; body: Record<string, unknown> }[] = [];
   const fakeFetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const method = String(input).split('/').at(-1) ?? '';
-    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const method = requestUrl.split('/').at(-1) ?? '';
+    const rawBody = typeof init?.body === 'string' ? init.body : '{}';
+    const body = JSON.parse(rawBody) as Record<string, unknown>;
     calls.push({ method, body });
     const result = method === 'getWebhookInfo' ? { url: '' } : true;
     return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -127,7 +129,7 @@ test('Bot API startup detects webhook conflict and command registration is chat-
   await assert.rejects(conflict.assertLongPollingAvailable(), TelegramWebhookConflictError);
 });
 
-test('disabled operations service shuts down cleanly without opening database or Telegram resources', async () => {
+void test('disabled operations service shuts down cleanly without opening database or Telegram resources', async () => {
   const environment = {
     NODE_ENV: 'test',
     DATABASE_URL: 'postgresql://unused:unused@unused/unused',

@@ -138,14 +138,19 @@ async function readDatabase(reporting: ReportingService): Promise<{
   readonly breakdown: Readonly<Record<string, number>>;
 }> {
   try {
-    const result = await reporting.pool.query('SELECT * FROM operations.report_database_size LIMIT 1');
+    const result = await reporting.pool.query<Record<string, unknown>>('SELECT * FROM operations.report_database_size LIMIT 1');
     const row = result.rows[0];
     if (row === undefined) return { total: unavailable('database size view returned no row'), breakdown: {} };
     const total = Number(row.database_bytes);
     const keys = ['poll_run_bytes', 'stop_evidence_bytes', 'journey_bytes', 'daily_aggregate_bytes'] as const;
+    const breakdown: Record<string, number> = {};
+    for (const key of keys) {
+      const value = Number(row[key]);
+      if (Number.isFinite(value)) breakdown[key] = value;
+    }
     return {
       total: Number.isFinite(total) ? available(total) : unavailable('database size is not numeric'),
-      breakdown: Object.fromEntries(keys.map((key) => [key, Number(row[key])]).filter((entry) => Number.isFinite(entry[1]))),
+      breakdown,
     };
   } catch {
     return { total: unavailable('database size query failed'), breakdown: {} };

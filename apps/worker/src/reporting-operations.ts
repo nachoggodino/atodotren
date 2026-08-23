@@ -20,57 +20,57 @@ export async function statusReport(reporting: ReportingService): Promise<StatusR
   const now = reporting.now();
   const pool = reporting.pool;
   const [ingestion, canonical, finalization, staticFeed, incidents, monitors] = await Promise.all([
-    pool.query('SELECT * FROM operations.report_ingest_health LIMIT 1'),
-    pool.query('SELECT * FROM operations.report_canonical_health LIMIT 1'),
-    pool.query('SELECT * FROM operations.report_finalization ORDER BY service_date DESC, finalized_at DESC LIMIT 1'),
-    pool.query('SELECT * FROM operations.report_static_age ORDER BY network_id LIMIT 1'),
-    pool.query("SELECT count(*)::int AS count FROM operations.report_incident_episode WHERE is_open"),
-    pool.query(`SELECT monitor_key, opened_at, last_observed_at, consecutive_count
+    pool.query<Record<string, unknown>>('SELECT * FROM operations.report_ingest_health LIMIT 1'),
+    pool.query<Record<string, unknown>>('SELECT * FROM operations.report_canonical_health LIMIT 1'),
+    pool.query<Record<string, unknown>>('SELECT * FROM operations.report_finalization ORDER BY service_date DESC, finalized_at DESC LIMIT 1'),
+    pool.query<Record<string, unknown>>('SELECT * FROM operations.report_static_age ORDER BY network_id LIMIT 1'),
+    pool.query<Record<string, unknown>>("SELECT count(*)::int AS count FROM operations.report_incident_episode WHERE is_open"),
+    pool.query<Record<string, unknown>>(`SELECT monitor_key, opened_at, last_observed_at, consecutive_count
       FROM operations.telegram_monitor_episode WHERE is_open ORDER BY opened_at LIMIT 20`),
   ]);
   return {
     ...reportBase(now), kind: 'status', source: 'operational_views', precision: 'operational snapshot',
-    ingestion: (ingestion.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
-    canonical: (canonical.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
-    latestFinalization: (finalization.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
-    staticFeed: (staticFeed.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
+    ingestion: ingestion.rows[0] ?? null,
+    canonical: canonical.rows[0] ?? null,
+    latestFinalization: finalization.rows[0] ?? null,
+    staticFeed: staticFeed.rows[0] ?? null,
     openIncidents: numberValue(incidents.rows[0]?.count),
-    openMonitorEpisodes: monitors.rows as readonly Readonly<Record<string, unknown>>[],
+    openMonitorEpisodes: monitors.rows,
   };
 }
 
 export async function incidentsReport(reporting: ReportingService): Promise<IncidentsReport> {
   const now = reporting.now();
-  const result = await reporting.pool.query(`SELECT * FROM operations.report_incident_episode
+  const result = await reporting.pool.query<Record<string, unknown>>(`SELECT * FROM operations.report_incident_episode
     WHERE is_open OR recovered_at >= clock_timestamp() - interval '48 hours'
     ORDER BY is_open DESC, last_observed_at DESC LIMIT ${MAX_INCIDENTS}`);
   return {
     ...reportBase(now), kind: 'incidents', source: 'ingestion_incident_facts', precision: 'episode facts',
-    incidents: result.rows as readonly Readonly<Record<string, unknown>>[],
+    incidents: result.rows,
   };
 }
 
 export async function trainsReport(reporting: ReportingService, lineId: number): Promise<TrainsReport | null> {
   if (!Number.isSafeInteger(lineId) || lineId <= 0) throw new RangeError('lineId must be a positive integer');
   const now = reporting.now();
-  const line = await reporting.pool.query('SELECT line_id, public_code, name_es FROM operations.report_line_lookup WHERE line_id = $1 LIMIT 1', [lineId]);
+  const line = await reporting.pool.query<Record<string, unknown>>('SELECT line_id, public_code, name_es FROM operations.report_line_lookup WHERE line_id = $1 LIMIT 1', [lineId]);
   const lineRow = line.rows[0];
   if (lineRow === undefined) return null;
-  const result = await reporting.pool.query(`SELECT * FROM operations.report_vehicle_live
+  const result = await reporting.pool.query<Record<string, unknown>>(`SELECT * FROM operations.report_vehicle_live
     WHERE line_id = $1 AND captured_at >= clock_timestamp() - interval '30 minutes'
     ORDER BY captured_at DESC LIMIT ${MAX_TRAINS}`, [lineId]);
   return {
     ...reportBase(now), kind: 'trains', source: 'live_vehicle_state', precision: 'latest canonicalized live state',
-    line: { id: lineId, name: String(lineRow.name_es), code: String(lineRow.public_code) },
+    line: { id: lineId, name: displayScalar(lineRow.name_es), code: displayScalar(lineRow.public_code) },
     trains: result.rows.map((row) => ({
       trainId: row.journey_id === null || row.service_date === null
-        ? `live:${String(row.state_key)}`
-        : `${dateText(row.service_date as string | Date)}:${String(row.journey_id)}`,
-      sourceTripId: String(row.source_trip_id),
-      vehicleId: row.vehicle_id === null ? null : String(row.vehicle_id),
+        ? `live:${displayScalar(row.state_key)}`
+        : `${dateText(row.service_date as string | Date)}:${displayScalar(row.journey_id)}`,
+      sourceTripId: displayScalar(row.source_trip_id),
+      vehicleId: row.vehicle_id === null ? null : displayScalar(row.vehicle_id),
       capturedAt: instantText(row.captured_at) ?? '',
-      station: row.current_station_name_es === null ? null : String(row.current_station_name_es),
-      status: String(row.current_status),
+      station: row.current_station_name_es === null ? null : displayScalar(row.current_station_name_es),
+      status: displayScalar(row.current_status),
       delaySeconds: nullableNumber(row.latest_stop_delay),
     })),
   };
@@ -82,14 +82,14 @@ export async function trainReport(reporting: ReportingService, trainId: string):
   let row: Readonly<Record<string, unknown>> | undefined;
   if (match !== null) {
     parseReportDate(match[1], now);
-    const result = await reporting.pool.query(
+    const result = await reporting.pool.query<Record<string, unknown>>(
       'SELECT * FROM operations.report_journey_recent WHERE service_date = $1::date AND journey_id = $2::bigint LIMIT 1',
       [match[1], match[2]],
     );
-    row = result.rows[0] as Readonly<Record<string, unknown>> | undefined;
+    row = result.rows[0];
   } else if (trainId.startsWith('live:') && trainId.length <= 110) {
-    const result = await reporting.pool.query('SELECT * FROM operations.report_vehicle_live WHERE state_key = $1 LIMIT 1', [trainId.slice(5)]);
-    row = result.rows[0] as Readonly<Record<string, unknown>> | undefined;
+    const result = await reporting.pool.query<Record<string, unknown>>('SELECT * FROM operations.report_vehicle_live WHERE state_key = $1 LIMIT 1', [trainId.slice(5)]);
+    row = result.rows[0];
   } else {
     throw new RangeError('Train id must be the bounded id returned by /trains');
   }
@@ -102,25 +102,33 @@ export async function trainReport(reporting: ReportingService, trainId: string):
 export async function pilotReport(reporting: ReportingService): Promise<PilotReport> {
   const now = reporting.now();
   const [coverage, size] = await Promise.all([
-    reporting.pool.query(`SELECT min(service_date)::text AS first_date, max(service_date)::text AS last_date,
+    reporting.pool.query<Record<string, unknown>>(`SELECT min(service_date)::text AS first_date, max(service_date)::text AS last_date,
       count(DISTINCT service_date)::int AS service_days, sum(poll_count)::bigint AS polls,
       sum(successful_poll_count)::bigint AS successful_polls, sum(matched_madrid_count)::bigint AS matched_madrid,
       sum(response_bytes)::bigint AS response_bytes
       FROM operations.report_feed_coverage`),
-    reporting.pool.query('SELECT * FROM operations.report_database_size LIMIT 1'),
+    reporting.pool.query<Record<string, unknown>>('SELECT * FROM operations.report_database_size LIMIT 1'),
   ]);
   const row = coverage.rows[0] ?? {};
   const databaseBytes = nullableNumber(size.rows[0]?.database_bytes);
   const serviceDays = numberValue(row.service_days);
   return {
     ...reportBase(now), kind: 'pilot', source: 'finalized_feed_coverage+database_size', precision: 'bounded aggregate',
-    startedServiceDate: row.first_date === null || row.first_date === undefined ? null : String(row.first_date),
-    latestServiceDate: row.last_date === null || row.last_date === undefined ? null : String(row.last_date),
+    startedServiceDate: row.first_date === null || row.first_date === undefined ? null : displayScalar(row.first_date),
+    latestServiceDate: row.last_date === null || row.last_date === undefined ? null : displayScalar(row.last_date),
     serviceDays,
     polls: numberValue(row.polls), successfulPolls: numberValue(row.successful_polls), matchedMadrid: numberValue(row.matched_madrid),
     responseBytes: numberValue(row.response_bytes), databaseBytes,
     projectedDatabaseBytes14Days: databaseBytes !== null && serviceDays > 0 ? Math.round(databaseBytes / serviceDays * 14) : null,
   };
+}
+
+function displayScalar(value: unknown): string {
+  if (value === null || value === undefined) return 'n/a';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return value.toString();
+  return 'unavailable';
 }
 
 function percent(value: number | null): string {

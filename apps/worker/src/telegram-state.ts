@@ -59,7 +59,7 @@ export class TelegramStateStore {
   }
 
   public async nextUpdateId(): Promise<number> {
-    const result = await this.#pool.query('SELECT next_update_id FROM operations.telegram_checkpoint WHERE singleton');
+    const result = await this.#pool.query<Record<string, unknown>>('SELECT next_update_id FROM operations.telegram_checkpoint WHERE singleton');
     return Number(result.rows[0]?.next_update_id ?? 0);
   }
 
@@ -68,19 +68,19 @@ export class TelegramStateStore {
   // ignored, so restarts resume from the first unconfirmed update.
   public async confirmUpdate(updateId: number): Promise<void> {
     if (!Number.isSafeInteger(updateId) || updateId < 0) throw new RangeError('Invalid Telegram update id');
-    await this.#pool.query(`UPDATE operations.telegram_checkpoint
+    await this.#pool.query<Record<string, unknown>>(`UPDATE operations.telegram_checkpoint
       SET next_update_id = GREATEST(next_update_id, $1::bigint + 1), updated_at = clock_timestamp()
       WHERE singleton`, [updateId]);
   }
 
   public async deliveryForUpdate(updateId: number): Promise<DeliveryRecord | null> {
-    const result = await this.#pool.query(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
       FROM operations.telegram_delivery WHERE source_update_id = $1`, [updateId]);
     return deliveryRecord(result.rows[0]);
   }
 
   public async delivery(deliveryKey: string): Promise<DeliveryRecord | null> {
-    const result = await this.#pool.query(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
       FROM operations.telegram_delivery WHERE delivery_key = $1`, [deliveryKey]);
     return deliveryRecord(result.rows[0]);
   }
@@ -91,7 +91,7 @@ export class TelegramStateStore {
     readonly updateId?: number;
     readonly serviceDate?: string;
   }): Promise<DeliveryRecord> {
-    const result = await this.#pool.query(`INSERT INTO operations.telegram_delivery (
+    const result = await this.#pool.query<Record<string, unknown>>(`INSERT INTO operations.telegram_delivery (
         delivery_key, delivery_type, source_update_id, service_date, report_version,
         attempt_count, first_attempt_at, last_attempt_at, expires_at
       ) VALUES ($1, $2, $3, $4::date, $5, 1, clock_timestamp(), clock_timestamp(),
@@ -113,7 +113,7 @@ export class TelegramStateStore {
   }
 
   public async markDelivered(deliveryKey: string, messageId: number): Promise<void> {
-    await this.#pool.query(`UPDATE operations.telegram_delivery SET
+    await this.#pool.query<Record<string, unknown>>(`UPDATE operations.telegram_delivery SET
       delivered_at = COALESCE(delivered_at, clock_timestamp()),
       telegram_message_id = COALESCE(telegram_message_id, $2), failure_class = NULL
       WHERE delivery_key = $1`, [deliveryKey, messageId]);
@@ -121,13 +121,13 @@ export class TelegramStateStore {
 
   public async markFailed(deliveryKey: string, failureClass: string): Promise<void> {
     const bounded = /^[A-Za-z0-9_.-]{1,64}$/u.test(failureClass) ? failureClass : 'DeliveryError';
-    await this.#pool.query(`UPDATE operations.telegram_delivery SET failure_class = $2
+    await this.#pool.query<Record<string, unknown>>(`UPDATE operations.telegram_delivery SET failure_class = $2
       WHERE delivery_key = $1 AND delivered_at IS NULL`, [deliveryKey, bounded]);
   }
 
   public async createCallback(target: CallbackTarget): Promise<string> {
     const callbackId = randomBytes(12).toString('base64url');
-    await this.#pool.query(`INSERT INTO operations.telegram_callback (
+    await this.#pool.query<Record<string, unknown>>(`INSERT INTO operations.telegram_callback (
       callback_id, entity_kind, entity_id, report_date, expires_at
     ) VALUES ($1, $2, $3, $4::date, clock_timestamp() + ($5::bigint * interval '1 millisecond'))`, [
       callbackId, target.kind, target.entityId, target.reportDate, this.#callbackTtlMs,
@@ -137,7 +137,7 @@ export class TelegramStateStore {
 
   public async readCallback(callbackId: string): Promise<CallbackTarget | null> {
     if (!/^[A-Za-z0-9_-]{8,48}$/u.test(callbackId)) return null;
-    const result = await this.#pool.query(`SELECT entity_kind, entity_id, report_date
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT entity_kind, entity_id, report_date
       FROM operations.telegram_callback
       WHERE callback_id = $1 AND expires_at > clock_timestamp() LIMIT 1`, [callbackId]);
     const row = result.rows[0];
@@ -150,7 +150,7 @@ export class TelegramStateStore {
   }
 
   public async prune(): Promise<void> {
-    await this.#pool.query('SELECT operations.telegram_prune_state(clock_timestamp())');
+    await this.#pool.query<Record<string, unknown>>('SELECT operations.telegram_prune_state(clock_timestamp())');
   }
 }
 

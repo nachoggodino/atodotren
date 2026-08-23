@@ -26,7 +26,7 @@ function telegramEnvironment(): Readonly<Record<string, string>> {
   };
 }
 
-test('Telegram-specific validation rejects invalid late-stage values', () => {
+void test('Telegram-specific validation rejects invalid late-stage values', () => {
   assert.throws(() => loadTelegramOperationsConfig({
     ...telegramEnvironment(),
     TELEGRAM_POLL_TIMEOUT_SECONDS: '99',
@@ -43,7 +43,7 @@ test('Telegram-specific validation rejects invalid late-stage values', () => {
   }), /Critical disk free ratio/u);
 });
 
-test('Milestone 5 worker path strips legacy Telegram delivery credentials', async () => {
+void test('Milestone 5 worker path strips legacy Telegram delivery credentials', async () => {
   let transportNames: readonly string[] = ['unexpected'];
   const code = await executeMilestone5Cli(['test-notifications', '--confirm-send'], {
     environment: {
@@ -68,7 +68,7 @@ test('Milestone 5 worker path strips legacy Telegram delivery credentials', asyn
   assert.deepEqual(transportNames, []);
 });
 
-test('bot monitor persists critical ingestion/static episodes and delivers once', async () => {
+void test('bot monitor persists critical ingestion/static episodes and delivers once', async () => {
   const opened = new Map<string, Date>();
   const pool = {
     query: async (sql: string, parameters?: readonly unknown[]) => {

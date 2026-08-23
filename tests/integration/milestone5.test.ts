@@ -69,7 +69,7 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
         delivery_key, delivery_type, report_version, attempt_count, expires_at
       ) VALUES ('ci-command', 'command', 'pilot-v1', 1, clock_timestamp() + interval '1 day')`);
       await telegram.query("UPDATE operations.telegram_delivery SET failure_class = 'FakeFailure' WHERE delivery_key = 'ci-command'");
-      const result = await telegram.query("SELECT failure_class FROM operations.telegram_delivery WHERE delivery_key = 'ci-command'");
+      const result = await telegram.query<{ failure_class: string | null }>("SELECT failure_class FROM operations.telegram_delivery WHERE delivery_key = 'ci-command'");
       assert.equal(result.rows[0]?.failure_class, 'FakeFailure');
       await telegram.query('SELECT operations.telegram_prune_state(clock_timestamp())');
     });
@@ -102,7 +102,7 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
       const databaseAdmin = new Client({ connectionString: adminDatabaseUrl });
       await databaseAdmin.connect();
       try {
-        const ledger = await databaseAdmin.query('SELECT name FROM operations.schema_migration ORDER BY name');
+        const ledger = await databaseAdmin.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
         assert.equal(ledger.rows.at(-1)?.name, '0009_reporting_telegram.sql');
       } finally {
         await databaseAdmin.end();

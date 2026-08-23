@@ -174,7 +174,15 @@ function exactOrUnique<T extends { readonly score: number }>(candidates: readonl
 
 function briefHealth(health: Readonly<Record<string, unknown>> | null): string {
   if (health === null) return 'unavailable';
-  return `last durable ${String(health.last_durable_cycle_at ?? 'n/a')}, spool ${String(health.spool_pending_count ?? 'n/a')} pending`;
+  return `last durable ${displayScalar(health.last_durable_cycle_at)}, spool ${displayScalar(health.spool_pending_count)} pending`;
+}
+
+function displayScalar(value: unknown): string {
+  if (value === null || value === undefined) return 'n/a';
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return value.toString();
+  return 'unavailable';
 }
 
 function bounded(text: string): string {

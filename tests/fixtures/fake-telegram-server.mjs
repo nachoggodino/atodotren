@@ -1,4 +1,6 @@
+import { Buffer } from 'node:buffer';
 import { createServer } from 'node:http';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const port = Number(process.env.FAKE_TELEGRAM_PORT ?? '4020');
 const allowedUserId = Number(process.env.FAKE_TELEGRAM_USER_ID ?? '10101');
@@ -35,7 +37,7 @@ const server = createServer(async (request, response) => {
   if (request.method !== 'POST' || request.url === undefined) return json(response, 404, { ok: false });
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
-  let body = {};
+  let body;
   try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return json(response, 400, { ok: false }); }
   const method = request.url.split('/').at(-1);
   if (method === 'getWebhookInfo') return json(response, 200, { ok: true, result: { url: webhookUrl, has_custom_certificate: false, pending_update_count: 0 } });
@@ -45,7 +47,7 @@ const server = createServer(async (request, response) => {
     state.getUpdatesCalls += 1;
     const offset = Number(body.offset ?? 0);
     const result = updates.filter((update) => update.update_id >= offset);
-    if (result.length === 0) await new Promise((resolve) => setTimeout(resolve, 50));
+    if (result.length === 0) await sleep(50);
     return json(response, 200, { ok: true, result });
   }
   if (method === 'sendMessage') {
