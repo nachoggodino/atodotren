@@ -72,11 +72,13 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if grep -A80 '^  worker:' compose.yaml | grep -Eq 'TELEGRAM_BOT_TOKEN|TELEGRAM_PRIVATE_CHAT_ID|TELEGRAM_ALLOWED_USER_ID'; then
+          worker_block="$(sed -n '/^  worker:/,/^  telegram-ops:/p' compose.yaml | sed '$d')"
+          telegram_block="$(sed -n '/^  telegram-ops:/,/^volumes:/p' compose.yaml | sed '$d')"
+          if grep -Eq 'TELEGRAM_BOT_TOKEN|TELEGRAM_PRIVATE_CHAT_ID|TELEGRAM_ALLOWED_USER_ID' <<<"$worker_block"; then
             echo 'The ingestion worker must not receive Telegram credentials.' >&2
             exit 1
           fi
-          if grep -A100 '^  telegram-ops:' compose.yaml | grep -Eq 'docker\.sock|privileged:|ports:'; then
+          if grep -Eq 'docker\.sock|privileged:|^[[:space:]]+ports:' <<<"$telegram_block"; then
             echo 'Telegram operations service exposes a forbidden privileged/network surface.' >&2
             exit 1
           fi
