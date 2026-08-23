@@ -1,0 +1,56 @@
+name: Materialize Milestone 5 test import fixes
+
+on:
+  push:
+    branches: [feature-milestone-5]
+    paths: [.github/workflows/m5-test-import-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-5
+      - name: Expose worker modules and normalize test imports
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          package_path = Path('apps/worker/package.json')
+          package = json.loads(package_path.read_text())
+          exports = package.setdefault('exports', {})
+          modules = [
+              'm5-cli', 'reporting-core', 'reporting-service', 'resources',
+              'telegram-commands', 'telegram-config', 'telegram-monitor',
+              'telegram-operations', 'telegram-scheduler', 'telegram-state',
+              'telegram-transport',
+          ]
+          for module in modules:
+              exports[f'./{module}'] = {
+                  'types': f'./dist/{module}.d.ts',
+                  'default': f'./dist/{module}.js',
+              }
+          package_path.write_text(json.dumps(package, indent=2) + '\n')
+
+          for filename in ['tests/unit/milestone5-telegram.test.ts', 'tests/unit/milestone5-monitor.test.ts']:
+              path = Path(filename)
+              text = path.read_text()
+              for module in modules:
+                  text = text.replace(
+                      f"'../../apps/worker/src/{module}.js'",
+                      f"'@atodotren/worker/{module}'",
+                  )
+              path.write_text(text)
+      - name: Remove materializer and commit
+        run: |
+          git rm .github/workflows/m5-test-import-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/worker/package.json tests/unit
+          git commit -m 'test: use milestone 5 worker package exports'
+          git push origin HEAD:feature-milestone-5
