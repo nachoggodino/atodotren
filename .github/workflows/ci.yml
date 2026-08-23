@@ -162,7 +162,7 @@ jobs:
   # BEGIN ONE-SHOT TELEGRAM OWNERSHIP REFACTOR
   telegram-ownership-refactor:
     name: CI-only sole Telegram sender refactor
-    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write
