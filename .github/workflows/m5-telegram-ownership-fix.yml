@@ -30,30 +30,15 @@ jobs:
 
           path = Path('apps/worker/src/dispatcher.ts')
           text = path.read_text()
-          old_import = '  createSmtpTransport,\n  createTelegramTransport,\n  OutageSpool,'
-          new_import = '  createSmtpTransport,\n  OutageSpool,'
-          if text.count(old_import) != 1:
-              raise SystemExit('expected createTelegramTransport import exactly once')
-          text = text.replace(old_import, new_import)
-
-          old_transports = '''    const transports = [
-              ...(config.operations.telegram === undefined ? [] : [createTelegramTransport(config.operations.telegram)]),
-              ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
-            ];'''
-          new_transports = '''    const transports = [
-              ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
-            ];'''
-          # Normalize indentation-independent exact block used twice in source.
-          old_transports = old_transports.replace('    const transports', 'const transports').replace('      ...(', '  ...(').replace('    ];', '];')
-          new_transports = new_transports.replace('    const transports', 'const transports').replace('      ...(', '  ...(').replace('    ];', '];')
-          if text.count(old_transports) != 2:
-              raise SystemExit(f'expected legacy transport block twice, found {text.count(old_transports)}')
-          text = text.replace(old_transports, new_transports)
-
-          old_usage = '''Sends one clearly labelled test through each configured Telegram, SMTP, and
-          heartbeat channel.'''.replace('          ', '')
-          new_usage = '''Sends one clearly labelled test through each configured SMTP and heartbeat
-          channel. Telegram delivery belongs exclusively to the telegram-ops service.'''.replace('          ', '')
+          if text.count('createTelegramTransport') != 3:
+              raise SystemExit(f'expected three legacy Telegram transport references, found {text.count("createTelegramTransport")}')
+          lines = [
+              line for line in text.splitlines()
+              if 'createTelegramTransport' not in line
+          ]
+          text = '\n'.join(lines) + '\n'
+          old_usage = 'Sends one clearly labelled test through each configured Telegram, SMTP, and\nheartbeat channel.'
+          new_usage = 'Sends one clearly labelled test through each configured SMTP and heartbeat\nchannel. Telegram delivery belongs exclusively to the telegram-ops service.'
           if text.count(old_usage) != 1:
               raise SystemExit('expected legacy test-notifications wording exactly once')
           text = text.replace(old_usage, new_usage)
