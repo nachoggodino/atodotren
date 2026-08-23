@@ -1,11 +1,28 @@
 services:
   fake-feed:
-    image: atodotren-worker:milestone-4
+    image: atodotren-worker:milestone-5
     entrypoint: ["node", "apps/worker/dist/fake-feed-server.js"]
     environment:
       FAKE_FEED_PORT: 4010
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4010/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+    restart: "no"
+
+  fake-telegram:
+    image: node:24.15.0-bookworm-slim
+    command: ["node", "/fixtures/fake-telegram-server.mjs"]
+    environment:
+      FAKE_TELEGRAM_PORT: 4020
+      FAKE_TELEGRAM_USER_ID: 10101
+      FAKE_TELEGRAM_CHAT_ID: 10101
+      FAKE_TELEGRAM_INITIAL_COMMAND: /status
+    volumes:
+      - ./tests/fixtures/fake-telegram-server.mjs:/fixtures/fake-telegram-server.mjs:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4020/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 1s
       timeout: 2s
       retries: 20
@@ -36,3 +53,22 @@ services:
     depends_on:
       fake-feed:
         condition: service_healthy
+
+  telegram-ops:
+    environment:
+      NODE_ENV: test
+      TELEGRAM_OPERATIONS_ENABLED: "true"
+      TELEGRAM_BOT_TOKEN: ci-fake-token
+      TELEGRAM_ALLOWED_USER_ID: "10101"
+      TELEGRAM_PRIVATE_CHAT_ID: "10101"
+      TELEGRAM_API_BASE_URL: http://fake-telegram:4020
+      TELEGRAM_POLL_TIMEOUT_SECONDS: 1
+      DATABASE_CONNECTION_TIMEOUT_MS: 500
+      DATABASE_STATEMENT_TIMEOUT_MS: 2000
+    depends_on:
+      fake-telegram:
+        condition: service_healthy
+      static-import:
+        condition: service_completed_successfully
+      spool-init:
+        condition: service_completed_successfully
