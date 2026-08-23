@@ -39,6 +39,7 @@ export async function runDigestCheck(options: {
   readonly telegram: TelegramBotApi;
   readonly signal?: AbortSignal;
 }): Promise<DigestDecision> {
+  if (madridMinuteOfDay(options.now) < options.config.digestReadyMinute) return 'before-readiness';
   const currentServiceDate = currentMadridServiceDate(options.now);
   const previousServiceDate = shiftIsoDate(currentServiceDate, -1);
   const daily = await options.reporting.daily(previousServiceDate);

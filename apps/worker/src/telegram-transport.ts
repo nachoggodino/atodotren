@@ -134,7 +134,7 @@ export class TelegramBotApi {
       chat_id: chatId,
       text,
       disable_notification: options.disableNotification ?? false,
-      ...(options.buttons === undefined ? {} : { inline_keyboard: options.buttons }),
+      ...(options.buttons === undefined ? {} : { reply_markup: { inline_keyboard: options.buttons } }),
     }, signal);
   }
 

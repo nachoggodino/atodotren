@@ -50,7 +50,7 @@ const server = createServer(async (request, response) => {
   }
   if (method === 'sendMessage') {
     const message = { message_id: nextMessageId++, chat: { id: Number(body.chat_id), type: 'private' }, text: String(body.text ?? '') };
-    state.sentMessages.push({ chat_id: body.chat_id, text: body.text, reply_markup: body.inline_keyboard ?? null, message_id: message.message_id });
+    state.sentMessages.push({ chat_id: body.chat_id, text: body.text, reply_markup: body.reply_markup ?? null, message_id: message.message_id });
     return json(response, 200, { ok: true, result: message });
   }
   if (method === 'answerCallbackQuery') { state.callbackAnswers += 1; return json(response, 200, { ok: true, result: true }); }

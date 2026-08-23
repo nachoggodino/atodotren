@@ -106,8 +106,9 @@ function apiUrl(environment: Environment, nodeEnvironment: string, issues: strin
   const raw = environment.TELEGRAM_API_BASE_URL?.trim() || 'https://api.telegram.org';
   try {
     const parsed = new URL(raw);
-    if (parsed.protocol !== 'https:' && !(nodeEnvironment === 'test' && parsed.protocol === 'http:')) {
-      issues.push('TELEGRAM_API_BASE_URL must use HTTPS except in NODE_ENV=test');
+    const loopback = ['localhost', '127.0.0.1', '[::1]', 'fake-telegram'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !(nodeEnvironment === 'test' && parsed.protocol === 'http:' && loopback)) {
+      issues.push('TELEGRAM_API_BASE_URL must use HTTPS except for test-only loopback/fake Telegram HTTP');
     }
     return raw.replace(/\/$/u, '');
   } catch {
@@ -117,26 +118,16 @@ function apiUrl(environment: Environment, nodeEnvironment: string, issues: strin
 }
 
 export function loadTelegramOperationsConfig(environment: Environment = process.env): TelegramOperationsConfig {
+  const baseEnvironment = { ...environment, TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined };
+  const app = loadConfig(baseEnvironment);
   const issues: string[] = [];
   const enabled = bool(environment, 'TELEGRAM_OPERATIONS_ENABLED', false, issues);
-  const baseEnvironment = { ...environment, TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined };
-  let app;
-  try {
-    app = loadConfig(baseEnvironment);
-  } catch (error) {
-    if (error instanceof ConfigError) issues.push(...error.issues);
-    else throw error;
-    app = loadConfig({
-      ...baseEnvironment,
-      DATABASE_URL: 'postgresql://invalid:invalid@invalid.invalid/invalid',
-      MIGRATION_DATABASE_URL: undefined,
-    });
-  }
   const botToken = environment.TELEGRAM_BOT_TOKEN?.trim() || undefined;
   if (enabled && botToken === undefined) issues.push('TELEGRAM_BOT_TOKEN is required when Telegram operations are enabled');
   if (botToken !== undefined && botToken.length > 256) issues.push('TELEGRAM_BOT_TOKEN is unexpectedly long');
   const allowedUserId = numericId(environment, 'TELEGRAM_ALLOWED_USER_ID', enabled, issues);
   const privateChatId = numericId(environment, 'TELEGRAM_PRIVATE_CHAT_ID', enabled, issues);
+  const apiBaseUrl = apiUrl(environment, app.nodeEnvironment, issues);
   const digestReadyMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_READY_TIME', '04:00', issues);
   const digestTargetMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_TARGET_TIME', '05:00', issues);
   const digestBlockedMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_BLOCKED_TIME', '06:30', issues);
@@ -145,12 +136,32 @@ export function loadTelegramOperationsConfig(environment: Environment = process.
   }
   const reportVersion = environment.TELEGRAM_REPORT_VERSION?.trim() || 'pilot-v1';
   if (!/^[a-z0-9_.-]{1,40}$/u.test(reportVersion)) issues.push('TELEGRAM_REPORT_VERSION has an invalid format');
+  const pollTimeoutSeconds = integer(environment, 'TELEGRAM_POLL_TIMEOUT_SECONDS', 25, 1, 50, issues);
+  const callbackTtlMs = integer(environment, 'TELEGRAM_CALLBACK_TTL_MS', 600_000, 60_000, 3_600_000, issues);
+  const deliveryRetentionDays = integer(environment, 'TELEGRAM_STATE_RETENTION_DAYS', 45, 7, 180, issues);
   const matchingRateMinimum = ratio(environment, 'TELEGRAM_ALERT_MATCHING_RATE_MINIMUM', 0.02, issues);
   const matchingRateRecoveryMinimum = ratio(environment, 'TELEGRAM_ALERT_MATCHING_RATE_RECOVERY_MINIMUM', 0.05, issues);
   if (matchingRateRecoveryMinimum <= matchingRateMinimum) issues.push('Telegram matching recovery threshold must exceed its alert threshold');
   const diskWarningRatio = ratio(environment, 'TELEGRAM_ALERT_DISK_WARNING_RATIO', 0.15, issues);
   const diskCriticalRatio = ratio(environment, 'TELEGRAM_ALERT_DISK_CRITICAL_RATIO', 0.08, issues);
   if (diskCriticalRatio >= diskWarningRatio) issues.push('Critical disk free ratio must be lower than warning ratio');
+  const thresholds = {
+    durableIngestionStaleMs: integer(environment, 'TELEGRAM_ALERT_INGEST_STALE_MS', 120_000, 30_000, 3_600_000, issues),
+    matchingRateMinimum,
+    matchingRateRecoveryMinimum,
+    matchingConsecutive: integer(environment, 'TELEGRAM_ALERT_MATCHING_CONSECUTIVE', 3, 1, 20, issues),
+    malformedRateMaximum: ratio(environment, 'TELEGRAM_ALERT_MALFORMED_RATE_MAXIMUM', 0.25, issues),
+    malformedConsecutive: integer(environment, 'TELEGRAM_ALERT_MALFORMED_CONSECUTIVE', 3, 1, 20, issues),
+    spoolBacklogMs: integer(environment, 'TELEGRAM_ALERT_SPOOL_BACKLOG_MS', 300_000, 60_000, 3_600_000, issues),
+    postgresConsecutive: integer(environment, 'TELEGRAM_ALERT_POSTGRES_CONSECUTIVE', 3, 1, 20, issues),
+    cpuRatio: ratio(environment, 'TELEGRAM_ALERT_CPU_RATIO', 0.90, issues),
+    cpuDurationMs: integer(environment, 'TELEGRAM_ALERT_CPU_DURATION_MS', 900_000, 60_000, 3_600_000, issues),
+    memoryRatio: ratio(environment, 'TELEGRAM_ALERT_MEMORY_RATIO', 0.85, issues),
+    memoryDurationMs: integer(environment, 'TELEGRAM_ALERT_MEMORY_DURATION_MS', 600_000, 60_000, 3_600_000, issues),
+    diskWarningRatio,
+    diskCriticalRatio,
+    staticAgeDays: integer(environment, 'TELEGRAM_ALERT_STATIC_AGE_DAYS', 8, 1, 30, issues),
+  };
   const procPath = environment.TELEGRAM_HOST_PROC_PATH?.trim() || undefined;
   const rootPath = environment.TELEGRAM_HOST_ROOT_PATH?.trim() || undefined;
   const hostEnabled = bool(environment, 'TELEGRAM_HOST_METRICS_ENABLED', false, issues);
@@ -163,32 +174,18 @@ export function loadTelegramOperationsConfig(environment: Environment = process.
     ...(botToken === undefined ? {} : { botToken }),
     ...(allowedUserId === undefined ? {} : { allowedUserId }),
     ...(privateChatId === undefined ? {} : { privateChatId }),
-    apiBaseUrl: apiUrl(environment, app.nodeEnvironment, issues),
+    apiBaseUrl,
     database: { ...app.database, applicationName: 'atodotren-telegram', statementTimeoutMs: Math.min(app.database.statementTimeoutMs, 5_000) },
     logLevel: app.logLevel,
     shutdownTimeoutMs: app.shutdownTimeoutMs,
-    pollTimeoutSeconds: integer(environment, 'TELEGRAM_POLL_TIMEOUT_SECONDS', 25, 1, 50, issues),
+    pollTimeoutSeconds,
     reportVersion,
-    digestReadyMinute, digestTargetMinute, digestBlockedMinute,
-    callbackTtlMs: integer(environment, 'TELEGRAM_CALLBACK_TTL_MS', 600_000, 60_000, 3_600_000, issues),
-    deliveryRetentionDays: integer(environment, 'TELEGRAM_STATE_RETENTION_DAYS', 45, 7, 180, issues),
-    thresholds: {
-      durableIngestionStaleMs: integer(environment, 'TELEGRAM_ALERT_INGEST_STALE_MS', 120_000, 30_000, 3_600_000, issues),
-      matchingRateMinimum,
-      matchingRateRecoveryMinimum,
-      matchingConsecutive: integer(environment, 'TELEGRAM_ALERT_MATCHING_CONSECUTIVE', 3, 1, 20, issues),
-      malformedRateMaximum: ratio(environment, 'TELEGRAM_ALERT_MALFORMED_RATE_MAXIMUM', 0.25, issues),
-      malformedConsecutive: integer(environment, 'TELEGRAM_ALERT_MALFORMED_CONSECUTIVE', 3, 1, 20, issues),
-      spoolBacklogMs: integer(environment, 'TELEGRAM_ALERT_SPOOL_BACKLOG_MS', 300_000, 60_000, 3_600_000, issues),
-      postgresConsecutive: integer(environment, 'TELEGRAM_ALERT_POSTGRES_CONSECUTIVE', 3, 1, 20, issues),
-      cpuRatio: ratio(environment, 'TELEGRAM_ALERT_CPU_RATIO', 0.90, issues),
-      cpuDurationMs: integer(environment, 'TELEGRAM_ALERT_CPU_DURATION_MS', 900_000, 60_000, 3_600_000, issues),
-      memoryRatio: ratio(environment, 'TELEGRAM_ALERT_MEMORY_RATIO', 0.85, issues),
-      memoryDurationMs: integer(environment, 'TELEGRAM_ALERT_MEMORY_DURATION_MS', 600_000, 60_000, 3_600_000, issues),
-      diskWarningRatio,
-      diskCriticalRatio,
-      staticAgeDays: integer(environment, 'TELEGRAM_ALERT_STATIC_AGE_DAYS', 8, 1, 30, issues),
-    },
+    digestReadyMinute,
+    digestTargetMinute,
+    digestBlockedMinute,
+    callbackTtlMs,
+    deliveryRetentionDays,
+    thresholds,
     hostMetrics: {
       enabled: hostEnabled,
       ...(procPath === undefined ? {} : { procPath }),
