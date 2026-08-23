@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { migrateToLatest } from '@atodotren/db';
@@ -34,6 +36,19 @@ const connectionOptions = {
   statementTimeoutMs: 5_000,
 };
 
+async function copyMilestone4Migrations(directory: string): Promise<void> {
+  await Promise.all([
+    '0001_repository_foundation.sql',
+    '0002_static_madrid_foundation.sql',
+    '0003_static_mapping_integrity.sql',
+    '0004_realtime_ingestion.sql',
+    '0005_canonical_journeys.sql',
+    '0006_aggregation_retention.sql',
+    '0007_m4_correctness_gates.sql',
+    '0008_timetable_metric_identity.sql',
+  ].map(async (name) => cp(resolve(process.cwd(), 'migrations', name), join(directory, name))));
+}
+
 function runRoleBootstrap(database: string, telegramPassword: string): void {
   const container = requiredEnvironment('POSTGRES_CONTRACT_CONTAINER_NAME');
   const result = spawnSync('docker', [
@@ -54,11 +69,12 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
   const upgradeAdminUrl = withDatabase(adminBaseUrl, upgradeName);
   const upgradeMigratorUrl = withDatabase(migratorBaseUrl, upgradeName);
   const upgradeTelegramUrl = withDatabase(telegramBaseUrl, upgradeName);
+  const originalTelegramPassword = requiredEnvironment('POSTGRES_CONTRACT_TELEGRAM_PASSWORD');
+  const milestone4Migrations = await mkdtemp(join(tmpdir(), 'atodotren-m5-m4-'));
+  await copyMilestone4Migrations(milestone4Migrations);
   const admin = new Client({ connectionString: adminBaseUrl });
   await admin.connect();
   try {
-    await admin.query('DROP ROLE IF EXISTS atodotren_telegram');
-    await admin.query('DROP ROLE IF EXISTS atodotren_reporting_reader');
     await admin.query(`CREATE DATABASE ${upgradeName}`);
     const bootstrap = new Client({ connectionString: upgradeAdminUrl });
     await bootstrap.connect();
@@ -69,10 +85,10 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
       await bootstrap.end();
     }
 
-    await assert.rejects(migrateToLatest({
-      connection: { ...connectionOptions, url: upgradeMigratorUrl, applicationName: 'atodotren-m5-pre-bootstrap' },
-      migrationsDirectory: resolve(process.cwd(), 'migrations'),
-    }), /atodotren_reporting_reader is missing/u);
+    await migrateToLatest({
+      connection: { ...connectionOptions, url: upgradeMigratorUrl, applicationName: 'atodotren-m4-retained-volume' },
+      migrationsDirectory: milestone4Migrations,
+    });
 
     const beforeUpgrade = new Client({ connectionString: upgradeAdminUrl });
     await beforeUpgrade.connect();
@@ -85,8 +101,26 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
       await beforeUpgrade.end();
     }
 
-    const originalTelegramPassword = requiredEnvironment('POSTGRES_CONTRACT_TELEGRAM_PASSWORD');
-    runRoleBootstrap(upgradeName, originalTelegramPassword);
+    await admin.query('DROP ROLE atodotren_telegram');
+    await admin.query('DROP ROLE atodotren_reporting_reader');
+    try {
+      await assert.rejects(migrateToLatest({
+        connection: { ...connectionOptions, url: upgradeMigratorUrl, applicationName: 'atodotren-m5-pre-bootstrap' },
+        migrationsDirectory: resolve(process.cwd(), 'migrations'),
+      }), /atodotren_reporting_reader is missing/u);
+
+      const blockedLedger = new Client({ connectionString: upgradeAdminUrl });
+      await blockedLedger.connect();
+      try {
+        const ledger = await blockedLedger.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
+        assert.equal(ledger.rows.at(-1)?.name, '0008_timetable_metric_identity.sql');
+      } finally {
+        await blockedLedger.end();
+      }
+    } finally {
+      runRoleBootstrap(upgradeName, originalTelegramPassword);
+    }
+
     runRoleBootstrap(upgradeName, 'ci-password-that-must-not-rotate-an-existing-login');
 
     await migrateToLatest({
@@ -120,12 +154,16 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
 
     const telegram = new Client({ connectionString: upgradeTelegramUrl });
     await telegram.connect();
-    await telegram.query('SELECT * FROM operations.report_database_size LIMIT 1');
-    await telegram.end();
+    try {
+      await telegram.query('SELECT * FROM operations.report_database_size LIMIT 1');
+    } finally {
+      await telegram.end();
+    }
   } finally {
     await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1', [upgradeName]);
     await admin.query(`DROP DATABASE IF EXISTS ${upgradeName}`);
     await admin.end();
+    await rm(milestone4Migrations, { recursive: true, force: true });
   }
 });
 
