@@ -16,6 +16,20 @@ export function madridMinuteOfDay(now: Date): number {
   return read('hour') * 60 + read('minute');
 }
 
+export function finalizationReadyByCutoff(
+  finalizedAt: string | null,
+  currentServiceDate: string,
+  blockedMinute: number,
+): boolean {
+  if (finalizedAt === null) return false;
+  const finalized = new Date(finalizedAt);
+  if (Number.isNaN(finalized.getTime())) return false;
+  const finalizedServiceDate = currentMadridServiceDate(finalized);
+  if (finalizedServiceDate < currentServiceDate) return true;
+  if (finalizedServiceDate > currentServiceDate) return false;
+  return madridMinuteOfDay(finalized) < blockedMinute;
+}
+
 export function decideDigest(options: {
   readonly now: Date;
   readonly finalized: boolean;
@@ -39,13 +53,19 @@ export async function runDigestCheck(options: {
   readonly telegram: TelegramBotApi;
   readonly signal?: AbortSignal;
 }): Promise<DigestDecision> {
-  if (madridMinuteOfDay(options.now) < options.config.digestReadyMinute) return 'before-readiness';
+  const currentMinute = madridMinuteOfDay(options.now);
+  if (currentMinute < options.config.digestReadyMinute) return 'before-readiness';
   const currentServiceDate = currentMadridServiceDate(options.now);
   const previousServiceDate = shiftIsoDate(currentServiceDate, -1);
   const daily = await options.reporting.daily(previousServiceDate);
+  const verified = daily.finalization.status === 'verified';
+  const finalizedForDecision = verified && (
+    currentMinute < options.config.digestBlockedMinute
+    || finalizationReadyByCutoff(daily.finalization.finalizedAt, currentServiceDate, options.config.digestBlockedMinute)
+  );
   const decision = decideDigest({
     now: options.now,
-    finalized: daily.finalization.status === 'verified',
+    finalized: finalizedForDecision,
     readyMinute: options.config.digestReadyMinute,
     targetMinute: options.config.digestTargetMinute,
     blockedMinute: options.config.digestBlockedMinute,
@@ -81,7 +101,6 @@ function shortCurrentStatus(
   if (ingestion === null) return `ingestion unavailable; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
   return `last durable ${displayScalar(ingestion.last_durable_cycle_at)}; spool ${displayScalar(ingestion.spool_pending_count)} pending; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
 }
-
 
 function displayScalar(value: unknown): string {
   if (value === null || value === undefined) return 'n/a';

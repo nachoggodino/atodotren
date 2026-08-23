@@ -13,7 +13,7 @@ import { ReportingService } from '@atodotren/worker/reporting-service';
 import { parseTelegramCommand } from '@atodotren/worker/telegram-commands';
 import { loadTelegramOperationsConfig } from '@atodotren/worker/telegram-config';
 import { isAuthorizedUpdate, runTelegramOperations } from '@atodotren/worker/telegram-operations';
-import { decideDigest, madridMinuteOfDay } from '@atodotren/worker/telegram-scheduler';
+import { decideDigest, finalizationReadyByCutoff, madridMinuteOfDay } from '@atodotren/worker/telegram-scheduler';
 import {
   TelegramBotApi,
   TelegramWebhookConflictError,
@@ -97,6 +97,9 @@ void test('digest scheduling follows 04:00, 05:00 and 06:30 Madrid time across D
   assert.equal(decideDigest({ now: spring0530, finalized: true, readyMinute: 240, targetMinute: 300, blockedMinute: 390 }), 'normal');
   assert.equal(decideDigest({ now: spring0530, finalized: false, readyMinute: 240, targetMinute: 300, blockedMinute: 390 }), 'waiting-finalization');
   assert.equal(decideDigest({ now: spring0630, finalized: false, readyMinute: 240, targetMinute: 300, blockedMinute: 390 }), 'provisional');
+  assert.equal(finalizationReadyByCutoff('2026-03-29T04:29:59.000Z', '2026-03-29', 390), true);
+  assert.equal(finalizationReadyByCutoff('2026-03-29T04:30:00.000Z', '2026-03-29', 390), false);
+  assert.equal(finalizationReadyByCutoff('2026-03-29T04:45:00.000Z', '2026-03-29', 390), false);
   const autumn0530 = new Date('2026-10-25T04:30:00Z');
   assert.equal(madridMinuteOfDay(autumn0530), 330);
 });
