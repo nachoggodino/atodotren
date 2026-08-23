@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import type { DatabaseConnection } from '@atodotren/db';
+
+import { executeMilestone5Cli } from '../../apps/worker/src/m5-cli.js';
+import { ReportingService } from '../../apps/worker/src/reporting-service.js';
+import type { ResourceCollector, ResourceSample } from '../../apps/worker/src/resources.js';
+import { loadTelegramOperationsConfig } from '../../apps/worker/src/telegram-config.js';
+import { TelegramOperationalMonitor } from '../../apps/worker/src/telegram-monitor.js';
+import type { TelegramStateStore } from '../../apps/worker/src/telegram-state.js';
+import type { TelegramBotApi } from '../../apps/worker/src/telegram-transport.js';
+
+const now = new Date('2026-08-23T12:00:00.000Z');
+
+function telegramEnvironment(): Readonly<Record<string, string>> {
+  return {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://atodotren_telegram:fake@postgres/atodotren',
+    DATABASE_SSL_MODE: 'disable',
+    TELEGRAM_OPERATIONS_ENABLED: 'true',
+    TELEGRAM_BOT_TOKEN: 'fake-token',
+    TELEGRAM_ALLOWED_USER_ID: '101',
+    TELEGRAM_PRIVATE_CHAT_ID: '202',
+    TELEGRAM_API_BASE_URL: 'http://fake-telegram:4020',
+  };
+}
+
+test('Telegram-specific validation rejects invalid late-stage values', () => {
+  assert.throws(() => loadTelegramOperationsConfig({
+    ...telegramEnvironment(),
+    TELEGRAM_POLL_TIMEOUT_SECONDS: '99',
+  }), /TELEGRAM_POLL_TIMEOUT_SECONDS/u);
+  assert.throws(() => loadTelegramOperationsConfig({
+    ...telegramEnvironment(),
+    TELEGRAM_DIGEST_READY_TIME: '07:00',
+    TELEGRAM_DIGEST_TARGET_TIME: '05:00',
+  }), /ready < target < blocked/u);
+  assert.throws(() => loadTelegramOperationsConfig({
+    ...telegramEnvironment(),
+    TELEGRAM_ALERT_DISK_WARNING_RATIO: '0.05',
+    TELEGRAM_ALERT_DISK_CRITICAL_RATIO: '0.08',
+  }), /Critical disk free ratio/u);
+});
+
+test('Milestone 5 worker path strips legacy Telegram delivery credentials', async () => {
+  let transportNames: readonly string[] = ['unexpected'];
+  const code = await executeMilestone5Cli(['test-notifications', '--confirm-send'], {
+    environment: {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://worker:fake@postgres/atodotren',
+      DATABASE_SSL_MODE: 'disable',
+      TELEGRAM_BOT_TOKEN: 'legacy-fake-token',
+      TELEGRAM_CHAT_ID: '999',
+    },
+    notificationTest: async (options) => {
+      transportNames = options.transports.map((transport) => transport.name);
+      return [
+        { channel: 'telegram', configured: false, status: 'skipped' },
+        { channel: 'smtp', configured: false, status: 'skipped' },
+        { channel: 'heartbeat', configured: false, status: 'skipped' },
+      ];
+    },
+    stdout: { write: () => true },
+    stderr: { write: () => true },
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(transportNames, []);
+});
+
+test('bot monitor persists critical ingestion/static episodes and delivers once', async () => {
+  const opened = new Map<string, Date>();
+  const pool = {
+    query: async (sql: string, parameters?: readonly unknown[]) => {
+      if (sql.includes('SELECT 1 AS ok')) return { rows: [{ ok: 1 }] };
+      if (sql.includes('report_static_age')) return { rows: [{ active_fetched_at: new Date(now.getTime() - 9 * 86_400_000) }] };
+      if (sql.includes('report_ingest_health')) return { rows: [{ last_durable_cycle_at: new Date(now.getTime() - 180_000) }] };
+      if (sql.includes('INSERT INTO operations.telegram_monitor_episode')) {
+        const key = String(parameters?.[0]);
+        const first = opened.get(key) ?? now;
+        opened.set(key, first);
+        return { rows: [{ monitor_key: key, opened_at: first, last_observed_at: now, consecutive_count: 1, is_open: true, recovered_at: null }] };
+      }
+      if (sql.includes('UPDATE operations.telegram_monitor_episode')) return { rows: [] };
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  } as unknown as DatabaseConnection['pool'];
+  const reporting = new ReportingService(pool, () => now);
+  const unavailable = { available: false, reason: 'fixture unavailable' } as const;
+  const sample: ResourceSample = {
+    generatedAt: now.toISOString(),
+    telegramProcessCpuRatio: unavailable,
+    telegramProcessRssBytes: { available: true, value: 1024 },
+    telegramContainerMemoryRatio: unavailable,
+    workerContainerCpuRatio: unavailable,
+    workerContainerMemoryRatio: unavailable,
+    spoolBytes: { available: true, value: 2048 },
+    spoolFreeRatio: { available: true, value: 0.5 },
+    databaseBytes: { available: true, value: 4096 },
+    databaseBreakdown: {},
+    hostCpuRatio: unavailable,
+    hostMemoryRatio: unavailable,
+    hostDiskFreeRatio: unavailable,
+  };
+  const resources = { collect: async () => sample } as unknown as ResourceCollector;
+  const delivered = new Set<string>();
+  const state = {
+    delivery: async (key: string) => delivered.has(key) ? { delivered: true, attempts: 1 } : undefined,
+    beginDelivery: async (options: { readonly key: string }) => ({ delivered: delivered.has(options.key), attempts: 1 }),
+    markDelivered: async (key: string) => { delivered.add(key); },
+    markFailed: async () => undefined,
+  } as unknown as TelegramStateStore;
+  const messages: string[] = [];
+  const telegram = {
+    sendMessage: async (_chatId: string, text: string) => {
+      messages.push(text);
+      return { message_id: messages.length };
+    },
+  } as unknown as TelegramBotApi;
+  const config = loadTelegramOperationsConfig(telegramEnvironment());
+  const monitor = new TelegramOperationalMonitor({ reporting, resources, state, telegram, config });
+  await monitor.evaluate(now);
+  await monitor.evaluate(new Date(now.getTime() + 60_000));
+  assert.equal(messages.filter((message) => message.includes('ingest.durable_stale')).length, 1);
+  assert.equal(messages.filter((message) => message.includes('static.stale')).length, 1);
+});
