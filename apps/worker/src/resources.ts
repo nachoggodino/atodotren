@@ -100,6 +100,50 @@ function unavailable<T>(reason: string): Measurement<T> {
   return { available: false, reason };
 }
 
+export function measurementValue(measurement: Measurement<number>): number | null {
+  return measurement.available && measurement.value !== undefined && Number.isFinite(measurement.value)
+    ? measurement.value
+    : null;
+}
+
+export function preferredMeasurement(primary: Measurement<number>, fallback: Measurement<number>): Measurement<number> {
+  return measurementValue(primary) === null ? fallback : primary;
+}
+
+export function formatRatio(measurement: Measurement<number>): string {
+  const value = measurementValue(measurement);
+  return value === null ? `unavailable${measurement.reason === undefined ? '' : ` (${measurement.reason})`}` : `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatBytes(measurement: Measurement<number>): string {
+  const value = measurementValue(measurement);
+  if (value === null) return `unavailable${measurement.reason === undefined ? '' : ` (${measurement.reason})`}`;
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${Math.round(value)} B`;
+}
+
+export function compactResourceSection(
+  sample: ResourceSample,
+  ingestion: Readonly<Record<string, unknown>> | null,
+  openIncidents: number,
+  openMonitors: number,
+): string {
+  const cpu = preferredMeasurement(sample.hostCpuRatio, sample.telegramProcessCpuRatio);
+  const memoryRatio = preferredMeasurement(sample.hostMemoryRatio, sample.telegramContainerMemoryRatio);
+  const memory = measurementValue(memoryRatio) === null
+    ? `RSS ${formatBytes(sample.telegramProcessRssBytes)}`
+    : formatRatio(memoryRatio);
+  const disk = preferredMeasurement(sample.hostDiskFreeRatio, sample.spoolFreeRatio);
+  const pending = scalar(ingestion?.spool_pending_count);
+  return [
+    `Resources: CPU ${formatRatio(cpu)} · memory ${memory} · disk free ${formatRatio(disk)}`,
+    `Storage: database ${formatBytes(sample.databaseBytes)} · spool ${formatBytes(sample.spoolBytes)} · pending ${pending}`,
+    `Open incidents: ingestion ${openIncidents} · bot monitors ${openMonitors}`,
+  ].join('\n');
+}
+
 async function readContainerMemory(): Promise<Measurement<number>> {
   try {
     const [currentRaw, maxRaw] = await Promise.all([
@@ -203,7 +247,7 @@ async function readHost(
     const filesystem = await statfs(config.rootPath);
     const total = Number(filesystem.blocks) * Number(filesystem.bsize);
     const free = Number(filesystem.bavail) * Number(filesystem.bsize);
-    disk = total > 0 ? available(free / total) : unavailable('host disk capacity is invalid');
+    disk = total > 0 ? available(free / total) : unavailable('host root filesystem read failed');
   } catch {
     disk = unavailable('host root filesystem read failed');
   }
@@ -211,18 +255,22 @@ async function readHost(
 }
 
 export function formatResources(sample: ResourceSample, trend: readonly ResourceSample[]): string {
-  const ratio = (measurement: Measurement<number>): string => measurement.available ? `${((measurement.value ?? 0) * 100).toFixed(1)}%` : `unavailable (${measurement.reason})`;
-  const bytes = (measurement: Measurement<number>): string => measurement.available ? `${measurement.value ?? 0} B` : `unavailable (${measurement.reason})`;
   const first = trend[0];
-  const dbDelta = first?.databaseBytes.available === true && sample.databaseBytes.available === true
-    ? (sample.databaseBytes.value ?? 0) - (first.databaseBytes.value ?? 0)
-    : null;
+  const firstDatabase = first === undefined ? null : measurementValue(first.databaseBytes);
+  const currentDatabase = measurementValue(sample.databaseBytes);
+  const dbDelta = firstDatabase === null || currentDatabase === null ? null : currentDatabase - firstDatabase;
   return [
     `Resources ${sample.generatedAt}`,
-    `telegram CPU ${ratio(sample.telegramProcessCpuRatio)} · RSS ${bytes(sample.telegramProcessRssBytes)} · container memory ${ratio(sample.telegramContainerMemoryRatio)}`,
-    `worker CPU ${ratio(sample.workerContainerCpuRatio)} · memory ${ratio(sample.workerContainerMemoryRatio)}`,
-    `spool ${bytes(sample.spoolBytes)} · disk free ${ratio(sample.spoolFreeRatio)}`,
-    `database ${bytes(sample.databaseBytes)}${dbDelta === null ? '' : ` · short trend ${dbDelta >= 0 ? '+' : ''}${dbDelta} B`}`,
-    `host CPU ${ratio(sample.hostCpuRatio)} · memory ${ratio(sample.hostMemoryRatio)} · disk free ${ratio(sample.hostDiskFreeRatio)}`,
+    `telegram CPU ${formatRatio(sample.telegramProcessCpuRatio)} · RSS ${formatBytes(sample.telegramProcessRssBytes)} · container memory ${formatRatio(sample.telegramContainerMemoryRatio)}`,
+    `worker CPU ${formatRatio(sample.workerContainerCpuRatio)} · memory ${formatRatio(sample.workerContainerMemoryRatio)}`,
+    `spool ${formatBytes(sample.spoolBytes)} · disk free ${formatRatio(sample.spoolFreeRatio)}`,
+    `database ${formatBytes(sample.databaseBytes)}${dbDelta === null ? '' : ` · short trend ${dbDelta >= 0 ? '+' : ''}${dbDelta} B`}`,
+    `host CPU ${formatRatio(sample.hostCpuRatio)} · memory ${formatRatio(sample.hostMemoryRatio)} · disk free ${formatRatio(sample.hostDiskFreeRatio)}`,
   ].join('\n');
+}
+
+function scalar(value: unknown): string {
+  if (value === null || value === undefined) return 'unavailable';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return String(value);
+  return 'unavailable';
 }

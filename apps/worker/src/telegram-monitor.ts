@@ -49,7 +49,8 @@ export class TelegramOperationalMonitor {
           );
           this.#postgresAlertSent = true;
         } catch {
-          // Durable delivery markers cannot be written while PostgreSQL itself is unavailable.
+          // PostgreSQL-outage delivery is necessarily process-local because its
+          // durable marker cannot be written while PostgreSQL is unavailable.
         }
       }
       return;
@@ -77,9 +78,10 @@ export class TelegramOperationalMonitor {
       this.#staticAgeDays(now),
       this.#durableIngestionAgeMs(now),
     ]);
+    await this.#state.recordResourceSample(sample, now);
     await Promise.all([
       this.#observeValue({
-        key: 'ingest.durable_stale',
+        key: 'ingest.stale',
         value: durableAge,
         active: durableAge === null ? null : durableAge > this.#config.thresholds.durableIngestionStaleMs,
         critical: true,

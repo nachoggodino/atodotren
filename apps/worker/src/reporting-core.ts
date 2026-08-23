@@ -145,7 +145,9 @@ export interface PilotReport extends ReportBase {
   readonly matchedMadrid: number;
   readonly responseBytes: number;
   readonly databaseBytes: number | null;
-  readonly projectedDatabaseBytes14Days: number | null;
+  readonly measuredDatabaseGrowthBytes: number | null;
+  readonly measuredGrowthHours: number | null;
+  readonly projectedVariableGrowth14DaysBytes: number | null;
 }
 
 export type ReportResult = DailyReport | LineReport | StationReport | StatusReport | IncidentsReport | TrainsReport | TrainReport | PilotReport;

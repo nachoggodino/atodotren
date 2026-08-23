@@ -13,6 +13,20 @@ export interface PrimaryPostgresState {
   readonly hostPorts: readonly number[];
 }
 
+export interface TelegramRoleContractState {
+  readonly currentUser: string;
+  readonly loginExists: boolean;
+  readonly loginUnsafe: boolean;
+  readonly reportingRoleExists: boolean;
+  readonly reportingRoleUnsafe: boolean;
+  readonly directMemberships: readonly {
+    readonly role: string;
+    readonly admin: boolean;
+    readonly inherit: boolean;
+    readonly set: boolean;
+  }[];
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 const requiredLocalKeys = [
@@ -20,17 +34,21 @@ const requiredLocalKeys = [
   'POSTGRES_USER',
   'POSTGRES_PASSWORD',
   'ATODOTREN_WORKER_PASSWORD',
+  'ATODOTREN_TELEGRAM_PASSWORD',
   'POSTGRES_PORT',
   'DATABASE_URL',
   'MIGRATION_DATABASE_URL',
+  'REPORT_DATABASE_URL',
   'TEST_ADMIN_DATABASE_URL',
   'TEST_MIGRATOR_DATABASE_URL',
   'TEST_WORKER_DATABASE_URL',
+  'TEST_TELEGRAM_DATABASE_URL',
 ] as const;
 
 const localUrlRequirements = {
   DATABASE_URL: { username: 'atodotren_worker', passwordKey: 'ATODOTREN_WORKER_PASSWORD' },
   MIGRATION_DATABASE_URL: { username: 'atodotren_migrator', passwordKey: 'POSTGRES_PASSWORD' },
+  REPORT_DATABASE_URL: { username: 'atodotren_telegram', passwordKey: 'ATODOTREN_TELEGRAM_PASSWORD' },
   TEST_ADMIN_DATABASE_URL: { usernameKey: 'POSTGRES_USER', passwordKey: 'POSTGRES_PASSWORD' },
   TEST_MIGRATOR_DATABASE_URL: {
     username: 'atodotren_migrator',
@@ -39,6 +57,10 @@ const localUrlRequirements = {
   TEST_WORKER_DATABASE_URL: {
     username: 'atodotren_worker',
     passwordKey: 'ATODOTREN_WORKER_PASSWORD',
+  },
+  TEST_TELEGRAM_DATABASE_URL: {
+    username: 'atodotren_telegram',
+    passwordKey: 'ATODOTREN_TELEGRAM_PASSWORD',
   },
 } as const;
 
@@ -57,25 +79,17 @@ export function parseEnvironmentFile(contents: string): Readonly<Record<string, 
   const environment: Record<string, string> = {};
   for (const rawLine of contents.split(/\r?\n/u)) {
     const line = rawLine.trim();
-    if (line === '' || line.startsWith('#')) {
-      continue;
-    }
+    if (line === '' || line.startsWith('#')) continue;
     const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(line);
-    if (match === null) {
-      continue;
-    }
+    if (match === null) continue;
     const key = match[1];
     let value = match[2]?.trim() ?? '';
     if (
       value.length >= 2 &&
       ((value.startsWith('"') && value.endsWith('"')) ||
         (value.startsWith("'") && value.endsWith("'")))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key !== undefined) {
-      environment[key] = value;
-    }
+    ) value = value.slice(1, -1);
+    if (key !== undefined) environment[key] = value;
   }
   return environment;
 }
@@ -86,22 +100,18 @@ export function inspectLocalEnvironment(environment: Environment): readonly Pref
   checks.push({
     name: 'environment.required',
     status: missing.length === 0 ? 'pass' : 'fail',
-    message:
-      missing.length === 0
-        ? 'All required local variables are set'
-        : `Missing required variables: ${missing.join(', ')}`,
+    message: missing.length === 0
+      ? 'All required local variables are set'
+      : `Missing required variables: ${missing.join(', ')}`,
   });
 
-  const placeholders = requiredLocalKeys.filter((key) =>
-    placeholderPattern.test(environment[key] ?? ''),
-  );
+  const placeholders = requiredLocalKeys.filter((key) => placeholderPattern.test(environment[key] ?? ''));
   checks.push({
     name: 'environment.placeholders',
     status: placeholders.length === 0 ? 'pass' : 'fail',
-    message:
-      placeholders.length === 0
-        ? 'No unresolved placeholder values were found'
-        : `Unresolved placeholders remain in: ${placeholders.join(', ')}`,
+    message: placeholders.length === 0
+      ? 'No unresolved placeholder values were found'
+      : `Unresolved placeholders remain in: ${placeholders.join(', ')}`,
   });
 
   const expectedPort = environment.POSTGRES_PORT ?? '';
@@ -112,18 +122,12 @@ export function inspectLocalEnvironment(environment: Environment): readonly Pref
   const invalidShapes: string[] = [];
   const incoherentPasswords: string[] = [];
 
-  if (expectedDatabase !== 'atodotren') {
-    invalidShapes.push('POSTGRES_DB');
-  }
-  if (environment.POSTGRES_USER !== 'postgres') {
-    invalidShapes.push('POSTGRES_USER');
-  }
+  if (expectedDatabase !== 'atodotren') invalidShapes.push('POSTGRES_DB');
+  if (environment.POSTGRES_USER !== 'postgres') invalidShapes.push('POSTGRES_USER');
 
   for (const [key, requirement] of Object.entries(localUrlRequirements)) {
     const raw = environment[key];
-    if (raw === undefined || raw.trim() === '') {
-      continue;
-    }
+    if (raw === undefined || raw.trim() === '') continue;
     let url: URL;
     try {
       url = new URL(raw);
@@ -136,61 +140,71 @@ export function inspectLocalEnvironment(environment: Environment): readonly Pref
     const password = decodeUrlPart(url.password);
     if (
       !['postgres:', 'postgresql:'].includes(url.protocol) ||
-      username === undefined ||
-      username === '' ||
-      password === undefined ||
-      password === '' ||
-      database === undefined ||
-      database === ''
+      username === undefined || username === '' ||
+      password === undefined || password === '' ||
+      database === undefined || database === ''
     ) {
       invalidUrls.push(key);
       continue;
     }
-    const expectedUsername =
-      'username' in requirement
-        ? requirement.username
-        : environment[requirement.usernameKey] ?? '';
+    const expectedUsername = 'username' in requirement
+      ? requirement.username
+      : environment[requirement.usernameKey] ?? '';
     if (
       username !== expectedUsername ||
       !localHosts.has(url.hostname) ||
       url.port !== expectedPort ||
       database !== expectedDatabase
-    ) {
-      invalidShapes.push(key);
-    }
-    if (password !== (environment[requirement.passwordKey] ?? '')) {
-      incoherentPasswords.push(key);
-    }
+    ) invalidShapes.push(key);
+    if (password !== (environment[requirement.passwordKey] ?? '')) incoherentPasswords.push(key);
   }
 
   checks.push({
     name: 'database.urls',
     status: invalidUrls.length === 0 && validPort ? 'pass' : 'fail',
-    message:
-      invalidUrls.length === 0 && validPort
-        ? 'All local PostgreSQL URLs and the host port are valid'
-        : `Invalid local PostgreSQL URL/port fields: ${[
-            ...invalidUrls,
-            ...(validPort ? [] : ['POSTGRES_PORT']),
-          ].join(', ')}`,
+    message: invalidUrls.length === 0 && validPort
+      ? 'All local PostgreSQL URLs and the host port are valid'
+      : `Invalid local PostgreSQL URL/port fields: ${[
+          ...invalidUrls,
+          ...(validPort ? [] : ['POSTGRES_PORT']),
+        ].join(', ')}`,
   });
   checks.push({
     name: 'database.local-shape',
     status: invalidShapes.length === 0 ? 'pass' : 'fail',
-    message:
-      invalidShapes.length === 0
-        ? 'Local URL usernames, database, hosts, and ports match the local contract'
-        : `Local URL shape is inconsistent for: ${invalidShapes.join(', ')}`,
+    message: invalidShapes.length === 0
+      ? 'Local URL usernames, database, hosts, and ports match the local contract'
+      : `Local URL shape is inconsistent for: ${invalidShapes.join(', ')}`,
   });
   checks.push({
     name: 'database.password-coherence',
     status: incoherentPasswords.length === 0 ? 'pass' : 'fail',
-    message:
-      incoherentPasswords.length === 0
-        ? 'Local URL passwords match their component variables'
-        : `URL/component password mismatch for: ${incoherentPasswords.join(', ')}`,
+    message: incoherentPasswords.length === 0
+      ? 'Local URL passwords match their component variables'
+      : `URL/component password mismatch for: ${incoherentPasswords.join(', ')}`,
   });
   return checks;
+}
+
+export function evaluateTelegramRoleContract(state: TelegramRoleContractState): PreflightCheck {
+  const exactMembership = state.directMemberships.length === 1
+    && state.directMemberships[0]?.role === 'atodotren_reporting_reader'
+    && state.directMemberships[0]?.admin === false
+    && state.directMemberships[0]?.inherit === true
+    && state.directMemberships[0]?.set === false;
+  const valid = state.currentUser === 'atodotren_telegram'
+    && state.loginExists
+    && !state.loginUnsafe
+    && state.reportingRoleExists
+    && !state.reportingRoleUnsafe
+    && exactMembership;
+  return {
+    name: 'database.telegram-role-contract',
+    status: valid ? 'pass' : 'fail',
+    message: valid
+      ? 'Telegram reporting login and its sole direct reporting-reader membership are exact'
+      : 'Telegram reporting login, role attributes, or direct memberships do not match the least-privilege contract',
+  };
 }
 
 export function preflightExitCode(checks: readonly PreflightCheck[]): 0 | 1 {
@@ -234,25 +248,22 @@ export function evaluatePrimaryPostgres(
         ? `Primary local PostgreSQL container is unhealthy (${state.health})`
         : 'Primary local PostgreSQL container is stopped; live health checks are deferred',
   };
-  const bindingMatches =
-    state.hostPorts.length > 0 && state.hostPorts.every((port) => port === expectedPort);
+  const bindingMatches = state.hostPorts.length > 0 && state.hostPorts.every((port) => port === expectedPort);
   const bindingCheck: PreflightCheck = {
     name: 'postgres.port-binding',
     status: bindingMatches ? 'pass' : 'fail',
-    message:
-      state.hostPorts.length === 0
-        ? 'Primary PostgreSQL container has no published 5432/tcp host binding'
-        : bindingMatches
-          ? 'Primary PostgreSQL 5432/tcp binding matches POSTGRES_PORT'
-          : 'Primary PostgreSQL 5432/tcp binding does not match POSTGRES_PORT',
+    message: state.hostPorts.length === 0
+      ? 'Primary PostgreSQL container has no published 5432/tcp host binding'
+      : bindingMatches
+        ? 'Primary PostgreSQL 5432/tcp binding matches POSTGRES_PORT'
+        : 'Primary PostgreSQL 5432/tcp binding does not match POSTGRES_PORT',
   };
   const hostPortCheck: PreflightCheck = {
     name: 'postgres.host-port',
     status: healthy && bindingMatches && configuredPortAcceptsConnections ? 'pass' : 'fail',
-    message:
-      healthy && bindingMatches && configuredPortAcceptsConnections
-        ? 'Configured PostgreSQL host port belongs to the healthy primary stack'
-        : 'Configured PostgreSQL host port does not reach the healthy primary stack',
+    message: healthy && bindingMatches && configuredPortAcceptsConnections
+      ? 'Configured PostgreSQL host port belongs to the healthy primary stack'
+      : 'Configured PostgreSQL host port does not reach the healthy primary stack',
   };
   return [healthCheck, bindingCheck, hostPortCheck];
 }
@@ -263,22 +274,10 @@ export function evaluateDiskSpace(
   failureBytes = 2 * 1024 ** 3,
 ): PreflightCheck {
   if (availableBytes < failureBytes) {
-    return {
-      name: 'disk.space',
-      status: 'fail',
-      message: 'Available disk space is below the 2 GiB blocking threshold',
-    };
+    return { name: 'disk.space', status: 'fail', message: 'Available disk space is below the 2 GiB blocking threshold' };
   }
   if (availableBytes < warningBytes) {
-    return {
-      name: 'disk.space',
-      status: 'warn',
-      message: 'Available disk space is below the 10 GiB warning threshold',
-    };
+    return { name: 'disk.space', status: 'warn', message: 'Available disk space is below the 10 GiB warning threshold' };
   }
-  return {
-    name: 'disk.space',
-    status: 'pass',
-    message: 'Available disk space meets the 10 GiB warning threshold',
-  };
+  return { name: 'disk.space', status: 'pass', message: 'Available disk space meets the 10 GiB warning threshold' };
 }

@@ -1,6 +1,7 @@
 import { currentMadridServiceDate, REPORT_TIMEZONE, shiftIsoDate } from './reporting-core.js';
 import { formatReportText, statusReport } from './reporting-operations.js';
 import type { ReportingService } from './reporting-service.js';
+import { compactResourceSection, type ResourceCollector } from './resources.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
 import type { TelegramStateStore } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
@@ -49,6 +50,7 @@ export async function runDigestCheck(options: {
   readonly now: Date;
   readonly config: TelegramOperationsConfig;
   readonly reporting: ReportingService;
+  readonly resources: ResourceCollector;
   readonly state: TelegramStateStore;
   readonly telegram: TelegramBotApi;
   readonly signal?: AbortSignal;
@@ -80,9 +82,19 @@ export async function runDigestCheck(options: {
     serviceDate: previousServiceDate,
   });
   if (reserved.delivered) return decision;
-  const currentStatus = await statusReport(options.reporting);
+  const [currentStatus, sample] = await Promise.all([
+    statusReport(options.reporting),
+    options.resources.collect(),
+  ]);
+  await options.state.recordResourceSample(sample, options.now);
   const heading = decision === 'normal' ? 'Daily operations digest' : 'PROVISIONAL / FINALIZATION BLOCKED';
-  const text = `${heading}\n${formatReportText(daily)}\nNew service day ${currentServiceDate}: ${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
+  const resources = compactResourceSection(
+    sample,
+    currentStatus.ingestion,
+    currentStatus.openIncidents,
+    currentStatus.openMonitorEpisodes.length,
+  );
+  const text = `${heading}\n${formatReportText(daily)}\n${resources}\nNew service day ${currentServiceDate}: ${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
   try {
     const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text.slice(0, 4_000), { disableNotification: false }, options.signal);
     await options.state.markDelivered(deliveryKey, sent.message_id);

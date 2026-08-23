@@ -22,6 +22,25 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  role-bootstrap:
+    image: postgres:18.4-bookworm
+    entrypoint: ["/usr/local/bin/atodotren-role-bootstrap"]
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      ATODOTREN_WORKER_PASSWORD: ${ATODOTREN_WORKER_PASSWORD:?ATODOTREN_WORKER_PASSWORD is required}
+      ATODOTREN_TELEGRAM_PASSWORD: ${ATODOTREN_TELEGRAM_PASSWORD:?ATODOTREN_TELEGRAM_PASSWORD is required}
+    volumes:
+      - ./docker/postgres/init/001-runtime-roles.sh:/usr/local/bin/atodotren-role-bootstrap:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   migrate:
     build:
       context: .
@@ -36,9 +55,8 @@ services:
       DATABASE_SSL_MODE: disable
       MIGRATIONS_DIR: /app/migrations
     depends_on:
-      postgres:
-        condition: service_healthy
-        restart: true
+      role-bootstrap:
+        condition: service_completed_successfully
     restart: "no"
 
   static-import:
@@ -139,12 +157,7 @@ services:
       TELEGRAM_REPORT_VERSION: ${TELEGRAM_REPORT_VERSION:-pilot-v1}
       TELEGRAM_STATE_RETENTION_DAYS: ${TELEGRAM_STATE_RETENTION_DAYS:-45}
       TELEGRAM_CALLBACK_TTL_MS: ${TELEGRAM_CALLBACK_TTL_MS:-600000}
-      TELEGRAM_ALERT_INGEST_STALE_MS: ${TELEGRAM_ALERT_INGEST_STALE_MS:-120000}
-      TELEGRAM_ALERT_MATCHING_RATE_MINIMUM: ${TELEGRAM_ALERT_MATCHING_RATE_MINIMUM:-0.02}
-      TELEGRAM_ALERT_MATCHING_RATE_RECOVERY_MINIMUM: ${TELEGRAM_ALERT_MATCHING_RATE_RECOVERY_MINIMUM:-0.05}
-      TELEGRAM_ALERT_MATCHING_CONSECUTIVE: ${TELEGRAM_ALERT_MATCHING_CONSECUTIVE:-3}
-      TELEGRAM_ALERT_MALFORMED_RATE_MAXIMUM: ${TELEGRAM_ALERT_MALFORMED_RATE_MAXIMUM:-0.25}
-      TELEGRAM_ALERT_MALFORMED_CONSECUTIVE: ${TELEGRAM_ALERT_MALFORMED_CONSECUTIVE:-3}
+      INGEST_STALE_AFTER_MS: ${INGEST_STALE_AFTER_MS:-120000}
       TELEGRAM_ALERT_SPOOL_BACKLOG_MS: ${TELEGRAM_ALERT_SPOOL_BACKLOG_MS:-300000}
       TELEGRAM_ALERT_POSTGRES_CONSECUTIVE: ${TELEGRAM_ALERT_POSTGRES_CONSECUTIVE:-3}
       TELEGRAM_ALERT_CPU_RATIO: ${TELEGRAM_ALERT_CPU_RATIO:-0.90}
@@ -165,11 +178,11 @@ services:
       spool-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "node", "-e", "process.kill(1,0)"]
+      test: ["CMD", "node", "apps/worker/dist/telegram-cli.js", "healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3
-      start_period: 5s
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

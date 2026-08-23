@@ -52,6 +52,10 @@ export TEST_ADMIN_DATABASE_URL="postgresql://postgres:${admin_password}@localhos
 export TEST_MIGRATOR_DATABASE_URL="postgresql://atodotren_migrator:${admin_password}@localhost:${host_port}/atodotren"
 export TEST_WORKER_DATABASE_URL="postgresql://atodotren_worker:${worker_password}@localhost:${host_port}/atodotren"
 export TEST_TELEGRAM_DATABASE_URL="postgresql://atodotren_telegram:${telegram_password}@localhost:${host_port}/atodotren"
+export POSTGRES_CONTRACT_CONTAINER_NAME="${container_name}"
+export POSTGRES_CONTRACT_ADMIN_PASSWORD="${admin_password}"
+export POSTGRES_CONTRACT_WORKER_PASSWORD="${worker_password}"
+export POSTGRES_CONTRACT_TELEGRAM_PASSWORD="${telegram_password}"
 
 npm run test:integration
 echo "PostgreSQL contract passed for ${postgres_image}."

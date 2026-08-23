@@ -67,6 +67,7 @@ CREATE INDEX telegram_delivery_expiry_idx ON operations.telegram_delivery (expir
 CREATE TABLE operations.telegram_callback (
   callback_id text PRIMARY KEY CHECK (callback_id ~ '^[A-Za-z0-9_-]{8,48}$'),
   entity_kind text NOT NULL CHECK (entity_kind IN ('line', 'station', 'train')),
+  callback_action text NOT NULL DEFAULT 'report' CHECK (callback_action IN ('report', 'trains')),
   entity_id text NOT NULL CHECK (length(entity_id) BETWEEN 1 AND 100),
   report_date date,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -84,6 +85,17 @@ CREATE TABLE operations.telegram_monitor_episode (
   recovered_at timestamptz,
   CHECK ((is_open AND recovered_at IS NULL) OR NOT is_open)
 );
+
+CREATE TABLE operations.telegram_resource_sample (
+  sampled_at timestamptz PRIMARY KEY,
+  database_bytes bigint CHECK (database_bytes IS NULL OR database_bytes >= 0),
+  spool_bytes bigint CHECK (spool_bytes IS NULL OR spool_bytes >= 0),
+  cpu_ratio double precision CHECK (cpu_ratio IS NULL OR cpu_ratio >= 0),
+  memory_ratio double precision CHECK (memory_ratio IS NULL OR (memory_ratio >= 0 AND memory_ratio <= 1)),
+  disk_free_ratio double precision CHECK (disk_free_ratio IS NULL OR (disk_free_ratio >= 0 AND disk_free_ratio <= 1)),
+  CHECK (database_bytes IS NOT NULL OR spool_bytes IS NOT NULL OR cpu_ratio IS NOT NULL OR memory_ratio IS NOT NULL OR disk_free_ratio IS NOT NULL)
+);
+CREATE INDEX telegram_resource_sample_time_idx ON operations.telegram_resource_sample (sampled_at DESC);
 
 CREATE OR REPLACE FUNCTION operations.report_normalize(value text)
 RETURNS text
@@ -381,6 +393,7 @@ DECLARE
   deleted_deliveries integer;
   deleted_callbacks integer;
   deleted_monitors integer;
+  deleted_resource_samples integer;
 BEGIN
   DELETE FROM operations.telegram_delivery WHERE expires_at < reference_time;
   GET DIAGNOSTICS deleted_deliveries = ROW_COUNT;
@@ -389,10 +402,14 @@ BEGIN
   DELETE FROM operations.telegram_monitor_episode
   WHERE NOT is_open AND recovered_at < reference_time - interval '30 days';
   GET DIAGNOSTICS deleted_monitors = ROW_COUNT;
+  DELETE FROM operations.telegram_resource_sample
+  WHERE sampled_at < reference_time - interval '30 days';
+  GET DIAGNOSTICS deleted_resource_samples = ROW_COUNT;
   RETURN jsonb_build_object(
     'deliveries', deleted_deliveries,
     'callbacks', deleted_callbacks,
-    'monitors', deleted_monitors
+    'monitors', deleted_monitors,
+    'resource_samples', deleted_resource_samples
   );
 END
 $function$;
@@ -401,7 +418,8 @@ REVOKE ALL ON operations.reporting_alias,
   operations.telegram_checkpoint,
   operations.telegram_delivery,
   operations.telegram_callback,
-  operations.telegram_monitor_episode
+  operations.telegram_monitor_episode,
+  operations.telegram_resource_sample
 FROM PUBLIC;
 REVOKE ALL ON operations.report_line_lookup,
   operations.report_station_lookup,
@@ -446,6 +464,7 @@ GRANT SELECT, INSERT, UPDATE ON operations.telegram_checkpoint,
   operations.telegram_callback,
   operations.telegram_monitor_episode
 TO atodotren_reporting_reader;
+GRANT SELECT, INSERT ON operations.telegram_resource_sample TO atodotren_reporting_reader;
 GRANT EXECUTE ON FUNCTION operations.telegram_prune_state(timestamptz)
 TO atodotren_reporting_reader;
 

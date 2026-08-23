@@ -1,6 +1,7 @@
 import {
   MAX_INCIDENTS,
   MAX_TRAINS,
+  currentMadridServiceDate,
   dateText,
   instantText,
   nullableNumber,
@@ -101,26 +102,68 @@ export async function trainReport(reporting: ReportingService, trainId: string):
 
 export async function pilotReport(reporting: ReportingService): Promise<PilotReport> {
   const now = reporting.now();
-  const [coverage, size] = await Promise.all([
+  const [coverage, size, sampleResult] = await Promise.all([
     reporting.pool.query<Record<string, unknown>>(`SELECT min(service_date)::text AS first_date, max(service_date)::text AS last_date,
       count(DISTINCT service_date)::int AS service_days, sum(poll_count)::bigint AS polls,
       sum(successful_poll_count)::bigint AS successful_polls, sum(matched_madrid_count)::bigint AS matched_madrid,
       sum(response_bytes)::bigint AS response_bytes
       FROM operations.report_feed_coverage`),
     reporting.pool.query<Record<string, unknown>>('SELECT * FROM operations.report_database_size LIMIT 1'),
+    reporting.pool.query<Record<string, unknown>>(`SELECT sampled_at, database_bytes
+      FROM operations.telegram_resource_sample
+      WHERE database_bytes IS NOT NULL
+      ORDER BY sampled_at DESC LIMIT 720`),
   ]);
   const row = coverage.rows[0] ?? {};
   const databaseBytes = nullableNumber(size.rows[0]?.database_bytes);
   const serviceDays = numberValue(row.service_days);
+  const growth = measuredGrowth(sampleResult.rows);
   return {
-    ...reportBase(now), kind: 'pilot', source: 'finalized_feed_coverage+database_size', precision: 'bounded aggregate',
+    ...reportBase(now), kind: 'pilot', source: 'finalized_feed_coverage+database_size+resource_samples', precision: 'bounded aggregate and hourly numeric samples',
     startedServiceDate: row.first_date === null || row.first_date === undefined ? null : displayScalar(row.first_date),
     latestServiceDate: row.last_date === null || row.last_date === undefined ? null : displayScalar(row.last_date),
     serviceDays,
     polls: numberValue(row.polls), successfulPolls: numberValue(row.successful_polls), matchedMadrid: numberValue(row.matched_madrid),
     responseBytes: numberValue(row.response_bytes), databaseBytes,
-    projectedDatabaseBytes14Days: databaseBytes !== null && serviceDays > 0 ? Math.round(databaseBytes / serviceDays * 14) : null,
+    measuredDatabaseGrowthBytes: growth.deltaBytes,
+    measuredGrowthHours: growth.hours,
+    projectedVariableGrowth14DaysBytes: growth.projected14DaysBytes,
   };
+}
+
+function measuredGrowth(rows: readonly Readonly<Record<string, unknown>>[]): {
+  readonly deltaBytes: number | null;
+  readonly hours: number | null;
+  readonly projected14DaysBytes: number | null;
+} {
+  const latestRow = rows[0];
+  if (latestRow === undefined) return { deltaBytes: null, hours: null, projected14DaysBytes: null };
+  const latestAt = dateValue(latestRow.sampled_at);
+  const latestBytes = nullableNumber(latestRow.database_bytes);
+  if (latestAt === null || latestBytes === null) return { deltaBytes: null, hours: null, projected14DaysBytes: null };
+  const latestServiceDate = currentMadridServiceDate(latestAt);
+  const baseline = rows.slice(1).find((candidate) => {
+    const sampledAt = dateValue(candidate.sampled_at);
+    const bytes = nullableNumber(candidate.database_bytes);
+    return sampledAt !== null
+      && bytes !== null
+      && latestAt.getTime() - sampledAt.getTime() >= 6 * 3_600_000
+      && currentMadridServiceDate(sampledAt) !== latestServiceDate;
+  });
+  if (baseline === undefined) return { deltaBytes: null, hours: null, projected14DaysBytes: null };
+  const baselineAt = dateValue(baseline.sampled_at);
+  const baselineBytes = nullableNumber(baseline.database_bytes);
+  if (baselineAt === null || baselineBytes === null) return { deltaBytes: null, hours: null, projected14DaysBytes: null };
+  const elapsedMs = latestAt.getTime() - baselineAt.getTime();
+  if (elapsedMs <= 0) return { deltaBytes: null, hours: null, projected14DaysBytes: null };
+  const deltaBytes = latestBytes - baselineBytes;
+  const projected = deltaBytes < 0 ? null : Math.round(deltaBytes / elapsedMs * 14 * 86_400_000);
+  return { deltaBytes, hours: elapsedMs / 3_600_000, projected14DaysBytes: projected };
+}
+
+function dateValue(value: unknown): Date | null {
+  const parsed = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null;
+  return parsed === null || Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function displayScalar(value: unknown): string {
@@ -171,5 +214,11 @@ export function formatReportText(report: ReportResult): string {
     : report.incidents.map((incident) => `${String(incident.incident_key)} · ${incident.is_open === true ? 'ACTIVE' : 'RECOVERED'} · count ${String(incident.occurrence_count)}`).join('\n');
   if (report.kind === 'trains') return `${report.line.code} active trains (${report.trains.length}/${MAX_TRAINS} max)\n${report.trains.map((train) => `${train.trainId} · ${train.station ?? 'station n/a'} · ${train.delaySeconds ?? 'n/a'}s`).join('\n')}`;
   if (report.kind === 'train') return report.journey === null ? `Train ${report.trainId}: no current/recent canonical state.` : `Train ${report.trainId}\n${JSON.stringify(report.journey)}`;
-  return `Pilot: ${report.startedServiceDate ?? 'n/a'} → ${report.latestServiceDate ?? 'n/a'} (${report.serviceDays} service days)\nPolls ${report.polls}, successful ${report.successfulPolls}, matched Madrid ${report.matchedMadrid}, response bytes ${report.responseBytes}\nDB ${report.databaseBytes ?? 'n/a'} bytes; 14-day projection ${report.projectedDatabaseBytes14Days ?? 'n/a'} bytes`;
+  const measured = report.measuredDatabaseGrowthBytes === null || report.measuredGrowthHours === null
+    ? 'measured growth unavailable'
+    : `measured growth ${report.measuredDatabaseGrowthBytes >= 0 ? '+' : ''}${report.measuredDatabaseGrowthBytes} B over ${report.measuredGrowthHours.toFixed(1)}h`;
+  const projected = report.projectedVariableGrowth14DaysBytes === null
+    ? 'projection unavailable'
+    : `projected variable growth (14d) +${report.projectedVariableGrowth14DaysBytes} B`;
+  return `Pilot: ${report.startedServiceDate ?? 'n/a'} → ${report.latestServiceDate ?? 'n/a'} (${report.serviceDays} service days)\nPolls ${report.polls}, successful ${report.successfulPolls}, matched Madrid ${report.matchedMadrid}, response bytes ${report.responseBytes}\nStorage: current total ${report.databaseBytes ?? 'unavailable'} B; ${measured}; ${projected}. Projection excludes future static-feed and index changes.`;
 }

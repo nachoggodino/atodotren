@@ -30,8 +30,8 @@ export interface TelegramUpdate {
 interface ApiEnvelope<T> {
   readonly ok: boolean;
   readonly result?: T;
-  readonly description?: string;
   readonly error_code?: number;
+  readonly parameters?: { readonly retry_after?: number };
 }
 
 export interface InlineButton {
@@ -42,12 +42,14 @@ export interface InlineButton {
 export class TelegramApiError extends Error {
   public readonly status: number;
   public readonly errorCode: number | undefined;
+  public readonly retryAfterSeconds: number | undefined;
 
-  public constructor(status: number, description: string, errorCode?: number) {
-    super(`Telegram Bot API request failed with HTTP ${status}: ${description.slice(0, 160)}`);
+  public constructor(status: number, errorCode?: number, retryAfterSeconds?: number) {
+    super(`Telegram Bot API request failed with HTTP ${status}${errorCode === undefined ? '' : ` (code ${errorCode})`}`);
     this.name = 'TelegramApiError';
     this.status = status;
     this.errorCode = errorCode;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -85,7 +87,12 @@ export class TelegramBotApi {
       payload = undefined;
     }
     if (!response.ok || payload?.ok !== true || payload.result === undefined) {
-      throw new TelegramApiError(response.status, payload?.description ?? 'invalid Bot API response', payload?.error_code);
+      const retryAfter = payload?.parameters?.retry_after;
+      throw new TelegramApiError(
+        response.status,
+        payload?.error_code,
+        Number.isSafeInteger(retryAfter) && (retryAfter ?? 0) > 0 ? retryAfter : undefined,
+      );
     }
     return payload.result;
   }

@@ -24,6 +24,10 @@
       "types": "./dist/reporting-core.d.ts",
       "default": "./dist/reporting-core.js"
     },
+    "./reporting-operations": {
+      "types": "./dist/reporting-operations.d.ts",
+      "default": "./dist/reporting-operations.js"
+    },
     "./reporting-service": {
       "types": "./dist/reporting-service.d.ts",
       "default": "./dist/reporting-service.js"
@@ -31,6 +35,10 @@
     "./resources": {
       "types": "./dist/resources.d.ts",
       "default": "./dist/resources.js"
+    },
+    "./telegram-alerts": {
+      "types": "./dist/telegram-alerts.d.ts",
+      "default": "./dist/telegram-alerts.js"
     },
     "./telegram-commands": {
       "types": "./dist/telegram-commands.d.ts",

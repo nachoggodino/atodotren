@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 
 import type { DatabaseConnection } from '@atodotren/db';
 
+import { measurementValue, preferredMeasurement, type ResourceSample } from './resources.js';
+
 type Pool = DatabaseConnection['pool'];
 
 export interface DeliveryRecord {
@@ -13,6 +15,7 @@ export interface DeliveryRecord {
 
 export interface CallbackTarget {
   readonly kind: 'line' | 'station' | 'train';
+  readonly action: 'report' | 'trains';
   readonly entityId: string;
   readonly reportDate: string | null;
 }
@@ -63,9 +66,6 @@ export class TelegramStateStore {
     return Number(result.rows[0]?.next_update_id ?? 0);
   }
 
-  // Telegram confirms every update with update_id lower than the next getUpdates
-  // offset. Advance this only after the update has been handled or deliberately
-  // ignored, so restarts resume from the first unconfirmed update.
   public async confirmUpdate(updateId: number): Promise<void> {
     if (!Number.isSafeInteger(updateId) || updateId < 0) throw new RangeError('Invalid Telegram update id');
     await this.#pool.query<Record<string, unknown>>(`UPDATE operations.telegram_checkpoint
@@ -128,25 +128,46 @@ export class TelegramStateStore {
   public async createCallback(target: CallbackTarget): Promise<string> {
     const callbackId = randomBytes(12).toString('base64url');
     await this.#pool.query<Record<string, unknown>>(`INSERT INTO operations.telegram_callback (
-      callback_id, entity_kind, entity_id, report_date, expires_at
-    ) VALUES ($1, $2, $3, $4::date, clock_timestamp() + ($5::bigint * interval '1 millisecond'))`, [
-      callbackId, target.kind, target.entityId, target.reportDate, this.#callbackTtlMs,
+      callback_id, entity_kind, callback_action, entity_id, report_date, expires_at
+    ) VALUES ($1, $2, $3, $4, $5::date, clock_timestamp() + ($6::bigint * interval '1 millisecond'))`, [
+      callbackId, target.kind, target.action, target.entityId, target.reportDate, this.#callbackTtlMs,
     ]);
     return callbackId;
   }
 
   public async readCallback(callbackId: string): Promise<CallbackTarget | null> {
     if (!/^[A-Za-z0-9_-]{8,48}$/u.test(callbackId)) return null;
-    const result = await this.#pool.query<Record<string, unknown>>(`SELECT entity_kind, entity_id, report_date
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT entity_kind, callback_action, entity_id, report_date
       FROM operations.telegram_callback
       WHERE callback_id = $1 AND expires_at > clock_timestamp() LIMIT 1`, [callbackId]);
     const row = result.rows[0];
     if (row === undefined) return null;
     return {
       kind: row.entity_kind as CallbackTarget['kind'],
+      action: row.callback_action as CallbackTarget['action'],
       entityId: String(row.entity_id),
       reportDate: row.report_date === null ? null : new Date(row.report_date as string | Date).toISOString().slice(0, 10),
     };
+  }
+
+  public async recordResourceSample(sample: ResourceSample, sampledAt: Date = new Date(sample.generatedAt)): Promise<boolean> {
+    if (Number.isNaN(sampledAt.getTime())) return false;
+    const cpu = measurementValue(preferredMeasurement(sample.hostCpuRatio, sample.telegramProcessCpuRatio));
+    const memory = measurementValue(preferredMeasurement(sample.hostMemoryRatio, sample.telegramContainerMemoryRatio));
+    const disk = measurementValue(preferredMeasurement(sample.hostDiskFreeRatio, sample.spoolFreeRatio));
+    const result = await this.#pool.query<Record<string, unknown>>(`INSERT INTO operations.telegram_resource_sample (
+        sampled_at, database_bytes, spool_bytes, cpu_ratio, memory_ratio, disk_free_ratio
+      )
+      SELECT $1::timestamptz, $2::bigint, $3::bigint, $4::double precision, $5::double precision, $6::double precision
+      WHERE NOT EXISTS (
+        SELECT 1 FROM operations.telegram_resource_sample
+        WHERE sampled_at > $1::timestamptz - interval '1 hour'
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING sampled_at`, [
+      sampledAt.toISOString(), measurementValue(sample.databaseBytes), measurementValue(sample.spoolBytes), cpu, memory, disk,
+    ]);
+    return result.rows.length === 1;
   }
 
   public async prune(): Promise<void> {

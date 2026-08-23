@@ -42,6 +42,8 @@ jobs:
             migrations/0007_m4_correctness_gates.sql \
             migrations/0008_timetable_metric_identity.sql
           sha256sum migrations/000{1,2,3,4,5,6,7,8}_*.sql
+          echo 'Unreleased Milestone 5 migration checksum:'
+          sha256sum migrations/0009_reporting_telegram.sql
       - name: Reject credential-bearing tracked artifacts
         shell: bash
         run: |
@@ -84,6 +86,10 @@ jobs:
           fi
           if grep -Eq 'docker\.sock|privileged:|^[[:space:]]+ports:' <<<"$telegram_block"; then
             echo 'Telegram operations service exposes a forbidden privileged/network surface.' >&2
+            exit 1
+          fi
+          if git grep -En 'TELEGRAM_ALERT_(MATCHING|MALFORMED)' -- ':!package-lock.json'; then
+            echo 'Removed duplicate Telegram matching/malformed detection settings are referenced.' >&2
             exit 1
           fi
 

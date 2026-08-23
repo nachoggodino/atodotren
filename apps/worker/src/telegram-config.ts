@@ -18,11 +18,6 @@ export interface TelegramOperationsConfig {
   readonly deliveryRetentionDays: number;
   readonly thresholds: {
     readonly durableIngestionStaleMs: number;
-    readonly matchingRateMinimum: number;
-    readonly matchingRateRecoveryMinimum: number;
-    readonly matchingConsecutive: number;
-    readonly malformedRateMaximum: number;
-    readonly malformedConsecutive: number;
     readonly spoolBacklogMs: number;
     readonly postgresConsecutive: number;
     readonly cpuRatio: number;
@@ -139,19 +134,11 @@ export function loadTelegramOperationsConfig(environment: Environment = process.
   const pollTimeoutSeconds = integer(environment, 'TELEGRAM_POLL_TIMEOUT_SECONDS', 25, 1, 50, issues);
   const callbackTtlMs = integer(environment, 'TELEGRAM_CALLBACK_TTL_MS', 600_000, 60_000, 3_600_000, issues);
   const deliveryRetentionDays = integer(environment, 'TELEGRAM_STATE_RETENTION_DAYS', 45, 7, 180, issues);
-  const matchingRateMinimum = ratio(environment, 'TELEGRAM_ALERT_MATCHING_RATE_MINIMUM', 0.02, issues);
-  const matchingRateRecoveryMinimum = ratio(environment, 'TELEGRAM_ALERT_MATCHING_RATE_RECOVERY_MINIMUM', 0.05, issues);
-  if (matchingRateRecoveryMinimum <= matchingRateMinimum) issues.push('Telegram matching recovery threshold must exceed its alert threshold');
   const diskWarningRatio = ratio(environment, 'TELEGRAM_ALERT_DISK_WARNING_RATIO', 0.15, issues);
   const diskCriticalRatio = ratio(environment, 'TELEGRAM_ALERT_DISK_CRITICAL_RATIO', 0.08, issues);
   if (diskCriticalRatio >= diskWarningRatio) issues.push('Critical disk free ratio must be lower than warning ratio');
   const thresholds = {
-    durableIngestionStaleMs: integer(environment, 'TELEGRAM_ALERT_INGEST_STALE_MS', 120_000, 30_000, 3_600_000, issues),
-    matchingRateMinimum,
-    matchingRateRecoveryMinimum,
-    matchingConsecutive: integer(environment, 'TELEGRAM_ALERT_MATCHING_CONSECUTIVE', 3, 1, 20, issues),
-    malformedRateMaximum: ratio(environment, 'TELEGRAM_ALERT_MALFORMED_RATE_MAXIMUM', 0.25, issues),
-    malformedConsecutive: integer(environment, 'TELEGRAM_ALERT_MALFORMED_CONSECUTIVE', 3, 1, 20, issues),
+    durableIngestionStaleMs: integer(environment, 'INGEST_STALE_AFTER_MS', 120_000, 30_000, 86_400_000, issues),
     spoolBacklogMs: integer(environment, 'TELEGRAM_ALERT_SPOOL_BACKLOG_MS', 300_000, 60_000, 3_600_000, issues),
     postgresConsecutive: integer(environment, 'TELEGRAM_ALERT_POSTGRES_CONSECUTIVE', 3, 1, 20, issues),
     cpuRatio: ratio(environment, 'TELEGRAM_ALERT_CPU_RATIO', 0.90, issues),

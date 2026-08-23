@@ -14,13 +14,18 @@ interface IncidentRow {
 
 const immediateCriticalKeys = new Set([
   'ingest.repeated_failure',
-  'ingest.stale',
   'ingest.matching_collapse',
   'ingest.malformed_spike',
   'spool.shedding',
   'spool.replay_failure',
   'static.version_mismatch',
 ]);
+
+export function shouldDeliverIngestionIncident(incidentKey: string): boolean {
+  // ingest.stale is deliberately delivered only by the independent Telegram
+  // watchdog. The worker-owned incident remains read-only evidence/context.
+  return incidentKey !== 'ingest.stale';
+}
 
 export async function deliverIngestionIncidents(options: {
   readonly config: TelegramOperationsConfig;
@@ -34,7 +39,7 @@ export async function deliverIngestionIncidents(options: {
     WHERE is_open OR recovered_at >= clock_timestamp() - interval '48 hours'
     ORDER BY last_observed_at DESC LIMIT 50`);
   for (const incident of result.rows) {
-    if (!eligible(incident, options.config, options.now)) continue;
+    if (!shouldDeliverIngestionIncident(incident.incident_key) || !eligible(incident, options.config, options.now)) continue;
     const episode = `${incident.incident_key}:${new Date(incident.opened_at).toISOString()}`;
     const activeKey = `incident:active:${episode}`;
     if (incident.is_open) {

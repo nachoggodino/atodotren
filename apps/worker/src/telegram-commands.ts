@@ -91,6 +91,7 @@ export async function executeTelegramCommand(options: {
   if (command.name === 'pilot') return { text: bounded(formatReportText(await pilotReport(reporting))) };
   if (command.name === 'resources') {
     const sample = await resources.collect();
+    await state.recordResourceSample(sample);
     return { text: bounded(formatResources(sample, resources.trend())) };
   }
   if (command.name === 'daily') {
@@ -102,29 +103,22 @@ export async function executeTelegramCommand(options: {
   if (command.name === 'line') {
     const candidates = await reporting.lineCandidates(command.query);
     const selected = exactOrUnique(candidates);
-    if (selected === null) return candidateResponse('line', candidates, command.date ?? null, state);
+    if (selected === null) return candidateResponse('line', candidates, command.date ?? null, state, 'report');
     const report = await reporting.line(selected.id, command.date);
     return report === null ? { text: `No aggregate data is available for ${selected.label} on that service date.` } : { text: bounded(formatReportText(report)), chart: report.chart };
   }
   if (command.name === 'station') {
     const candidates = await reporting.stationCandidates(command.query);
     const selected = exactOrUnique(candidates);
-    if (selected === null) return candidateResponse('station', candidates, command.date ?? null, state);
+    if (selected === null) return candidateResponse('station', candidates, command.date ?? null, state, 'report');
     const report = await reporting.station(selected.id, command.date);
     return report === null ? { text: `No aggregate data is available for ${selected.label} on that service date.` } : { text: bounded(formatReportText(report)), chart: report.chart };
   }
   if (command.name !== 'trains') throw new Error('Command routing reached an impossible state');
   const candidates = await reporting.lineCandidates(command.query);
   const selected = exactOrUnique(candidates);
-  if (selected === null) return candidateResponse('line', candidates, null, state, true);
-  const report = await trainsReport(reporting, selected.id);
-  if (report === null) return { text: `Unknown line ${command.query}.` };
-  const buttons: InlineButton[][] = [];
-  for (const train of report.trains.slice(0, 10)) {
-    const callbackId = await state.createCallback({ kind: 'train', entityId: train.trainId, reportDate: null });
-    buttons.push([{ text: `${train.trainId} · ${train.station ?? 'station n/a'}`, callback_data: `r:${callbackId}` }]);
-  }
-  return { text: bounded(formatReportText(report)), ...(buttons.length === 0 ? {} : { buttons }) };
+  if (selected === null) return candidateResponse('line', candidates, null, state, 'trains');
+  return trainsResponse(reporting, state, selected.id, command.query);
 }
 
 export async function executeCallback(options: {
@@ -140,6 +134,7 @@ export async function executeCallback(options: {
   const id = Number(target.entityId);
   if (!Number.isSafeInteger(id) || id <= 0) return { text: 'This selection is invalid.' };
   if (target.kind === 'line') {
+    if (target.action === 'trains') return trainsResponse(options.reporting, options.state, id, `line ${id}`);
     const report = await options.reporting.line(id, target.reportDate ?? undefined);
     return report === null ? { text: 'No aggregate data is available for that line/date.' } : { text: bounded(formatReportText(report)), chart: report.chart };
   }
@@ -147,21 +142,37 @@ export async function executeCallback(options: {
   return report === null ? { text: 'No aggregate data is available for that station/date.' } : { text: bounded(formatReportText(report)), chart: report.chart };
 }
 
+async function trainsResponse(
+  reporting: ReportingService,
+  state: TelegramStateStore,
+  lineId: number,
+  requested: string,
+): Promise<CommandResponse> {
+  const report = await trainsReport(reporting, lineId);
+  if (report === null) return { text: `Unknown line ${requested}.` };
+  const buttons: InlineButton[][] = [];
+  for (const train of report.trains.slice(0, 10)) {
+    const callbackId = await state.createCallback({ action: 'report', kind: 'train', entityId: train.trainId, reportDate: null });
+    buttons.push([{ text: `${train.trainId} · ${train.station ?? 'station n/a'}`, callback_data: `r:${callbackId}` }]);
+  }
+  return { text: bounded(formatReportText(report)), ...(buttons.length === 0 ? {} : { buttons }) };
+}
+
 async function candidateResponse(
   kind: 'line' | 'station',
   candidates: readonly { readonly id: number; readonly label: string; readonly code?: string }[],
   reportDate: string | null,
   state: TelegramStateStore,
-  trains = false,
+  action: 'report' | 'trains',
 ): Promise<CommandResponse> {
   if (candidates.length === 0) return { text: `No matching ${kind} was found.` };
   const buttons: InlineButton[][] = [];
   for (const candidate of candidates.slice(0, 5)) {
-    const callbackId = await state.createCallback({ kind, entityId: String(candidate.id), reportDate });
+    const callbackId = await state.createCallback({ action, kind, entityId: String(candidate.id), reportDate });
     buttons.push([{ text: `${candidate.code === undefined ? '' : `${candidate.code} · `}${candidate.label}`, callback_data: `r:${callbackId}` }]);
   }
   return {
-    text: trains ? 'Line is ambiguous. Select the intended line, then run /trains for it.' : `Ambiguous ${kind}. Select one:`,
+    text: action === 'trains' ? 'Line is ambiguous. Select the intended line:' : `Ambiguous ${kind}. Select one:`,
     buttons,
   };
 }

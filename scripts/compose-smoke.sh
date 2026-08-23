@@ -33,7 +33,7 @@ fake_telegram_count() {
 
 compose build worker migrate static-import telegram-ops
 compose up --detach worker
-for service in migrate static-import; do
+for service in role-bootstrap migrate static-import; do
   service_id="$(compose ps --all --quiet "${service}")"
   exit_code="$(docker inspect --format '{{.State.ExitCode}}' "${service_id}")"
   if [[ "${exit_code}" != '0' ]]; then
@@ -88,6 +88,7 @@ if [[ "$(compose ps --status running --quiet worker | wc -l | tr -d ' ')" != '1'
   exit 1
 fi
 
+compose run --rm --no-deps role-bootstrap
 compose run --rm --no-deps migrate
 repeat_report="$(compose run --rm --no-deps static-import import-static --file /fixtures/representative-madrid.zip --json)"
 if ! grep -q '"result":"unchanged"' <<<"${repeat_report}"; then
@@ -125,6 +126,15 @@ if ! grep -q 'Status ' <<<"${telegram_state}"; then
   exit 1
 fi
 
+before_test="$(fake_telegram_count)"
+compose run --rm --no-deps telegram-ops test-notification --confirm-send >/dev/null
+after_test="$(fake_telegram_count)"
+if [[ "${after_test}" -ne $((before_test + 1)) ]]; then
+  compose logs telegram-ops fake-telegram >&2
+  echo "One-shot Telegram test did not send exactly one fake message: before=${before_test}, after=${after_test}" >&2
+  exit 1
+fi
+
 before_restart="$(fake_telegram_count)"
 compose restart telegram-ops >/dev/null
 sleep 3
@@ -137,9 +147,6 @@ fi
 
 compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=ON_ERROR_STOP=1 --command "INSERT INTO operations.notification_incident (incident_key, opened_at, last_observed_at, occurrence_count, is_open, details) VALUES ('\''spool.shedding'\'', clock_timestamp(), clock_timestamp(), 1, true, '\''{}'\''::jsonb) ON CONFLICT (incident_key) DO UPDATE SET opened_at=EXCLUDED.opened_at,last_observed_at=EXCLUDED.last_observed_at,occurrence_count=1,is_open=true,recovered_at=NULL"' >/dev/null
 incident_baseline="$(fake_telegram_count)"
-# telegram-ops intentionally scans durable incidents on a 60-second maintenance
-# cadence. Cover one complete cadence plus scheduling margin rather than assuming
-# the insertion happens immediately before the next scan.
 for _attempt in {1..75}; do
   current="$(fake_telegram_count)"
   if [[ "${current}" -gt "${incident_baseline}" ]]; then break; fi
@@ -173,4 +180,4 @@ if [[ "${health}" != 'healthy' || "${telegram_health}" != 'healthy' ]]; then
   exit 1
 fi
 
-echo 'Compose smoke passed: startup ordering, fake feeds, spool interruption/replay, worker restart, migration/import idempotency, bounded aggregate commands, fake Telegram command round-trip, Telegram restart idempotency, and sole Telegram ACTIVE/RECOVERY incident delivery.'
+echo 'Compose smoke passed: startup ordering with idempotent role bootstrap, fake feeds, spool interruption/replay, worker restart, migration/import idempotency, bounded aggregate commands, fake Telegram command round-trip and one-shot test, Telegram restart idempotency, meaningful Telegram freshness health, and sole Telegram ACTIVE/RECOVERY incident delivery.'
