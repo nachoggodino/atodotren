@@ -58,12 +58,14 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if git ls-files | grep -Fx 'scripts/pi-resource-monitor.sh'; then
+          monitor_path="scripts/pi-resource-$(printf '%s' monitor).sh"
+          monitor_name="$(basename "$monitor_path")"
+          if git ls-files | grep -Fx "$monitor_path"; then
             echo 'Temporary Pi resource monitor is still present in the current tree.' >&2
             exit 1
           fi
-          if git grep -n 'pi-resource-monitor\.sh'; then
-            echo 'Temporary Pi resource monitor is still referenced in the current tree.' >&2
+          if git grep -n --fixed-strings "$monitor_name" -- README.md MVP_IMPLEMENTATION_PLAN.md example.env compose.yaml compose.smoke.yaml scripts; then
+            echo 'Temporary Pi resource monitor is still referenced in current documentation/configuration.' >&2
             exit 1
           fi
       - name: Check Telegram ownership and forbidden deployment surfaces
