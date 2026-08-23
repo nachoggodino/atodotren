@@ -16,7 +16,6 @@ import {
 } from '@atodotren/db';
 import {
   createSmtpTransport,
-  createTelegramTransport,
   OutageSpool,
   runIngest,
   runReplay,
@@ -96,8 +95,8 @@ Replays normalized SQLite spool entries to PostgreSQL in source order and exits.
 export const testNotificationsUsage = `Usage:
   worker test-notifications --confirm-send
 
-Sends one clearly labelled test through each configured Telegram, SMTP, and
-heartbeat channel. ATODOTREN_NOTIFICATION_TEST=1 is an alternative explicit opt-in.
+Sends one clearly labelled test through each configured SMTP and heartbeat
+channel. Telegram delivery belongs exclusively to the telegram-ops service. ATODOTREN_NOTIFICATION_TEST=1 is an alternative explicit opt-in.
 No operational incident is created or changed.
 `;
 
@@ -402,7 +401,6 @@ export async function runIngestCommand(
     spool = new OutageSpool(config.spool.path, config.spool.maxBytes, config.spool.maxBacklogMs);
     await shutdown.register('sqlite-spool', () => spool?.close());
     const transports = [
-      ...(config.operations.telegram === undefined ? [] : [createTelegramTransport(config.operations.telegram)]),
       ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
     ];
     const report = await (dependencies.ingest ?? runIngest)({
@@ -468,7 +466,6 @@ export async function runNotificationTestCommand(
   const config = loadConfig(environment);
   const stdout = dependencies.stdout ?? process.stdout;
   const transports = [
-    ...(config.operations.telegram === undefined ? [] : [createTelegramTransport(config.operations.telegram)]),
     ...(config.operations.smtp === undefined ? [] : [createSmtpTransport(config.operations.smtp)]),
   ];
   const channels = await (dependencies.notificationTest ?? testNotificationChannels)({

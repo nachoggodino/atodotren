@@ -5,10 +5,13 @@ import test from 'node:test';
 import { atodotrenGroupRoles, atodotrenRoles, privateSchemas } from '@atodotren/db';
 
 void test('SQL migration and provider-neutral bootstrap agree with the TypeScript database contract', async () => {
-  const [migration, bootstrap] = await Promise.all([
+  const [foundationMigration, reportingMigration, bootstrap] = await Promise.all([
     readFile('migrations/0001_repository_foundation.sql', 'utf8'),
+    readFile('migrations/0009_reporting_telegram.sql', 'utf8'),
     readFile('docker/postgres/init/001-runtime-roles.sh', 'utf8'),
   ]);
+  const migration = `${foundationMigration}
+${reportingMigration}`;
   for (const role of atodotrenGroupRoles) {
     assert.match(migration, new RegExp(`'${role}'`, 'u'));
     assert.match(bootstrap, new RegExp(`'${role}'`, 'u'));

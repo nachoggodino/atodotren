@@ -4,8 +4,10 @@ export const atodotrenRoles = {
   webReader: 'atodotren_web_reader',
   backupReader: 'atodotren_backup_reader',
   monitorReader: 'atodotren_monitor_reader',
+  reportingReader: 'atodotren_reporting_reader',
   migratorLogin: 'atodotren_migrator',
   workerLogin: 'atodotren_worker',
+  telegramLogin: 'atodotren_telegram',
 } as const;
 
 export const atodotrenGroupRoles = [
@@ -14,6 +16,7 @@ export const atodotrenGroupRoles = [
   atodotrenRoles.webReader,
   atodotrenRoles.backupReader,
   atodotrenRoles.monitorReader,
+  atodotrenRoles.reportingReader,
 ] as const;
 
 export const privateSchemas = [

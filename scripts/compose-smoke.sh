@@ -27,9 +27,13 @@ compose() {
     --file compose.yaml --file compose.smoke.yaml "$@"
 }
 
-compose build worker migrate static-import
+fake_telegram_count() {
+  compose exec --no-TTY fake-telegram node -e "fetch('http://localhost:4020/state').then(r=>r.json()).then(s=>console.log(s.sentMessages.length))"
+}
+
+compose build worker migrate static-import telegram-ops
 compose up --detach worker
-for service in migrate static-import; do
+for service in role-bootstrap migrate static-import; do
   service_id="$(compose ps --all --quiet "${service}")"
   exit_code="$(docker inspect --format '{{.State.ExitCode}}' "${service_id}")"
   if [[ "${exit_code}" != '0' ]]; then
@@ -41,9 +45,7 @@ done
 poll_count='0'
 for _attempt in {1..30}; do
   poll_count="$(compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command "SELECT count(*) FROM ingest.poll_run WHERE result_class = '\''success'\''"')"
-  if [[ "${poll_count}" -ge 6 ]]; then
-    break
-  fi
+  if [[ "${poll_count}" -ge 6 ]]; then break; fi
   sleep 1
 done
 if [[ "${poll_count}" -lt 6 ]]; then
@@ -56,9 +58,7 @@ compose stop postgres >/dev/null
 spool_pending='0'
 for _attempt in {1..30}; do
   spool_pending="$(compose exec --no-TTY worker node --input-type=module -e "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync('/spool/realtime.sqlite', { readOnly: true }); console.log(db.prepare('SELECT count(*) AS n FROM pending_operation').get().n);")"
-  if [[ "${spool_pending}" -gt 0 ]]; then
-    break
-  fi
+  if [[ "${spool_pending}" -gt 0 ]]; then break; fi
   sleep 1
 done
 if [[ "${spool_pending}" -le 0 ]]; then
@@ -71,9 +71,7 @@ compose start postgres >/dev/null
 compose up --detach --wait postgres >/dev/null
 for _attempt in {1..30}; do
   spool_pending="$(compose exec --no-TTY worker node --input-type=module -e "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync('/spool/realtime.sqlite', { readOnly: true }); console.log(db.prepare('SELECT count(*) AS n FROM pending_operation').get().n);")"
-  if [[ "${spool_pending}" == '0' ]]; then
-    break
-  fi
+  if [[ "${spool_pending}" == '0' ]]; then break; fi
   sleep 1
 done
 if [[ "${spool_pending}" != '0' ]]; then
@@ -90,6 +88,7 @@ if [[ "$(compose ps --status running --quiet worker | wc -l | tr -d ' ')" != '1'
   exit 1
 fi
 
+compose run --rm --no-deps role-bootstrap
 compose run --rm --no-deps migrate
 repeat_report="$(compose run --rm --no-deps static-import import-static --file /fixtures/representative-madrid.zip --json)"
 if ! grep -q '"result":"unchanged"' <<<"${repeat_report}"; then
@@ -115,11 +114,70 @@ if [[ "${madrid_only}" != '0' ]]; then
   exit 1
 fi
 
-container_id="$(compose ps --quiet postgres)"
-health="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
-if [[ "${health}" != 'healthy' ]]; then
-  echo "PostgreSQL container is not healthy: ${health}" >&2
+compose up --detach --wait fake-telegram telegram-ops
+for _attempt in {1..30}; do
+  if [[ "$(fake_telegram_count)" -ge 1 ]]; then break; fi
+  sleep 1
+done
+telegram_state="$(compose exec --no-TTY fake-telegram node -e "fetch('http://localhost:4020/state').then(r=>r.json()).then(s=>console.log(JSON.stringify(s)))")"
+if ! grep -q 'Status ' <<<"${telegram_state}"; then
+  compose logs telegram-ops fake-telegram >&2
+  echo "Fake Telegram command did not round-trip: ${telegram_state}" >&2
   exit 1
 fi
 
-echo 'Compose smoke test passed: startup ordering, deterministic protobuf polling, worker restart, PostgreSQL interruption, bounded SQLite queuing, ordered recovery, duplicate-safe evidence, aggregate/finalize commands, Madrid-only filtered payloads, and doctor health all succeeded.'
+before_test="$(fake_telegram_count)"
+compose run --rm --no-deps telegram-ops test-notification --confirm-send >/dev/null
+after_test="$(fake_telegram_count)"
+if [[ "${after_test}" -ne $((before_test + 1)) ]]; then
+  compose logs telegram-ops fake-telegram >&2
+  echo "One-shot Telegram test did not send exactly one fake message: before=${before_test}, after=${after_test}" >&2
+  exit 1
+fi
+
+before_restart="$(fake_telegram_count)"
+compose restart telegram-ops >/dev/null
+sleep 3
+after_restart="$(fake_telegram_count)"
+if [[ "${after_restart}" != "${before_restart}" ]]; then
+  compose logs telegram-ops fake-telegram >&2
+  echo "Telegram restart duplicated a delivered command/digest: before=${before_restart}, after=${after_restart}" >&2
+  exit 1
+fi
+
+compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=ON_ERROR_STOP=1 --command "INSERT INTO operations.notification_incident (incident_key, opened_at, last_observed_at, occurrence_count, is_open, details) VALUES ('\''spool.shedding'\'', clock_timestamp(), clock_timestamp(), 1, true, '\''{}'\''::jsonb) ON CONFLICT (incident_key) DO UPDATE SET opened_at=EXCLUDED.opened_at,last_observed_at=EXCLUDED.last_observed_at,occurrence_count=1,is_open=true,recovered_at=NULL"' >/dev/null
+incident_baseline="$(fake_telegram_count)"
+for _attempt in {1..75}; do
+  current="$(fake_telegram_count)"
+  if [[ "${current}" -gt "${incident_baseline}" ]]; then break; fi
+  sleep 1
+done
+active_count="$(compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command "SELECT count(*) FROM operations.telegram_delivery WHERE delivery_type='\''incident_active'\'' AND delivered_at IS NOT NULL"')"
+if [[ "${active_count}" != '1' ]]; then
+  compose logs telegram-ops >&2
+  echo "Expected exactly one Telegram ACTIVE incident delivery, got ${active_count}" >&2
+  exit 1
+fi
+
+compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=ON_ERROR_STOP=1 --command "UPDATE operations.notification_incident SET is_open=false,recovered_at=clock_timestamp(),last_observed_at=clock_timestamp() WHERE incident_key='\''spool.shedding'\''"' >/dev/null
+for _attempt in {1..75}; do
+  recovery_count="$(compose exec --no-TTY postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command "SELECT count(*) FROM operations.telegram_delivery WHERE delivery_type='\''incident_recovery'\'' AND delivered_at IS NOT NULL"')"
+  if [[ "${recovery_count}" == '1' ]]; then break; fi
+  sleep 1
+done
+if [[ "${recovery_count:-0}" != '1' ]]; then
+  compose logs telegram-ops >&2
+  echo "Expected exactly one Telegram RECOVERY delivery, got ${recovery_count:-0}" >&2
+  exit 1
+fi
+
+container_id="$(compose ps --quiet postgres)"
+health="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
+telegram_container_id="$(compose ps --quiet telegram-ops)"
+telegram_health="$(docker inspect --format '{{.State.Health.Status}}' "${telegram_container_id}")"
+if [[ "${health}" != 'healthy' || "${telegram_health}" != 'healthy' ]]; then
+  echo "Unexpected container health: postgres=${health}, telegram=${telegram_health}" >&2
+  exit 1
+fi
+
+echo 'Compose smoke passed: startup ordering with idempotent role bootstrap, fake feeds, spool interruption/replay, worker restart, migration/import idempotency, bounded aggregate commands, fake Telegram command round-trip and one-shot test, Telegram restart idempotency, meaningful Telegram freshness health, and sole Telegram ACTIVE/RECOVERY incident delivery.'

@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       ATODOTREN_WORKER_PASSWORD: ${ATODOTREN_WORKER_PASSWORD:?ATODOTREN_WORKER_PASSWORD is required}
+      ATODOTREN_TELEGRAM_PASSWORD: ${ATODOTREN_TELEGRAM_PASSWORD:?ATODOTREN_TELEGRAM_PASSWORD is required}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -21,11 +22,30 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  role-bootstrap:
+    image: postgres:18.4-bookworm
+    entrypoint: ["/usr/local/bin/atodotren-role-bootstrap"]
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      ATODOTREN_WORKER_PASSWORD: ${ATODOTREN_WORKER_PASSWORD:?ATODOTREN_WORKER_PASSWORD is required}
+      ATODOTREN_TELEGRAM_PASSWORD: ${ATODOTREN_TELEGRAM_PASSWORD:?ATODOTREN_TELEGRAM_PASSWORD is required}
+    volumes:
+      - ./docker/postgres/init/001-runtime-roles.sh:/usr/local/bin/atodotren-role-bootstrap:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   migrate:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
-    image: atodotren-worker:milestone-4
+    image: atodotren-worker:milestone-5
     entrypoint: ["node", "apps/worker/dist/migrate.js"]
     environment:
       NODE_ENV: production
@@ -35,13 +55,12 @@ services:
       DATABASE_SSL_MODE: disable
       MIGRATIONS_DIR: /app/migrations
     depends_on:
-      postgres:
-        condition: service_healthy
-        restart: true
+      role-bootstrap:
+        condition: service_completed_successfully
     restart: "no"
 
   static-import:
-    image: atodotren-worker:milestone-4
+    image: atodotren-worker:milestone-5
     command: ["import-static", "--json"]
     environment:
       NODE_ENV: production
@@ -58,7 +77,7 @@ services:
     restart: "no"
 
   spool-init:
-    image: atodotren-worker:milestone-4
+    image: atodotren-worker:milestone-5
     user: root
     entrypoint: ["sh", "-c"]
     command: ["mkdir -p /spool && chown 1000:1000 /spool"]
@@ -67,7 +86,7 @@ services:
     restart: "no"
 
   worker:
-    image: atodotren-worker:milestone-4
+    image: atodotren-worker:milestone-5
     command: ["ingest", "--canonical-maintenance"]
     environment:
       NODE_ENV: production
@@ -97,8 +116,6 @@ services:
       INGEST_MATCHING_RECOVERY_THRESHOLD: ${INGEST_MATCHING_RECOVERY_THRESHOLD:-3}
       INGEST_MALFORMED_RATE_MAXIMUM: ${INGEST_MALFORMED_RATE_MAXIMUM:-0.25}
       HEARTBEAT_URL: ${HEARTBEAT_URL:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
@@ -113,6 +130,59 @@ services:
         condition: service_completed_successfully
       spool-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  telegram-ops:
+    image: atodotren-worker:milestone-5
+    entrypoint: ["node", "apps/worker/dist/telegram-cli.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgresql://atodotren_telegram:${ATODOTREN_TELEGRAM_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_SSL_MODE: disable
+      DATABASE_POOL_MAX: 3
+      DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-5000}
+      DATABASE_IDLE_TIMEOUT_MS: ${DATABASE_IDLE_TIMEOUT_MS:-30000}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${TELEGRAM_DATABASE_STATEMENT_TIMEOUT_MS:-5000}
+      SHUTDOWN_TIMEOUT_MS: ${SHUTDOWN_TIMEOUT_MS:-10000}
+      TELEGRAM_OPERATIONS_ENABLED: ${TELEGRAM_OPERATIONS_ENABLED:-false}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_ID: ${TELEGRAM_ALLOWED_USER_ID:-}
+      TELEGRAM_PRIVATE_CHAT_ID: ${TELEGRAM_PRIVATE_CHAT_ID:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      TELEGRAM_POLL_TIMEOUT_SECONDS: ${TELEGRAM_POLL_TIMEOUT_SECONDS:-25}
+      TELEGRAM_DIGEST_READY_TIME: ${TELEGRAM_DIGEST_READY_TIME:-04:00}
+      TELEGRAM_DIGEST_TARGET_TIME: ${TELEGRAM_DIGEST_TARGET_TIME:-05:00}
+      TELEGRAM_DIGEST_BLOCKED_TIME: ${TELEGRAM_DIGEST_BLOCKED_TIME:-06:30}
+      TELEGRAM_REPORT_VERSION: ${TELEGRAM_REPORT_VERSION:-pilot-v1}
+      TELEGRAM_STATE_RETENTION_DAYS: ${TELEGRAM_STATE_RETENTION_DAYS:-45}
+      TELEGRAM_CALLBACK_TTL_MS: ${TELEGRAM_CALLBACK_TTL_MS:-600000}
+      INGEST_STALE_AFTER_MS: ${INGEST_STALE_AFTER_MS:-120000}
+      TELEGRAM_ALERT_SPOOL_BACKLOG_MS: ${TELEGRAM_ALERT_SPOOL_BACKLOG_MS:-300000}
+      TELEGRAM_ALERT_POSTGRES_CONSECUTIVE: ${TELEGRAM_ALERT_POSTGRES_CONSECUTIVE:-3}
+      TELEGRAM_ALERT_CPU_RATIO: ${TELEGRAM_ALERT_CPU_RATIO:-0.90}
+      TELEGRAM_ALERT_CPU_DURATION_MS: ${TELEGRAM_ALERT_CPU_DURATION_MS:-900000}
+      TELEGRAM_ALERT_MEMORY_RATIO: ${TELEGRAM_ALERT_MEMORY_RATIO:-0.85}
+      TELEGRAM_ALERT_MEMORY_DURATION_MS: ${TELEGRAM_ALERT_MEMORY_DURATION_MS:-600000}
+      TELEGRAM_ALERT_DISK_WARNING_RATIO: ${TELEGRAM_ALERT_DISK_WARNING_RATIO:-0.15}
+      TELEGRAM_ALERT_DISK_CRITICAL_RATIO: ${TELEGRAM_ALERT_DISK_CRITICAL_RATIO:-0.08}
+      TELEGRAM_ALERT_STATIC_AGE_DAYS: ${TELEGRAM_ALERT_STATIC_AGE_DAYS:-8}
+      TELEGRAM_HOST_METRICS_ENABLED: ${TELEGRAM_HOST_METRICS_ENABLED:-false}
+      TELEGRAM_HOST_PROC_PATH: ${TELEGRAM_HOST_PROC_PATH:-}
+      TELEGRAM_HOST_ROOT_PATH: ${TELEGRAM_HOST_ROOT_PATH:-}
+    volumes:
+      - realtime-spool:/spool:ro
+    depends_on:
+      static-import:
+        condition: service_completed_successfully
+      spool-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "apps/worker/dist/telegram-cli.js", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

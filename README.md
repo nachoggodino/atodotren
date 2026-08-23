@@ -1,11 +1,10 @@
 # Atodotren
 
-Milestone 4 adds deterministic historical aggregates, timetable-complete opportunity
-denominators, service-day verification, monthly sealing, and explicitly authorized
-retention to the accepted static, realtime, and canonical-journey foundation. A train
-that never appears in realtime is materialized from the applicable GTFS timetable and
-counted as missing evidence. The project does not yet build a public API,
-managed-provider deployment, or a frontend.
+Milestone 5 CI readiness adds a provider-neutral reporting layer and a private,
+read-only Telegram operations service to the accepted Milestone 4 evidence foundation.
+The service is a separate portable container, uses least-privilege PostgreSQL reporting
+credentials, and is prepared for a two-week Pi evidence pilot. This CI phase does not
+deploy the pilot, select a managed provider, build the frontend, or accept Milestone 5.
 
 ## Prerequisites
 
@@ -21,7 +20,7 @@ The repository uses npm workspaces and exact external dependency versions. Appli
 cp example.env .env
 ```
 
-Replace both placeholder passwords in `.env`. The local Compose bootstrap constructs its container URLs from those values, so use long alphanumeric/hyphen passwords without URL-reserved characters. Do not commit `.env`.
+Replace all three placeholder passwords in `.env` (`POSTGRES_PASSWORD`, `ATODOTREN_WORKER_PASSWORD`, and `ATODOTREN_TELEGRAM_PASSWORD`). The local Compose bootstrap constructs its container URLs from those values, so use long alphanumeric/hyphen passwords without URL-reserved characters. Do not commit `.env`.
 
 Protect the local file after editing it:
 
@@ -41,13 +40,17 @@ npm run test:unit
 
 `npm run preflight` is non-mutating. In local mode it checks Node.js/npm support,
 Docker CLI/daemon/Compose/Buildx availability, required variables and unresolved
-placeholders, all five PostgreSQL URLs, their expected local users/database/host/port,
-and local-only component-password coherence without printing credentials. It also
-inspects the primary container's actual `5432/tcp` publication, requires it to match
-`POSTGRES_PORT`, checks container health and exact repository/database migration
-synchronization, verifies Git ignore coverage for `.env`, and checks free disk space.
-PostgreSQL unavailability is nonblocking only when no primary stack exists; an
-unreachable migration URL for a healthy primary stack fails. Less than 10 GiB free
+placeholders, all seven PostgreSQL URLs (`DATABASE_URL`, `MIGRATION_DATABASE_URL`,
+`REPORT_DATABASE_URL`, and the four `TEST_*_DATABASE_URL` values), their expected local
+users/database/host/port, and component-password coherence without printing credentials.
+After migration 0009 is applied, it also connects through `REPORT_DATABASE_URL` and
+requires `atodotren_telegram` to have exactly one direct membership:
+`atodotren_reporting_reader` with `ADMIN FALSE`, inherited access, and no `SET ROLE`
+path. It also inspects the primary container's actual `5432/tcp` publication, requires
+it to match `POSTGRES_PORT`, checks container health and exact repository/database
+migration synchronization, verifies Git ignore coverage for `.env`, and checks free
+disk space. PostgreSQL unavailability is nonblocking only when no primary stack exists;
+an unreachable URL for a healthy primary stack fails. Less than 10 GiB free
 is a warning and less than 2 GiB is a blocking failure.
 
 Start only the pinned primary stock PostgreSQL 18.4 container:
@@ -55,6 +58,39 @@ Start only the pinned primary stock PostgreSQL 18.4 container:
 ```sh
 docker compose --env-file .env up -d --wait postgres
 ```
+
+### Existing Milestone 4 PostgreSQL volume upgrade
+
+PostgreSQL init scripts run automatically only when a data directory is created. They do
+**not** rerun for the retained Milestone 4 `postgres-data` volume, so migration 0009 must
+not be attempted on that volume until the new reporting roles are bootstrapped explicitly.
+Take and verify a database/volume backup before the schema upgrade. Do not run
+`docker compose down --volumes`, recreate the volume, or delete PostgreSQL data as part of
+this procedure.
+
+With the retained volume and the intended existing passwords still configured in the
+ignored `.env`, run:
+
+```sh
+docker compose --env-file .env up -d --wait postgres
+docker compose --env-file .env run --rm role-bootstrap
+docker compose --env-file .env run --rm migrate
+npm run preflight
+```
+
+`role-bootstrap` executes the same `docker/postgres/init/001-runtime-roles.sh` contract as
+a fresh installation. It creates only missing roles/logins, validates role attributes and
+exact direct memberships, and is safe to repeat. It never alters the password of an
+existing login: changing `ATODOTREN_TELEGRAM_PASSWORD` or another component variable does
+not silently rotate PostgreSQL credentials. A mismatch must be corrected deliberately,
+not by destroying the volume. `migrate` runs only after bootstrap succeeds, and `preflight`
+then verifies the reporting login/membership through `REPORT_DATABASE_URL`.
+
+For rollback, preserve the retained volume and application configuration first. Disabling
+`telegram-ops` rolls back the application service without removing data; there is no
+in-place down migration for 0009 in this phase. If the database schema itself must be
+rolled back, restore the verified pre-upgrade backup. Never use volume deletion as an
+ordinary rollback mechanism.
 
 Apply explicit SQL migrations and run the health command from the host:
 
@@ -82,14 +118,12 @@ spool writability/size/pending/dropped counts, and heartbeat configuration.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 4
-implements `worker doctor`, `worker import-static`, `worker ingest`,
-`worker replay`, `worker canonicalize`, `worker close-journeys`,
-`worker repair-journeys`, `worker aggregate`, `worker finalize`, and the opt-in
-`worker test-notifications`. Usage errors exit `2`;
-configuration, acquisition, validation, database, and runtime failures exit `1`;
-a successful import or explicit HTTP/checksum unchanged result exits `0`. The
-later `report` command remains unimplemented. Command dispatch is import-safe.
+The CLI contract is visible with `npm run worker -- --help`. Milestone 5 implements
+`worker report` in addition to the accepted ingestion, canonicalization, aggregation,
+finalization, replay and doctor commands. `worker report` emits stable bounded JSON by
+default or concise text with `--text`. Legacy worker Telegram delivery is disabled at
+the Milestone 5 CLI boundary; SMTP compatibility remains, while `telegram-ops` is the
+sole Telegram Bot API sender. Usage errors exit `2`; runtime failures exit `1`.
 
 ## Realtime ingestion
 
@@ -329,18 +363,15 @@ docker compose --env-file .env run --rm --no-deps worker replay
 ```
 
 `HEARTBEAT_URL` is optional and is called only after a successful fetch plus
-durable PostgreSQL or spool persistence. Telegram (`TELEGRAM_BOT_TOKEN` plus
-`TELEGRAM_CHAT_ID`) and SMTP (`SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`, with optional
-credentials) are independent. Each incident key is a sequence of independent
-episodes. An episode normally sends ACTIVE once after three consecutive bad
-observations; a pending episode that recovers earlier closes silently. RECOVERY is
-sent once, and only through channels that delivered ACTIVE for that episode. A
-new episode starts at occurrence one without inheriting prior notification state.
-Partial delivery is tracked per channel in the running worker, so a successful
-Telegram delivery is not repeated while only a failed SMTP delivery is retried.
-`heartbeat.failure` covers failed delivery attempts and is observed healthy after
-the next successful delivery; `heartbeat.stale` separately covers elapsed time
-without a success. Ordinary tests use fake transports and never send messages.
+durable PostgreSQL or spool persistence. SMTP (`SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`,
+with optional credentials) remains an optional worker-owned delivery channel. The
+ingestion worker never receives Telegram credentials or calls the Telegram Bot API;
+it persists incident facts only. `telegram-ops` reads those facts and exclusively
+owns Telegram ACTIVE/RECOVERY delivery through its durable delivery ledger. Each
+incident key remains a sequence of independent episodes. `heartbeat.failure` covers
+failed delivery attempts and is observed healthy after the next successful delivery;
+`heartbeat.stale` separately covers elapsed time without a success. Ordinary tests
+use fake transports and never send messages.
 
 Matching-collapse alerts add hysteresis without changing the 2% aggregate
 acceptance gate: entry requires `INGEST_ALERT_FAILURE_THRESHOLD` consecutive
@@ -349,27 +380,25 @@ recovery requires `INGEST_MATCHING_RECOVERY_THRESHOLD` consecutive observations
 above `INGEST_MATCHING_RATE_RECOVERY_MINIMUM` (defaults 3 and 0.05). The recovery
 boundary must be greater than the entry boundary.
 
-Incident metadata failures and channel failures emit credential-safe structured
-`notification.*_failed` events while durable RENFE ingestion continues. Per-channel
-delivery state is retained while failed database markers retry on later
-observations; zero-row state updates are treated as failures. Retry state remains
-process-local: a crash after a channel send but before its database marker can
-rarely duplicate that delivery. A durable per-channel outbox is deferred to
-Milestone 6.
+Ingestion incident persistence failures plus worker-owned SMTP/heartbeat failures
+emit credential-safe structured events while durable RENFE ingestion continues.
+Telegram delivery failures belong to `telegram-ops`; its bounded PostgreSQL state
+tracks attempts and successful message IDs without retaining message bodies, rendered
+reports, chart bytes, Bot API responses, or credentials.
 
-Explicitly test the configured real channels from the built Compose worker only
-when sending a labelled test message and heartbeat is intended:
+Explicitly test the worker-owned real SMTP/heartbeat channels from the built
+Compose worker only when a labelled test and heartbeat call are intended:
 
 ```sh
 docker compose --env-file .env run --rm --no-deps worker \
   test-notifications --confirm-send
 ```
 
-The command reports Telegram, SMTP, and heartbeat as delivered, failed, or
-skipped and exits nonzero if a configured channel fails. It never creates an
-operational incident or prints credentials. `ATODOTREN_NOTIFICATION_TEST=1` is an
-alternative explicit opt-in; the command refuses to send without one of these
-confirmations.
+The worker command never sends Telegram in Milestone 5. It exits nonzero if a
+configured worker-owned channel fails, never creates an operational incident, and
+never prints credentials. `ATODOTREN_NOTIFICATION_TEST=1` is an alternative explicit
+opt-in. Real Telegram delivery is validated separately during the `telegram-ops` Pi
+acceptance phase.
 
 ## Static Madrid import
 
@@ -504,7 +533,7 @@ set +a
 npm run test:integration
 ```
 
-The integration suite requires `TEST_ADMIN_DATABASE_URL`, `TEST_MIGRATOR_DATABASE_URL`, and `TEST_WORKER_DATABASE_URL`. It creates a uniquely named disposable database and covers hostile role attributes and membership graphs, migration rollback/checksum/missing-file failures, advisory-lock release and concurrency, login rotation, ownership/default privileges, exact doctor migration state, runtime permissions, fixture import, checksum idempotency, changed-version activation, rejected/database-failed rollback, previous-version availability, concurrent serialization, and zero non-Madrid persistence before removing the database. A missing database fails explicitly; it is never silently skipped.
+The integration suite requires `TEST_ADMIN_DATABASE_URL`, `TEST_MIGRATOR_DATABASE_URL`, `TEST_WORKER_DATABASE_URL`, and `TEST_TELEGRAM_DATABASE_URL`. It creates a uniquely named disposable database and covers hostile role attributes and membership graphs, migration rollback/checksum/missing-file failures, advisory-lock release and concurrency, login rotation, ownership/default privileges, exact doctor migration state, runtime permissions, fixture import, checksum idempotency, changed-version activation, rejected/database-failed rollback, previous-version availability, concurrent serialization, and zero non-Madrid persistence before removing the database. A missing database fails explicitly; it is never silently skipped.
 
 Run the complete supported-major contract in isolated disposable containers:
 
@@ -634,11 +663,9 @@ with no spool backlog or dropped operations and used approximately 185 MB across
 realtime ingest/operations relations. No second 48-hour run is required for the
 notification correction.
 
-`scripts/pi-resource-monitor.sh` remains a temporary acceptance-only host helper,
-not a production alerting system. It reads only its Telegram settings from the
-resolved Compose configuration, does not query PostgreSQL with administrator
-credentials, and records delivery state only in memory; that state is lost when
-the script restarts.
+The temporary Pi acceptance monitor has been removed. Its replacement is the
+portable `telegram-ops` service described below; host metrics are optional read-only
+inputs rather than a separate acceptance script.
 
 ## Diagnosing failures
 
@@ -699,3 +726,137 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 - Every GTFS source key is scoped by immutable feed version. Stable product dimensions use network-scoped public slugs; no public route depends on an identity sequence.
 - The live RENFE archive identifies its sole feed agency as `1071VC`; its routes omit `agency_id`. Madrid assignment uses the verified source route-ID prefix `10`, never the public line label. Station aliases prefer configuration, then `stop_code`, with an explicit version-mapping fallback to `stop_id`; collisions reject instead of guessing. Adding another network is expected to require a focused mapping/code addition, but not a database redesign.
 - Successful static facts cannot be updated or deleted by the worker. The worker receives only selected inserts, stable-dimension upserts, lifecycle updates, reads, sequences, and a fixed security-definer `ANALYZE` function compatible with PostgreSQL 16.
+
+## Milestone 5 CI-only reporting and Telegram operations
+
+`telegram-ops` is a separate container with no public port, privileged mode, or Docker
+socket. It uses `atodotren_telegram`, whose only inherited group role is
+`atodotren_reporting_reader`. Migration `0009_reporting_telegram.sql` exposes approved
+reporting views and small private Telegram checkpoint/delivery/callback/monitor tables;
+the login cannot write ingestion evidence, canonical journeys, aggregates, static GTFS,
+migrations, retention state, or ingestion-owned incidents and cannot `SET ROLE` into
+writer or migration roles.
+
+The service uses the official Telegram Bot API directly with `getUpdates` long polling.
+An existing webhook is a startup error and is never silently deleted. Only `message` and
+`callback_query` updates are requested. Failed polls use bounded exponential backoff from
+1 second, doubling to a 30-second exponential ceiling with up to 20% positive jitter;
+Telegram `parameters.retry_after` is honored and the final delay is capped at 5 minutes.
+Any successful Bot API poll, including an empty result, resets the failure counter, and
+shutdown interrupts a pending backoff. Repeated failures are transition/rate-limited in
+logs without request URLs, tokens, response bodies, or message data. The durable checkpoint
+stores the next update ID; Telegram confirms every lower update when that offset is used on
+the next poll. A PostgreSQL session advisory lock permits only one active long-poll
+consumer. No incoming
+message body, callback body, rendered report, chart bytes, token, or Bot API response is
+retained. Delivery rows retain only bounded type/key, service date where applicable,
+report version, attempt/delivery timestamps, message ID and a redacted failure class;
+callbacks expire after ten minutes by default and delivery state after 45 days.
+
+Authorization requires all three conditions exactly: configured numeric Telegram user
+ID, configured numeric private-chat ID, and Telegram chat type `private`. Unauthorized
+updates receive no response; credential-safe metadata logging is rate limited and never
+includes message or callback text. The startup command menu is English and scoped only to
+that private chat. BotFather prerequisites are limited to creating the bot/token; do not
+configure a webhook. To discover IDs for deployment, send a message to the bot and inspect
+one explicit Bot API `getUpdates` response interactively without placing the token in shell
+history or logs; record only the numeric `from.id` and private `chat.id` in the ignored
+deployment environment file.
+
+Supported read-only commands are `/status`, `/daily [date|yesterday]`, `/line <name>
+[date]`, `/station <name> [date]`, `/trains <line>`, `/train <id>`, `/incidents`,
+`/resources`, `/pilot`, and `/help`. Line/station matching is case- and accent-insensitive,
+alias-aware and partial; ambiguous matches return at most five inline choices. Reports use
+parameterized bounded queries and short statement timeouts. Daily metrics include scheduled
+stop opportunities, usable coverage/sample size, punctuality at delay <=120 seconds,
+average delay, approximate median from the retained h30-v1 histogram, canceled and
+missing-evidence rates, worst line/station with sample sizes, and a seven-day trend. There
+is no low-sample suppression gate. Exact recent state is labelled separately from compact
+aggregate answers.
+
+Daily scheduling uses `Europe/Madrid`: readiness checks begin at 04:00, normal delivery is
+targeted at 05:00 when the previous service day is verified, and one clearly labelled
+provisional/blocked digest is sent at 06:30 if finalization is still unresolved. The key
+is service date plus report version, so ordinary restarts do not repeat an acknowledged
+digest. The digest also includes a short new-service-day status plus one compact technical
+section: available safe host/process CPU, host/container/process memory, disk free ratio,
+database size, spool size/pending state, and open ingestion/bot-monitor incidents.
+Unavailable measurements are labelled `unavailable`, never rendered as zero. DST behavior
+is covered by CI. No minimum coverage threshold suppresses delivery.
+
+Ingestion owns incident facts; `telegram-ops` owns Telegram delivery. The worker continues
+to detect and persist `ingest.stale`, matching-collapse, malformed-spike, and other
+incident facts. To prevent duplicate Telegram notifications, the independent Telegram
+watchdog is the sole Telegram notifier for the `ingest.stale` problem class while still
+checking durable-ingestion freshness when the worker itself has stopped; the worker-owned
+`ingest.stale` row remains read-only context. Matching/malformed thresholds are controlled
+only by the existing `INGEST_MATCHING_RATE_MINIMUM`,
+`INGEST_MATCHING_RATE_RECOVERY_MINIMUM`, `INGEST_MATCHING_RECOVERY_THRESHOLD`,
+`INGEST_ALERT_FAILURE_THRESHOLD`, and `INGEST_MALFORMED_RATE_MAXIMUM` settings. There are
+no duplicate `TELEGRAM_ALERT_MATCHING_*` or `TELEGRAM_ALERT_MALFORMED_*` settings.
+Telegram-specific defaults remain: ingestion freshness from `INGEST_STALE_AFTER_MS`
+(2 minutes), spool backlog 5 minutes, PostgreSQL unavailable after three bot checks, CPU
+above 90% for 15 minutes, memory above 85% for 10 minutes, disk below 15% warning/below 8%
+critical, static GTFS older than 8 days, and unresolved previous-day finalization at 06:30.
+Normal incident/digest/command delivery markers are durable in PostgreSQL and retried with
+bounded backoff. Transient command failures retain the Telegram update until retry is due;
+permanent Telegram 4xx failures and deliveries that exhaust eight attempts are durably
+classified and checkpointed so one poisoned update cannot block later commands.
+
+`/resources` always distinguishes unavailable measurements from zero. Safe portable
+measurements include the Telegram process/container, PostgreSQL size, spool size and
+mounted-volume free space. Metrics for another container are explicitly unavailable without
+privileged access. Optional Pi host metrics use only configured read-only `/proc` and
+root-filesystem mounts; the image works with that mode disabled. The service stores at most
+one numeric resource/storage sample per hour and prunes samples older than 30 days; it never
+stores rendered reports, Telegram content, chart bytes, or Bot API responses. `/pilot`
+separates current total database size from measured growth and projected variable growth.
+A 14-day projection requires at least two usable database-size samples at least six hours
+apart and spanning distinct Europe/Madrid service dates; otherwise it says `projection
+unavailable`. The projection extrapolates only observed database-size change and explicitly
+does not claim future static-feed or index changes.
+
+A PostgreSQL outage is the unavoidable durability exception: while PostgreSQL is down,
+`telegram-ops` keeps long polling and independent monitoring alive where possible and a
+queued command receives one bounded `Reporting database unavailable` response per process.
+The PostgreSQL ACTIVE/RECOVERY sent marker and this per-update fallback are bounded
+process-local state because their durable ledger is itself unavailable. Therefore exactly-
+once Telegram delivery is **not** claimed across a `telegram-ops` restart that occurs during
+the database outage. After PostgreSQL recovers, normal durable command handling resumes.
+
+A deliberately real one-shot Telegram delivery test is available without starting polling,
+changing command menus, querying PostgreSQL, or touching incident state:
+
+```sh
+docker compose --env-file .env run --rm --no-deps telegram-ops   test-notification --confirm-send
+```
+
+The command refuses to send without the literal confirmation flag, validates the bot token
+and exact configured user/private-chat IDs, sends one clearly labelled Atodotren test
+message, suppresses credential/response details on failure, and exits nonzero if delivery
+fails. The test, command replies, digests, outage notices and incident messages all request
+normal Telegram notifications rather than silent delivery. Ordinary CI uses only fake
+Telegram.
+
+The container healthcheck has no public HTTP port. When Telegram operations are enabled it
+tracks the timestamp of successful long-poll/service progress in a mode-0600 local health
+file containing only a timestamp. Health is stale after the configured long-poll timeout
+plus 30 seconds of grace. When `TELEGRAM_OPERATIONS_ENABLED=false`, health is deliberately
+reported healthy so disabling the optional service does not create a restart loop.
+
+Chart contracts are implemented as bounded data specifications and complete text fallback.
+PNG rendering/sendPhoto is intentionally deferred from this CI-only phase because adding a
+renderer would require a lockfile/dependency verification step that this environment cannot
+perform locally. No chart bytes/files are retained.
+
+Configuration is documented in `example.env`: `ATODOTREN_TELEGRAM_PASSWORD`,
+`TELEGRAM_OPERATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`,
+`TELEGRAM_PRIVATE_CHAT_ID`, digest/report/state settings, alert thresholds, and optional host
+metric paths. Set `TELEGRAM_OPERATIONS_ENABLED=false` and stop/remove only `telegram-ops` to
+disable the service safely; ingestion remains independent.
+
+This implementation phase is verified only by GitHub Actions with fake Telegram, fixture
+feeds and disposable PostgreSQL 16.14/18.4. Local/Pi deployment, BotFather setup, real
+Telegram delivery, real Renfe operation, host-mount validation, PNG renderer selection and
+the two-week evidence pilot are intentionally deferred. A green CI run means ready for the
+next local/Pi acceptance phase, not that Milestone 5 or the pilot is accepted.
