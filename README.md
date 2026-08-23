@@ -1,10 +1,11 @@
 # Atodotren
 
-Milestone 3 adds provider-neutral canonical Madrid journeys to the accepted static
-and GTFS-Realtime evidence foundation. Retained evidence is replayed into complete,
-versioned, stop-by-stop journeys with schedule lineage, honest evidence statuses,
-bounded closure, and explicit repair. The project does not yet build aggregates,
-retention deletion, a public API, managed-provider deployment, or a frontend.
+Milestone 4 adds deterministic historical aggregates, timetable-complete opportunity
+denominators, service-day verification, monthly sealing, and explicitly authorized
+retention to the accepted static, realtime, and canonical-journey foundation. A train
+that never appears in realtime is materialized from the applicable GTFS timetable and
+counted as missing evidence. The project does not yet build a public API,
+managed-provider deployment, or a frontend.
 
 ## Prerequisites
 
@@ -81,14 +82,14 @@ spool writability/size/pending/dropped counts, and heartbeat configuration.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 3
+The CLI contract is visible with `npm run worker -- --help`. Milestone 4
 implements `worker doctor`, `worker import-static`, `worker ingest`,
 `worker replay`, `worker canonicalize`, `worker close-journeys`,
-`worker repair-journeys`, and the opt-in `worker test-notifications`. Usage errors exit `2`;
+`worker repair-journeys`, `worker aggregate`, `worker finalize`, and the opt-in
+`worker test-notifications`. Usage errors exit `2`;
 configuration, acquisition, validation, database, and runtime failures exit `1`;
 a successful import or explicit HTTP/checksum unchanged result exits `0`. The
-later `aggregate`, `finalize`, and `report` commands remain unimplemented. Command
-dispatch is import-safe.
+later `report` command remains unimplemented. Command dispatch is import-safe.
 
 ## Realtime ingestion
 
@@ -194,11 +195,14 @@ bounded repair calls skip journeys already at the requested version and continue
 through the date; repairable journeys are processed before expired-evidence errors.
 Commands emit concise JSON reports.
 
-The Compose worker runs `worker ingest --canonical-maintenance`, which performs one
-bounded canonicalization and closure maintenance pass after every polling cycle. It therefore converts
-durable evidence into canonical history continuously; a maintenance failure marks
-the ingestion cycle unsuccessful and is retried on the next cycle. Manual commands
-remain available for inspection, disposable rebuilds, and explicit repairs.
+The Compose worker runs `worker ingest --canonical-maintenance`. Every polling cycle
+performs bounded canonicalization and closure; every five minutes the same deployed
+process also recomputes dirty aggregates and invokes bounded finalization/month
+sealing. Automatic finalization searches the oldest eligible dates in the retained
+35-day canonical/timetable window, not only the most recent week. Repeated failures
+emit one warning incident and a recovery event without stopping realtime ingestion.
+Retention deletion remains deliberately manual and two-stage. Manual
+commands remain available for inspection, recovery, and explicit repairs.
 
 Inspect one journey and every stop's explanation:
 
@@ -248,10 +252,65 @@ LIMIT 20;
 ```
 
 Detailed poll and quarantine rows target 30 days, Madrid-filtered compressed
-payloads 48 hours, and changed stop evidence seven days. Complete canonicalization
-must therefore precede future evidence-partition deletion. Migration 0004 creates
-daily partitions through a bounded stock-PostgreSQL helper; the later generalized
-retention/finalization framework is intentionally not part of this milestone.
+payloads 48 hours, and changed stop evidence seven days. Evidence deletion is
+blocked until every matching journey is finalized, its evidence watermark covers
+the partition, and the current canonical checksum still matches a verified service
+day. Known partitions are then handled through the authorization workflow below.
+
+## Aggregation, finalization, and retention operations
+
+Daily aggregation is deterministic replacement, never incremental arithmetic.
+Finalization materializes all applicable static timetable trips first, so total
+realtime outages reduce coverage instead of disappearing from the denominator.
+Before any canonical rows are created, an independent expected-day ledger is built
+from the complete preferred active/previous timetable. The whole day remains blocked
+until its final scheduled journey plus grace has elapsed, and finalization verifies
+journey/stop totals and a stable metric-identity checksum against that ledger. The
+checksum covers line, branch, direction, service pattern, station, stop order, and
+scheduled time while allowing equivalent active/previous feed lineage.
+
+Exact-schedule daily contributions retain raw GTFS service-day seconds and separately
+derive Europe/Madrid civil date, weekday, and 0–86,399 wall-clock seconds. Optional
+rows in `operations.calendar_classification` provide published, versioned holiday
+overrides; migration `0007` seeds the 2026 Comunidad de Madrid regional calendar
+from its official calendar publication. Otherwise days classify as `weekend` or
+`ordinary_weekday` under `calendar-v1`. Successful sealing compacts these rows into
+monthly classified facts with no row identity, service date, or civil date. A blocked
+sealing attempt writes no monthly classified rows.
+
+A day with polls but zero successful Renfe responses finalizes as `incomplete` and
+remains visible in its denominator. After operational confirmation, acknowledge it
+explicitly so the month can seal with an `incomplete_acknowledged` quality flag:
+
+```sh
+npm run worker -- finalize --service-date 2026-08-22 \
+  --acknowledge-incomplete "confirmed complete Renfe outage"
+```
+
+Safe bounded examples:
+
+```sh
+npm run worker -- aggregate --limit 20
+npm run worker -- aggregate --service-date 2026-08-22
+npm run worker -- finalize --service-date 2026-08-22
+npm run worker -- finalize --month 2026-08-01
+npm run worker -- finalize --retention
+npm run worker -- finalize --authorize-retention
+```
+
+`--retention` is a read-only plan. `--authorize-retention` records checksummed
+authorization but deletes nothing. Re-run the plan and inspect `blockers`, source
+row counts, checksums, and exact partition names before the destructive second stage:
+
+```sh
+npm run worker -- finalize --apply-retention \
+  --confirm-retention DROP-VERIFIED-PARTITIONS
+```
+
+Never automate the confirmation literal. If a plan changes after authorization,
+the checksum gate blocks application and a fresh authorization is required. Recovery
+is restore-from-backup or replay of separately preserved source evidence; dropped
+partitions are not reconstructed from monthly aggregates.
 
 ## SQLite spool, heartbeat, and alerts
 
@@ -473,10 +532,10 @@ The archive is written to the ignored file `atodotren-worker-multiarch.tar`. If 
 
 TypeScript compilation runs on the build platform, while `npm ci --omit=dev` runs
 separately on each target platform. The spool uses Node 24's built-in SQLite, so
-Milestone 3 introduces no third-party native addon; both architectures still run
+Milestone 4 introduces no third-party native addon; both architectures still run
 their own production dependency installation.
 
-Start the ordinary Milestone 3 Compose sequence. PostgreSQL becomes healthy,
+Start the ordinary Milestone 4 Compose sequence. PostgreSQL becomes healthy,
 migrations complete, `static-import` uses its configured URL (or the default
 official RENFE source), the bounded spool volume is initialized, and continuous
 ingestion starts only after a real active version exists:
@@ -629,9 +688,9 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 ## Foundation decisions
 
 - npm workspaces were selected because npm ships with the pinned Node runtime and provides a reproducible `npm ci` lockfile workflow.
-- Packages through Milestone 3 exist: configuration, observability, database,
-  static GTFS, GTFS-Realtime, canonical journeys, and worker. The web app and
-  later analytics packages remain deferred to their milestones.
+- Packages through Milestone 4 exist: configuration, observability, database,
+  static GTFS, GTFS-Realtime, canonical journeys, worker, and SQL analytics and
+  retention contracts. The web app remains deferred to a later milestone.
 - SQL migrations are immutable, checksummed, transaction-scoped, and serialized with a PostgreSQL advisory lock. Kysely is reserved for typed application queries and raw SQL checks.
 - All group roles are project-prefixed and `NOLOGIN`. Local Compose creates `atodotren_worker` with only inherited, non-settable `atodotren_ingest_writer` membership and `atodotren_migrator` with only non-inherited, set-only `atodotren_migration_admin` membership. Group roles cannot be members of any other role, and both runner and doctor reject direct or transitive graph drift. Future migrations grant worker and monitor access per object instead of inheriting blanket write/read defaults.
 - `npm run build` and test compilation remove their generated output first; `npm run clean` removes application, package, script, and test output so deleted sources cannot leave executable artifacts behind.

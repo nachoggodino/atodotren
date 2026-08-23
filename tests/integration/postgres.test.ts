@@ -91,6 +91,18 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
       resolve(process.cwd(), 'migrations/0005_canonical_journeys.sql'),
       join(directory, '0005_canonical_journeys.sql'),
     ),
+    cp(
+      resolve(process.cwd(), 'migrations/0006_aggregation_retention.sql'),
+      join(directory, '0006_aggregation_retention.sql'),
+    ),
+    cp(
+      resolve(process.cwd(), 'migrations/0007_m4_correctness_gates.sql'),
+      join(directory, '0007_m4_correctness_gates.sql'),
+    ),
+    cp(
+      resolve(process.cwd(), 'migrations/0008_timetable_metric_identity.sql'),
+      join(directory, '0008_timetable_metric_identity.sql'),
+    ),
   ]);
 }
 
@@ -184,6 +196,9 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0003_static_mapping_integrity.sql',
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
+        '0006_aggregation_retention.sql',
+        '0007_m4_correctness_gates.sql',
+        '0008_timetable_metric_identity.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -204,6 +219,9 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0003_static_mapping_integrity.sql',
         '0004_realtime_ingestion.sql',
         '0005_canonical_journeys.sql',
+        '0006_aggregation_retention.sql',
+        '0007_m4_correctness_gates.sql',
+        '0008_timetable_metric_identity.sql',
       ]);
     });
 
@@ -598,6 +616,9 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0003_static_mapping_integrity.sql',
           '0004_realtime_ingestion.sql',
           '0005_canonical_journeys.sql',
+          '0006_aggregation_retention.sql',
+          '0007_m4_correctness_gates.sql',
+          '0008_timetable_metric_identity.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
@@ -1094,8 +1115,15 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           arrivalTime: arrivalEpoch, arrivalDelay: -30, startDateSource: 'inferred',
           matchingMethod: 'previous-unique-fallback', matchingVersion: 'integration-v1',
         });
-        const weak = await canonicalizeJourneys({ pool, serviceDate, limit: 10 });
-        assert.deepEqual(weak.errors, {}, JSON.stringify(weak));
+        const weakErrors: unknown[] = [];
+        const weak = await canonicalizeJourneys({
+          pool, serviceDate, limit: 10, onError: (error) => weakErrors.push(error),
+        });
+        assert.deepEqual(
+          weak.errors,
+          {},
+          `${JSON.stringify(weak)} ${weakErrors.map((error) => error instanceof Error ? `${error.name}:${error.message}` : String(error)).join('; ')}`,
+        );
         const weakProvenance = await pool.query<{
           start_date_source: string; matching_method: string; matching_version: string; matching_confidence: number;
         }>(`

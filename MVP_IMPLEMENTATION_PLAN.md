@@ -363,7 +363,8 @@ Normalize Renfe service alerts, their active intervals, affected entities, text,
 - Scheduled hour and weekday filters use the derived Europe/Madrid wall-clock instant. The public hour is always 0-23 even when its raw GTFS service-day seconds exceed 86,400.
 - A service day closes after its last scheduled Madrid journey plus a configurable two-hour grace period.
 - Do not finalize at civil midnight.
-- Version holiday/weekend/ordinary-weekday classifications. Holidays are excluded from ordinary same-weekday baselines by default.
+- Build expected totals and a timetable checksum independently from the complete applicable timetable before materialization; finalization must match that ledger.
+- Version holiday/weekend/ordinary-weekday classifications by publication date. Migration-owned 2026 Comunidad de Madrid regional holidays are excluded from ordinary same-weekday baselines by default.
 
 ## 10. Canonical arrival selection
 
@@ -443,6 +444,8 @@ Tables:
 
 During an open calendar month, anonymous `daily_schedule_contribution` rows make the monthly build idempotent: one finalized service day can be replaced without double-counting. After the month is sealed and verified, merge its contributions into the monthly tables and delete the temporary daily contributions. These rows contain no journey identifier and never outlive the monthly sealing grace period.
 
+Classified exact-schedule facts are compacted by monthly grain only during the successful delete inside sealing. Blocked attempts write nothing, and the retained classified table has no daily `service_date`, civil date, or row identity.
+
 Grain includes:
 
 - calendar month
@@ -508,6 +511,7 @@ Cadence:
 - live vehicle and individual train state: every successful 30-second cycle
 - current-day aggregates: at most five minutes behind
 - recent unfinished prior days: hourly repair pass
+- automatic recovery: oldest eligible unverified dates within the retained 35-day timetable/canonical window, with a bounded limit
 - finalized days: immutable unless an explicit repair or methodology version is run
 
 Before dropping a 30-day journey partition:
@@ -760,6 +764,21 @@ rerun; no Milestone 3 behavior depends on new live-feed claims.
 
 Exit: an expired test partition cannot be dropped before verified aggregates exist; rebuilding yields identical results.
 
+Acceptance report (2026-08-23): implemented and verified on stock PostgreSQL
+16.14 and 18.4. Timetable-only trips and completely unseen service days remain in
+the denominator; evidence partitions require finalized canonical watermarks and
+matching verified checksums; month sealing rejects empty/missing days and stale
+daily contributions; public exact-time identity uses civil weekday/wall seconds
+while retaining raw GTFS seconds. Classified sealing is transactionally compact and
+keeps no daily date grain. Finalization verifies the complete independent timetable
+ledger; a confirmed zero-success outage remains visible and seals only after explicit
+acknowledgement. Continuous Compose maintenance scans the 35-day retained window and
+emits deduplicated finalization warnings. Internal renamed finalization/sealing
+functions are not executable by runtime roles. Destructive retention remains explicit
+and two-stage. Timetable verification compares stable metric identity—including line,
+branch, direction, service pattern, station, stop order, and scheduled time—without
+rejecting equivalent active/previous feed lineage.
+
 ### Milestone 5 — Two-week evidence pilot
 
 - run continuously on the Pi 5 or another Docker host
@@ -903,7 +922,7 @@ A failure at an earlier layer blocks the later deployment layer.
 
 ## 24. Immediate next actions
 
-1. Begin Milestone 4 aggregation and retention from the accepted canonical journey foundation.
+1. Begin the Milestone 5 evidence pilot using the accepted Milestone 4 statistics and retention foundation.
 2. Preserve the measured Milestone 2 thresholds until the longer pilot supplies evidence for a change.
 3. Exercise configured heartbeat and notification delivery/recovery in the intended deployment environment when explicitly intended.
 

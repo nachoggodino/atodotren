@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
-    image: atodotren-worker:milestone-3
+    image: atodotren-worker:milestone-4
     entrypoint: ["node", "apps/worker/dist/migrate.js"]
     environment:
       NODE_ENV: production
@@ -41,7 +41,7 @@ services:
     restart: "no"
 
   static-import:
-    image: atodotren-worker:milestone-3
+    image: atodotren-worker:milestone-4
     command: ["import-static", "--json"]
     environment:
       NODE_ENV: production
@@ -58,7 +58,7 @@ services:
     restart: "no"
 
   spool-init:
-    image: atodotren-worker:milestone-3
+    image: atodotren-worker:milestone-4
     user: root
     entrypoint: ["sh", "-c"]
     command: ["mkdir -p /spool && chown 1000:1000 /spool"]
@@ -67,7 +67,7 @@ services:
     restart: "no"
 
   worker:
-    image: atodotren-worker:milestone-3
+    image: atodotren-worker:milestone-4
     command: ["ingest", "--canonical-maintenance"]
     environment:
       NODE_ENV: production

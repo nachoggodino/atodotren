@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { executeCli } from './dispatcher.js';
+import { executeMilestone4Cli } from './m4-cli.js';
 
-void executeCli(process.argv.slice(2)).then((code) => {
+void executeMilestone4Cli(process.argv.slice(2)).then((code) => {
   process.exitCode ??= code;
 });
