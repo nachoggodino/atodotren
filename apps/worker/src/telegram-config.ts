@@ -35,6 +35,13 @@ export interface TelegramOperationsConfig {
   };
 }
 
+export interface TelegramDeliveryConfig {
+  readonly botToken: string;
+  readonly allowedUserId: string;
+  readonly privateChatId: string;
+  readonly apiBaseUrl: string;
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 function bool(environment: Environment, key: string, fallback: boolean, issues: string[]): boolean {
@@ -71,7 +78,7 @@ function ratio(environment: Environment, key: string, fallback: number, issues: 
 function numericId(environment: Environment, key: string, required: boolean, issues: string[]): string | undefined {
   const value = environment[key]?.trim();
   if (value === undefined || value === '') {
-    if (required) issues.push(`${key} is required when Telegram operations are enabled`);
+    if (required) issues.push(`${key} is required when Telegram delivery is enabled`);
     return undefined;
   }
   if (!/^-?\d{1,20}$/u.test(value)) {
@@ -112,17 +119,52 @@ function apiUrl(environment: Environment, nodeEnvironment: string, issues: strin
   }
 }
 
+function deliveryFields(
+  environment: Environment,
+  nodeEnvironment: string,
+  required: boolean,
+  issues: string[],
+): {
+  readonly botToken?: string;
+  readonly allowedUserId?: string;
+  readonly privateChatId?: string;
+  readonly apiBaseUrl: string;
+} {
+  const botToken = environment.TELEGRAM_BOT_TOKEN?.trim() || undefined;
+  if (required && botToken === undefined) issues.push('TELEGRAM_BOT_TOKEN is required when Telegram delivery is enabled');
+  if (botToken !== undefined && botToken.length > 256) issues.push('TELEGRAM_BOT_TOKEN is unexpectedly long');
+  const allowedUserId = numericId(environment, 'TELEGRAM_ALLOWED_USER_ID', required, issues);
+  const privateChatId = numericId(environment, 'TELEGRAM_PRIVATE_CHAT_ID', required, issues);
+  return {
+    ...(botToken === undefined ? {} : { botToken }),
+    ...(allowedUserId === undefined ? {} : { allowedUserId }),
+    ...(privateChatId === undefined ? {} : { privateChatId }),
+    apiBaseUrl: apiUrl(environment, nodeEnvironment, issues),
+  };
+}
+
+export function loadTelegramDeliveryConfig(environment: Environment = process.env): TelegramDeliveryConfig {
+  const issues: string[] = [];
+  const nodeEnvironment = environment.NODE_ENV?.trim() || 'development';
+  if (!['development', 'test', 'production'].includes(nodeEnvironment)) issues.push('NODE_ENV must be development, test, or production');
+  const fields = deliveryFields(environment, nodeEnvironment, true, issues);
+  if (issues.length > 0 || fields.botToken === undefined || fields.allowedUserId === undefined || fields.privateChatId === undefined) {
+    throw new ConfigError(issues.length > 0 ? issues : ['Telegram delivery configuration is incomplete']);
+  }
+  return {
+    botToken: fields.botToken,
+    allowedUserId: fields.allowedUserId,
+    privateChatId: fields.privateChatId,
+    apiBaseUrl: fields.apiBaseUrl,
+  };
+}
+
 export function loadTelegramOperationsConfig(environment: Environment = process.env): TelegramOperationsConfig {
   const baseEnvironment = { ...environment, TELEGRAM_BOT_TOKEN: undefined, TELEGRAM_CHAT_ID: undefined };
   const app = loadConfig(baseEnvironment);
   const issues: string[] = [];
   const enabled = bool(environment, 'TELEGRAM_OPERATIONS_ENABLED', false, issues);
-  const botToken = environment.TELEGRAM_BOT_TOKEN?.trim() || undefined;
-  if (enabled && botToken === undefined) issues.push('TELEGRAM_BOT_TOKEN is required when Telegram operations are enabled');
-  if (botToken !== undefined && botToken.length > 256) issues.push('TELEGRAM_BOT_TOKEN is unexpectedly long');
-  const allowedUserId = numericId(environment, 'TELEGRAM_ALLOWED_USER_ID', enabled, issues);
-  const privateChatId = numericId(environment, 'TELEGRAM_PRIVATE_CHAT_ID', enabled, issues);
-  const apiBaseUrl = apiUrl(environment, app.nodeEnvironment, issues);
+  const delivery = deliveryFields(environment, app.nodeEnvironment, enabled, issues);
   const digestReadyMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_READY_TIME', '04:00', issues);
   const digestTargetMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_TARGET_TIME', '05:00', issues);
   const digestBlockedMinute = minuteOfDay(environment, 'TELEGRAM_DIGEST_BLOCKED_TIME', '06:30', issues);
@@ -158,10 +200,10 @@ export function loadTelegramOperationsConfig(environment: Environment = process.
   if (issues.length > 0) throw new ConfigError(issues);
   return {
     enabled,
-    ...(botToken === undefined ? {} : { botToken }),
-    ...(allowedUserId === undefined ? {} : { allowedUserId }),
-    ...(privateChatId === undefined ? {} : { privateChatId }),
-    apiBaseUrl,
+    ...(delivery.botToken === undefined ? {} : { botToken: delivery.botToken }),
+    ...(delivery.allowedUserId === undefined ? {} : { allowedUserId: delivery.allowedUserId }),
+    ...(delivery.privateChatId === undefined ? {} : { privateChatId: delivery.privateChatId }),
+    apiBaseUrl: delivery.apiBaseUrl,
     database: { ...app.database, applicationName: 'atodotren-telegram', statementTimeoutMs: Math.min(app.database.statementTimeoutMs, 5_000) },
     logLevel: app.logLevel,
     shutdownTimeoutMs: app.shutdownTimeoutMs,

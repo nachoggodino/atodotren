@@ -4,7 +4,7 @@ import { createDatabaseConnection } from '@atodotren/db';
 import { createLogger, installProcessSafetyHandlers, ShutdownCoordinator } from '@atodotren/observability';
 
 import { executeCallback, executeTelegramCommand, parseTelegramCommand, type CommandResponse } from './telegram-commands.js';
-import { loadTelegramOperationsConfig, type TelegramOperationsConfig } from './telegram-config.js';
+import { loadTelegramDeliveryConfig, loadTelegramOperationsConfig, type TelegramOperationsConfig } from './telegram-config.js';
 import { deliverIngestionIncidents } from './telegram-alerts.js';
 import { TelegramOperationalMonitor } from './telegram-monitor.js';
 import { ReportingService } from './reporting-service.js';
@@ -25,7 +25,6 @@ const POLL_BACKOFF_JITTER_RATIO = 0.20;
 const HEALTH_GRACE_MS = 30_000;
 const DATABASE_UNAVAILABLE_TEXT = 'Reporting database unavailable. The bot is still polling; retry after PostgreSQL recovers.';
 
-type DatabaseConnection = Awaited<ReturnType<typeof createDatabaseConnection>>;
 type Logger = ReturnType<typeof createLogger>;
 type Sleep = (milliseconds: number) => Promise<void>;
 type ProcessUpdateResult = 'handled' | 'deferred' | 'delivery-failed';
@@ -238,7 +237,7 @@ async function pollingLoop(options: {
     } catch (error) {
       if (options.signal.aborted) return;
       const delayMs = retry.recordFailure(error);
-      if (retry.failures <= 2 || retry.failures % 5 === 0 || (error instanceof TelegramApiError && error.retryAfterSeconds !== undefined)) {
+      if (retry.failures <= 2 || retry.failures % 5 === 0) {
         options.logger.warn('telegram.poll_failed', 'Telegram polling failed; bounded retry backoff is active', {
           consecutiveFailures: retry.failures,
           retryDelayMs: delayMs,
@@ -462,14 +461,14 @@ export async function executeTelegramOperationsCli(
       return 2;
     }
     try {
-      const config = loadTelegramOperationsConfig({ ...environment, TELEGRAM_OPERATIONS_ENABLED: 'true' });
+      const config = loadTelegramDeliveryConfig(environment);
       const telegram = new TelegramBotApi({
-        token: config.botToken ?? '',
+        token: config.botToken,
         baseUrl: config.apiBaseUrl,
         fetchImplementation: dependencies.fetchImplementation,
       });
       await telegram.sendMessage(
-        config.privateChatId ?? '',
+        config.privateChatId,
         'Atodotren TEST notification · manual one-shot Telegram delivery check. No operational incident was created.',
         { disableNotification: true },
       );
