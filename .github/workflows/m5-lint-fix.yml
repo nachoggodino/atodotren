@@ -1,11 +1,7 @@
 name: Milestone 5 lint remediation
 
 on:
-  push:
-    branches:
-      - feature-milestone-5
-    paths:
-      - .github/workflows/m5-lint-fix.yml
+  pull_request:
 
 permissions:
   contents: write
