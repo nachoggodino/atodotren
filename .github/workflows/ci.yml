@@ -101,16 +101,15 @@ jobs:
           fetch-depth: 0
       - name: Apply deterministic README cleanup
         run: python scripts/m5-readme-final-cleanup.py
-      - name: Commit docs and restore permanent CI
+      - name: Commit README cleanup
         shell: bash
         run: |
           set -Eeuo pipefail
           git diff --check
-          git show 02f988b096a33eafc15194b4d62a25a9138176e1:.github/workflows/ci.yml > .github/workflows/ci.yml
           git rm scripts/m5-readme-final-cleanup.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add README.md .github/workflows/ci.yml
+          git add README.md
           git commit -m 'docs: align milestone 5 Telegram ownership'
           git push origin HEAD:feature-milestone-5
 
