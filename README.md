@@ -1,11 +1,10 @@
 # Atodotren
 
-Milestone 4 adds deterministic historical aggregates, timetable-complete opportunity
-denominators, service-day verification, monthly sealing, and explicitly authorized
-retention to the accepted static, realtime, and canonical-journey foundation. A train
-that never appears in realtime is materialized from the applicable GTFS timetable and
-counted as missing evidence. The project does not yet build a public API,
-managed-provider deployment, or a frontend.
+Milestone 5 CI readiness adds a provider-neutral reporting layer and a private,
+read-only Telegram operations service to the accepted Milestone 4 evidence foundation.
+The service is a separate portable container, uses least-privilege PostgreSQL reporting
+credentials, and is prepared for a two-week Pi evidence pilot. This CI phase does not
+deploy the pilot, select a managed provider, build the frontend, or accept Milestone 5.
 
 ## Prerequisites
 
@@ -82,14 +81,12 @@ spool writability/size/pending/dropped counts, and heartbeat configuration.
 
 ## Commands
 
-The CLI contract is visible with `npm run worker -- --help`. Milestone 4
-implements `worker doctor`, `worker import-static`, `worker ingest`,
-`worker replay`, `worker canonicalize`, `worker close-journeys`,
-`worker repair-journeys`, `worker aggregate`, `worker finalize`, and the opt-in
-`worker test-notifications`. Usage errors exit `2`;
-configuration, acquisition, validation, database, and runtime failures exit `1`;
-a successful import or explicit HTTP/checksum unchanged result exits `0`. The
-later `report` command remains unimplemented. Command dispatch is import-safe.
+The CLI contract is visible with `npm run worker -- --help`. Milestone 5 implements
+`worker report` in addition to the accepted ingestion, canonicalization, aggregation,
+finalization, replay and doctor commands. `worker report` emits stable bounded JSON by
+default or concise text with `--text`. Legacy worker Telegram delivery is disabled at
+the Milestone 5 CLI boundary; SMTP compatibility remains, while `telegram-ops` is the
+sole Telegram Bot API sender. Usage errors exit `2`; runtime failures exit `1`.
 
 ## Realtime ingestion
 
@@ -634,11 +631,9 @@ with no spool backlog or dropped operations and used approximately 185 MB across
 realtime ingest/operations relations. No second 48-hour run is required for the
 notification correction.
 
-`scripts/pi-resource-monitor.sh` remains a temporary acceptance-only host helper,
-not a production alerting system. It reads only its Telegram settings from the
-resolved Compose configuration, does not query PostgreSQL with administrator
-credentials, and records delivery state only in memory; that state is lost when
-the script restarts.
+The temporary Pi acceptance monitor has been removed. Its replacement is the
+portable `telegram-ops` service described below; host metrics are optional read-only
+inputs rather than a separate acceptance script.
 
 ## Diagnosing failures
 
@@ -699,3 +694,84 @@ After changing `MIGRATION_DATABASE_URL`, run `npm run db:migrate`. The runner re
 - Every GTFS source key is scoped by immutable feed version. Stable product dimensions use network-scoped public slugs; no public route depends on an identity sequence.
 - The live RENFE archive identifies its sole feed agency as `1071VC`; its routes omit `agency_id`. Madrid assignment uses the verified source route-ID prefix `10`, never the public line label. Station aliases prefer configuration, then `stop_code`, with an explicit version-mapping fallback to `stop_id`; collisions reject instead of guessing. Adding another network is expected to require a focused mapping/code addition, but not a database redesign.
 - Successful static facts cannot be updated or deleted by the worker. The worker receives only selected inserts, stable-dimension upserts, lifecycle updates, reads, sequences, and a fixed security-definer `ANALYZE` function compatible with PostgreSQL 16.
+
+## Milestone 5 CI-only reporting and Telegram operations
+
+`telegram-ops` is a separate container with no public port, privileged mode, or Docker
+socket. It uses `atodotren_telegram`, whose only inherited group role is
+`atodotren_reporting_reader`. Migration `0009_reporting_telegram.sql` exposes approved
+reporting views and small private Telegram checkpoint/delivery/callback/monitor tables;
+the login cannot write ingestion evidence, canonical journeys, aggregates, static GTFS,
+migrations, retention state, or ingestion-owned incidents and cannot `SET ROLE` into
+writer or migration roles.
+
+The service uses the official Telegram Bot API directly with `getUpdates` long polling.
+An existing webhook is a startup error and is never silently deleted. Only `message` and
+`callback_query` updates are requested. The durable checkpoint stores the next update ID;
+Telegram confirms every lower update when that offset is used on the next poll. A
+PostgreSQL session advisory lock permits only one active long-poll consumer. No incoming
+message body, callback body, rendered report, chart bytes, token, or Bot API response is
+retained. Delivery rows retain only bounded type/key, service date where applicable,
+report version, attempt/delivery timestamps, message ID and a redacted failure class;
+callbacks expire after ten minutes by default and delivery state after 45 days.
+
+Authorization requires all three conditions exactly: configured numeric Telegram user
+ID, configured numeric private-chat ID, and Telegram chat type `private`. Unauthorized
+updates receive no response; credential-safe metadata logging is rate limited and never
+includes message or callback text. The startup command menu is English and scoped only to
+that private chat. BotFather prerequisites are limited to creating the bot/token; do not
+configure a webhook. To discover IDs for deployment, send a message to the bot and inspect
+one explicit Bot API `getUpdates` response interactively without placing the token in shell
+history or logs; record only the numeric `from.id` and private `chat.id` in the ignored
+deployment environment file.
+
+Supported read-only commands are `/status`, `/daily [date|yesterday]`, `/line <name>
+[date]`, `/station <name> [date]`, `/trains <line>`, `/train <id>`, `/incidents`,
+`/resources`, `/pilot`, and `/help`. Line/station matching is case- and accent-insensitive,
+alias-aware and partial; ambiguous matches return at most five inline choices. Reports use
+parameterized bounded queries and short statement timeouts. Daily metrics include scheduled
+stop opportunities, usable coverage/sample size, punctuality at delay <=120 seconds,
+average delay, approximate median from the retained h30-v1 histogram, canceled and
+missing-evidence rates, worst line/station with sample sizes, and a seven-day trend. There
+is no low-sample suppression gate. Exact recent state is labelled separately from compact
+aggregate answers.
+
+Daily scheduling uses `Europe/Madrid`: readiness checks begin at 04:00, normal delivery is
+targeted at 05:00 when the previous service day is verified, and one clearly labelled
+provisional/blocked digest is sent at 06:30 if finalization is still unresolved. The key
+is service date plus report version, so ordinary restarts do not repeat an acknowledged
+digest. The digest also includes a short new-service-day status. DST behavior is covered by
+CI. No minimum coverage threshold suppresses delivery.
+
+Ingestion owns incident facts; `telegram-ops` owns Telegram delivery. ACTIVE and RECOVERY
+markers are durable and retried with bounded backoff, so a successful Telegram delivery is
+not retried because another transport failed. The worker is not given Telegram credentials.
+Starting defaults include: durable ingestion stale for 2 minutes; matching below 2% for
+three evaluations and recovery above 5% for three; malformed-rate breach for three cycles;
+spool backlog for 5 minutes or any shedding; PostgreSQL unavailable for three bot checks;
+CPU above 90% for 15 minutes; memory above 85% for 10 minutes; disk below 15% warning and
+below 8% critical; static GTFS older than 8 days; and unresolved previous-day finalization
+at 06:30. Noncritical persistent monitor episodes appear in `/status`/daily output.
+
+`/resources` always distinguishes unavailable measurements from zero. Safe portable
+measurements include the Telegram process/container, PostgreSQL/table/index growth, spool
+size and mounted-volume free space. Metrics for another container are explicitly unavailable
+without privileged access. Optional Pi host metrics use only configured read-only `/proc`
+and root-filesystem mounts; the image works with that mode disabled.
+
+Chart contracts are implemented as bounded data specifications and complete text fallback.
+PNG rendering/sendPhoto is intentionally deferred from this CI-only phase because adding a
+renderer would require a lockfile/dependency verification step that this environment cannot
+perform locally. No chart bytes/files are retained.
+
+Configuration is documented in `example.env`: `ATODOTREN_TELEGRAM_PASSWORD`,
+`TELEGRAM_OPERATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`,
+`TELEGRAM_PRIVATE_CHAT_ID`, digest/report/state settings, alert thresholds, and optional host
+metric paths. Set `TELEGRAM_OPERATIONS_ENABLED=false` and stop/remove only `telegram-ops` to
+disable the service safely; ingestion remains independent.
+
+This implementation phase is verified only by GitHub Actions with fake Telegram, fixture
+feeds and disposable PostgreSQL 16.14/18.4. Local/Pi deployment, BotFather setup, real
+Telegram delivery, real Renfe operation, host-mount validation, PNG renderer selection and
+the two-week evidence pilot are intentionally deferred. A green CI run means ready for the
+next local/Pi acceptance phase, not that Milestone 5 or the pilot is accepted.

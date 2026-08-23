@@ -1,6 +1,6 @@
 # Atodotren MVP Implementation Plan
 
-Status: Milestones 0, 1, 2, and 3 accepted; Milestone 2.1 notification-correctness follow-up complete
+Status: Milestones 0-4 accepted; Milestone 5 CI implementation/readiness in progress; pilot not accepted
 Scope: Madrid Cercanías data foundation first; read-only bilingual PWA second
 Working name: Atodotren
 
@@ -37,7 +37,8 @@ flowchart LR
     PG --> AGG["Batch aggregation + retention"]
     PG --> API["Next.js server read API"]
     API --> PWA["Bilingual PWA"]
-    WORKER --> ALERTS["Telegram and/or email alerts"]
+    PG --> BOT["Private read-only Telegram operations service"]
+    WORKER --> ALERTS["Ingestion incident facts + optional SMTP"]
     WORKER --> HEARTBEAT["External dead-man heartbeat"]
 ```
 
@@ -189,6 +190,7 @@ Database roles:
 - `atodotren_web_reader`: select only from approved `api` objects
 - `atodotren_backup_reader`: read access required for logical backups
 - `atodotren_monitor_reader`: health and diagnostic views only
+- `atodotren_reporting_reader`: approved reporting views plus narrowly scoped Telegram state writes only
 
 Group roles are project-prefixed, `NOLOGIN`, and must have no superuser, role creation, database creation, replication, or row-security-bypass attributes. The migration login receives non-inherited, set-only membership in `atodotren_migration_admin`; the migration runner assumes that owner role for every migration transaction so rotating the login cannot change object ownership or default privileges.
 
@@ -781,18 +783,17 @@ rejecting equivalent active/previous feed lineage.
 
 ### Milestone 5 — Two-week evidence pilot
 
-- run continuously on the Pi 5 or another Docker host
-- implement `worker report`
-- add a configurable low-noise Telegram operational digest, defaulting to daily or disabled
-- report poll freshness/coverage, matching, malformed rate, evidence volume, database growth, static-feed age, spool state, and notified incidents
-- capture host/resource measurements for the Pi pilot
-- inspect Renfe update behavior before and after stops
-- measure matching, stop evidence, feed coverage, inconsistencies, outages, and anomalies
-- measure table/index/WAL growth and local spool behavior
-- replay selected retained payloads through newer code to prove reproducibility
-- generate multi-year synthetic aggregate data and test representative queries
+Milestone 5 is explicitly split into three phases:
 
-Exit: approve or adjust thresholds, histogram range, indexes, provider sizing, and projected annual cost using measured data.
+1. CI-only implementation/readiness: provider-neutral reports, the private read-only Telegram operations container, migration/role security, fake-transport tests, Compose smoke and multiarchitecture builds. No project runtime is executed outside GitHub Actions in this phase.
+2. Manual Pi/local deployment and pilot launch: configure BotFather/token and private IDs, apply migration 0009, validate read-only host metrics if desired, exercise real Telegram delivery deliberately, and start the two-week evidence pilot.
+3. Pilot analysis/corrections: inspect Renfe behavior, matching/evidence quality, outages, storage/WAL/spool growth, replay reproducibility, query performance and sizing before accepting thresholds or cost projections.
+
+CI-only accepted scope includes `worker report` plus `/status`, `/daily`, `/line`, `/station`, `/trains`, `/train`, `/incidents`, `/resources`, `/pilot`, and `/help`. Telegram is private, English operational text only, exact user+private-chat authorization, `getUpdates` long polling under one advisory-lock owner, read-only reporting, bounded queries/results, durable checkpoints/delivery markers and no arbitrary SQL or mutating administration. Ingestion persists incident facts; the Telegram service is the sole Telegram sender. Daily scheduling is Europe/Madrid 04:00 readiness, 05:00 normal target, and one provisional/blocked digest at 06:30 if finalization remains unresolved. The agreed punctuality threshold remains 120 seconds.
+
+Resource reporting is portable and never fabricates zero for unavailable data. Optional Pi host metrics use narrowly scoped read-only mounts and no Docker socket/privileged mode. PNG chart rendering is deferred from the CI-only phase unless it can be implemented without an unverified dependency; bounded chart specifications and text fallback are required meanwhile.
+
+Exit from phase 1: all required GitHub Actions gates are green and the branch is documented as ready for local/Pi verification. This does not accept Milestone 5. Final Milestone 5 exit remains approval or adjustment of thresholds, histogram range, indexes, provider sizing, and projected annual cost using the completed pilot evidence.
 
 ### Milestone 6 — Managed PostgreSQL selection and deployment
 
@@ -918,7 +919,6 @@ A failure at an earlier layer blocks the later deployment layer.
 - frontend visual system beyond the existing product principles
 - detailed Termo de Madrid animation matching until its source is available
 - expansion beyond Madrid
-- inbound Telegram command bot unless later evidence justifies it
 
 ## 24. Immediate next actions
 
