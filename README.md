@@ -799,7 +799,9 @@ Telegram-specific defaults remain: ingestion freshness from `INGEST_STALE_AFTER_
 above 90% for 15 minutes, memory above 85% for 10 minutes, disk below 15% warning/below 8%
 critical, static GTFS older than 8 days, and unresolved previous-day finalization at 06:30.
 Normal incident/digest/command delivery markers are durable in PostgreSQL and retried with
-bounded backoff.
+bounded backoff. Transient command failures retain the Telegram update until retry is due;
+permanent Telegram 4xx failures and deliveries that exhaust eight attempts are durably
+classified and checkpointed so one poisoned update cannot block later commands.
 
 `/resources` always distinguishes unavailable measurements from zero. Safe portable
 measurements include the Telegram process/container, PostgreSQL size, spool size and
@@ -832,7 +834,9 @@ docker compose --env-file .env run --rm --no-deps telegram-ops   test-notificati
 The command refuses to send without the literal confirmation flag, validates the bot token
 and exact configured user/private-chat IDs, sends one clearly labelled Atodotren test
 message, suppresses credential/response details on failure, and exits nonzero if delivery
-fails. Ordinary CI uses only fake Telegram.
+fails. The test, command replies, digests, outage notices and incident messages all request
+normal Telegram notifications rather than silent delivery. Ordinary CI uses only fake
+Telegram.
 
 The container healthcheck has no public HTTP port. When Telegram operations are enabled it
 tracks the timestamp of successful long-poll/service progress in a mode-0600 local health

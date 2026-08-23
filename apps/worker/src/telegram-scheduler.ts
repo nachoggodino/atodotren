@@ -2,6 +2,11 @@ import { currentMadridServiceDate, REPORT_TIMEZONE, shiftIsoDate } from './repor
 import { formatReportText, statusReport } from './reporting-operations.js';
 import type { ReportingService } from './reporting-service.js';
 import { compactResourceSection, type ResourceCollector } from './resources.js';
+import {
+  classifyTelegramDeliveryFailure,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from './telegram-delivery-retry.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
 import type { TelegramStateStore } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
@@ -75,7 +80,9 @@ export async function runDigestCheck(options: {
   if (!['normal', 'provisional'].includes(decision)) return decision;
   const deliveryKey = `digest:${previousServiceDate}:${options.config.reportVersion}`;
   const previous = await options.state.delivery(deliveryKey);
-  if (previous?.delivered === true) return decision;
+  if (previous?.delivered === true || telegramDeliveryAbandoned(previous)) return decision;
+  const retryWaitMs = telegramDeliveryRetryWait(previous, options.now);
+  if (retryWaitMs !== null && retryWaitMs > 0) return decision;
   const reserved = await options.state.beginDelivery({
     key: deliveryKey,
     type: decision === 'normal' ? 'digest_normal' : 'digest_provisional',
@@ -99,8 +106,9 @@ export async function runDigestCheck(options: {
     const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text.slice(0, 4_000), { disableNotification: false }, options.signal);
     await options.state.markDelivered(deliveryKey, sent.message_id);
   } catch (error) {
-    await options.state.markFailed(deliveryKey, error instanceof Error ? error.name : 'DeliveryError');
-    throw error;
+    const failure = classifyTelegramDeliveryFailure(error, reserved.attempts);
+    await options.state.markFailed(deliveryKey, failure.failureClass);
+    if (!failure.abandon) throw error;
   }
   return decision;
 }

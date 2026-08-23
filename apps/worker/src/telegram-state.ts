@@ -11,6 +11,7 @@ export interface DeliveryRecord {
   readonly attempts: number;
   readonly lastAttemptAt: Date | null;
   readonly messageId: number | null;
+  readonly failureClass: string | null;
 }
 
 export interface CallbackTarget {
@@ -74,13 +75,13 @@ export class TelegramStateStore {
   }
 
   public async deliveryForUpdate(updateId: number): Promise<DeliveryRecord | null> {
-    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id, failure_class
       FROM operations.telegram_delivery WHERE source_update_id = $1`, [updateId]);
     return deliveryRecord(result.rows[0]);
   }
 
   public async delivery(deliveryKey: string): Promise<DeliveryRecord | null> {
-    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id
+    const result = await this.#pool.query<Record<string, unknown>>(`SELECT delivered_at, attempt_count, last_attempt_at, telegram_message_id, failure_class
       FROM operations.telegram_delivery WHERE delivery_key = $1`, [deliveryKey]);
     return deliveryRecord(result.rows[0]);
   }
@@ -103,7 +104,7 @@ export class TelegramStateStore {
           THEN clock_timestamp() ELSE operations.telegram_delivery.last_attempt_at END,
         failure_class = CASE WHEN operations.telegram_delivery.delivered_at IS NULL
           THEN NULL ELSE operations.telegram_delivery.failure_class END
-      RETURNING delivered_at, attempt_count, last_attempt_at, telegram_message_id`, [
+      RETURNING delivered_at, attempt_count, last_attempt_at, telegram_message_id, failure_class`, [
       options.key, options.type, options.updateId ?? null, options.serviceDate ?? null,
       this.#reportVersion, this.#retentionDays,
     ]);
@@ -184,5 +185,6 @@ function deliveryRecord(row: Readonly<Record<string, unknown>> | undefined): Del
     attempts: Number(row.attempt_count ?? 0),
     lastAttemptAt: row.last_attempt_at === null || row.last_attempt_at === undefined ? null : new Date(row.last_attempt_at as string | Date),
     messageId: rawMessageId === null || rawMessageId === undefined ? null : Number(rawMessageId),
+    failureClass: typeof row.failure_class === 'string' ? row.failure_class : null,
   };
 }

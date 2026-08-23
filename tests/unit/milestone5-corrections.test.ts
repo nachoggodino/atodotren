@@ -6,10 +6,17 @@ import type { DatabaseConnection } from '@atodotren/db';
 import { executeCallback, executeTelegramCommand } from '@atodotren/worker/telegram-commands';
 import { loadTelegramOperationsConfig } from '@atodotren/worker/telegram-config';
 import {
+  classifyTelegramDeliveryFailure,
+  TELEGRAM_DELIVERY_MAX_ATTEMPTS,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from '@atodotren/worker/telegram-delivery-retry';
+import {
   executeTelegramOperationsCli,
   processTelegramUpdate,
   TelegramPollBackoff,
   TelegramUpdateFallbackState,
+  UnauthorizedUpdateLogLimiter,
   telegramHealthStatus,
   waitForAbortableDelay,
 } from '@atodotren/worker/telegram-operations';
@@ -144,6 +151,7 @@ void test('one-shot Telegram test refuses without confirmation and sends exactly
   assert.deepEqual(calls.map((call) => call.method), ['sendMessage']);
   assert.match(String(calls[0]?.body.text), /Atodotren TEST notification/u);
   assert.equal(String(calls[0]?.body.chat_id), '202');
+  assert.equal(calls[0]?.body.disable_notification, false);
   assert.match(output.join(''), /delivered/u);
   assert.doesNotMatch(errors.join(''), /fake-token-secret/u);
 });
@@ -172,8 +180,13 @@ void test('database failure for a queued command is deferred without terminating
     markFailed: async () => undefined,
   } as unknown as TelegramStateStore;
   const messages: string[] = [];
+  const notificationModes: boolean[] = [];
   const telegram = {
-    sendMessage: async (_chatId: string, text: string) => { messages.push(text); return { message_id: messages.length }; },
+    sendMessage: async (_chatId: string, text: string, sendOptions: { readonly disableNotification?: boolean }) => {
+      messages.push(text);
+      notificationModes.push(sendOptions.disableNotification ?? false);
+      return { message_id: messages.length };
+    },
   } as unknown as TelegramBotApi;
   const fallback = new TelegramUpdateFallbackState();
   const config = loadTelegramOperationsConfig(telegramEnvironment());
@@ -191,13 +204,71 @@ void test('database failure for a queued command is deferred without terminating
     logger: { warn: () => undefined },
     fallback,
   };
-  assert.equal(await processTelegramUpdate(common), 'deferred');
+  assert.deepEqual(await processTelegramUpdate(common), { status: 'retry', delayMs: 5_000 });
   assert.match(messages[0] ?? '', /Reporting database unavailable/u);
-  assert.equal(await processTelegramUpdate(common), 'deferred');
+  assert.deepEqual(await processTelegramUpdate(common), { status: 'retry', delayMs: 5_000 });
   assert.equal(messages.length, 1);
   databaseDown = false;
-  assert.equal(await processTelegramUpdate(common), 'handled');
+  assert.deepEqual(await processTelegramUpdate(common), { status: 'handled' });
   assert.match(messages[1] ?? '', /Atodotren operations bot/u);
+  assert.deepEqual(notificationModes, [false, false]);
+});
+
+void test('unauthorized Telegram logging emits one bounded summary per five-minute window', () => {
+  const limiter = new UnauthorizedUpdateLogLimiter();
+  assert.deepEqual(limiter.observe(1_000), { log: true, suppressed: 0 });
+  assert.deepEqual(limiter.observe(2_000), { log: false, suppressed: 1 });
+  assert.deepEqual(limiter.observe(3_000), { log: false, suppressed: 2 });
+  assert.deepEqual(limiter.observe(301_000), { log: true, suppressed: 2 });
+});
+
+void test('delivery retry policy honors retry_after and abandons permanent or exhausted failures', () => {
+  const retryable = classifyTelegramDeliveryFailure(new TelegramApiError(429, 429, 7), 1);
+  assert.deepEqual(retryable, {
+    abandon: false,
+    delayMs: 7_000,
+    failureClass: 'TelegramApiError',
+  });
+  const permanent = classifyTelegramDeliveryFailure(new TelegramApiError(400, 400), 1);
+  assert.equal(permanent.abandon, true);
+  assert.equal(permanent.failureClass, 'Permanent.TelegramApiError');
+  const exhausted = classifyTelegramDeliveryFailure(new TypeError('network'), TELEGRAM_DELIVERY_MAX_ATTEMPTS);
+  assert.equal(exhausted.abandon, true);
+
+  const record = {
+    delivered: false,
+    attempts: 2,
+    lastAttemptAt: new Date(now.getTime() - 2_000),
+    messageId: null,
+    failureClass: 'TypeError',
+  };
+  assert.equal(telegramDeliveryRetryWait(record, now), 8_000);
+  assert.equal(telegramDeliveryAbandoned({ ...record, attempts: TELEGRAM_DELIVERY_MAX_ATTEMPTS }), true);
+});
+
+void test('permanent command delivery failure is durably marked and does not block later updates', async () => {
+  let failureClass = '';
+  const state = {
+    deliveryForUpdate: async () => null,
+    beginDelivery: async () => ({ delivered: false, attempts: 1, lastAttemptAt: now, messageId: null, failureClass: null }),
+    markDelivered: async () => undefined,
+    markFailed: async (_key: string, value: string) => { failureClass = value; },
+  } as unknown as TelegramStateStore;
+  const telegram = {
+    sendMessage: async () => { throw new TelegramApiError(400, 400); },
+  } as unknown as TelegramBotApi;
+  const result = await processTelegramUpdate({
+    update: { update_id: 44, message: { message_id: 1, from: { id: 101 }, chat: { id: 202, type: 'private' }, text: '/help' } },
+    config: loadTelegramOperationsConfig(telegramEnvironment()),
+    reporting: { now: () => now } as ReportingService,
+    resources: {} as ResourceCollector,
+    state,
+    telegram,
+    logger: { warn: () => undefined },
+    fallback: new TelegramUpdateFallbackState(),
+  });
+  assert.deepEqual(result, { status: 'handled' });
+  assert.equal(failureClass, 'Permanent.TelegramApiError');
 });
 
 void test('/trains ambiguity preserves callback intent and completes the trains request', async () => {

@@ -6,6 +6,11 @@ import { createLogger, createShutdownManager } from '@atodotren/observability';
 import { executeCallback, executeTelegramCommand, parseTelegramCommand, type CommandResponse } from './telegram-commands.js';
 import { loadTelegramDeliveryConfig, loadTelegramOperationsConfig, type TelegramOperationsConfig } from './telegram-config.js';
 import { deliverIngestionIncidents } from './telegram-alerts.js';
+import {
+  classifyTelegramDeliveryFailure,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from './telegram-delivery-retry.js';
 import { TelegramOperationalMonitor } from './telegram-monitor.js';
 import { ReportingService } from './reporting-service.js';
 import { ResourceCollector } from './resources.js';
@@ -23,11 +28,33 @@ const POLL_BACKOFF_EXPONENTIAL_CAP_MS = 30_000;
 const POLL_BACKOFF_MAX_MS = 300_000;
 const POLL_BACKOFF_JITTER_RATIO = 0.20;
 const HEALTH_GRACE_MS = 30_000;
+const DATABASE_RETRY_MS = 5_000;
+const UNAUTHORIZED_LOG_INTERVAL_MS = 300_000;
 const DATABASE_UNAVAILABLE_TEXT = 'Reporting database unavailable. The bot is still polling; retry after PostgreSQL recovers.';
 
 type Logger = ReturnType<typeof createLogger>;
 type Sleep = (milliseconds: number) => Promise<void>;
-type ProcessUpdateResult = 'handled' | 'deferred' | 'delivery-failed';
+export type ProcessUpdateResult =
+  | { readonly status: 'handled' }
+  | { readonly status: 'retry'; readonly delayMs: number };
+
+const HANDLED: ProcessUpdateResult = { status: 'handled' };
+
+export class UnauthorizedUpdateLogLimiter {
+  #lastLoggedAtMs: number | undefined;
+  #suppressed = 0;
+
+  public observe(nowMs: number): { readonly log: boolean; readonly suppressed: number } {
+    if (this.#lastLoggedAtMs === undefined || nowMs - this.#lastLoggedAtMs >= UNAUTHORIZED_LOG_INTERVAL_MS) {
+      const suppressed = this.#suppressed;
+      this.#lastLoggedAtMs = nowMs;
+      this.#suppressed = 0;
+      return { log: true, suppressed };
+    }
+    this.#suppressed += 1;
+    return { log: false, suppressed: this.#suppressed };
+  }
+}
 
 export interface TelegramOperationsDependencies {
   readonly connect?: typeof createDatabaseConnection;
@@ -204,9 +231,10 @@ export async function runTelegramOperations(
     await telegram.registerCommands(config.privateChatId ?? '', options.signal);
     await (dependencies.healthWriter ?? writeHealthProgress)(Date.now());
     const fallback = new TelegramUpdateFallbackState();
+    const unauthorizedLogLimiter = new UnauthorizedUpdateLogLimiter();
     const monitor = new TelegramOperationalMonitor({ reporting, resources, state, telegram, config });
     await Promise.all([
-      pollingLoop({ config, reporting, resources, state, telegram, logger, fallback, signal: options.signal, dependencies }),
+      pollingLoop({ config, reporting, resources, state, telegram, logger, fallback, unauthorizedLogLimiter, signal: options.signal, dependencies }),
       maintenanceLoop({ config, reporting, resources, state, telegram, monitor, logger, signal: options.signal, dependencies }),
     ]);
   } finally {
@@ -223,6 +251,7 @@ async function pollingLoop(options: {
   readonly telegram: TelegramBotApi;
   readonly logger: Logger;
   readonly fallback: TelegramUpdateFallbackState;
+  readonly unauthorizedLogLimiter: UnauthorizedUpdateLogLimiter;
   readonly signal: AbortSignal;
   readonly dependencies: TelegramOperationsDependencies;
 }): Promise<void> {
@@ -266,10 +295,10 @@ async function pollingLoop(options: {
           updateId: update.update_id,
           failureClass: error instanceof Error ? error.name : 'UnknownError',
         });
-        result = 'deferred';
+        result = retryAfter(DATABASE_RETRY_MS);
       }
-      if (result !== 'handled') {
-        await waitForAbortableDelay(POLL_BACKOFF_BASE_MS, options.signal, sleep);
+      if (result.status !== 'handled') {
+        await waitForAbortableDelay(result.delayMs, options.signal, sleep);
         break;
       }
       try {
@@ -281,7 +310,7 @@ async function pollingLoop(options: {
           updateId: update.update_id,
           failureClass: error instanceof Error ? error.name : 'UnknownError',
         });
-        await waitForAbortableDelay(POLL_BACKOFF_BASE_MS, options.signal, sleep);
+        await waitForAbortableDelay(DATABASE_RETRY_MS, options.signal, sleep);
         break;
       }
     }
@@ -297,12 +326,19 @@ export async function processTelegramUpdate(options: {
   readonly telegram: TelegramBotApi;
   readonly logger: Pick<Logger, 'warn'>;
   readonly fallback: TelegramUpdateFallbackState;
+  readonly unauthorizedLogLimiter?: UnauthorizedUpdateLogLimiter;
   readonly signal?: AbortSignal;
 }): Promise<ProcessUpdateResult> {
   const { update, config, state, telegram, fallback } = options;
   if (!isAuthorizedUpdate(update, config)) {
-    options.logger.warn('telegram.unauthorized', 'Ignored unauthorized Telegram update', { updateId: update.update_id });
-    return 'handled';
+    const observation = options.unauthorizedLogLimiter?.observe(options.reporting.now().getTime()) ?? { log: true, suppressed: 0 };
+    if (observation.log) {
+      options.logger.warn('telegram.unauthorized', 'Ignored unauthorized Telegram update; repeated events are rate limited', {
+        updateId: update.update_id,
+        suppressedSincePreviousLog: observation.suppressed,
+      });
+    }
+    return HANDLED;
   }
   const deliveryKey = `command:${update.update_id}:${config.reportVersion}`;
   const localDelivery = fallback.localDelivery(update.update_id);
@@ -310,16 +346,26 @@ export async function processTelegramUpdate(options: {
     try {
       const reserved = await state.beginDelivery({ key: localDelivery.key, type: 'command', updateId: update.update_id });
       if (!reserved.delivered) await state.markDelivered(localDelivery.key, localDelivery.messageId);
-      return 'handled';
+      return HANDLED;
     } catch (error) {
-      if (isReportingDatabaseUnavailable(error)) return 'deferred';
+      if (isReportingDatabaseUnavailable(error)) return retryAfter(DATABASE_RETRY_MS);
       throw error;
     }
   }
 
   try {
     const previous = await state.deliveryForUpdate(update.update_id);
-    if (previous?.delivered === true) return 'handled';
+    if (previous?.delivered === true) return HANDLED;
+    if (telegramDeliveryAbandoned(previous)) {
+      options.logger.warn('telegram.command_abandoned', 'A Telegram command delivery was abandoned after a permanent or exhausted failure', {
+        updateId: update.update_id,
+        attempts: previous?.attempts ?? 0,
+        failureClass: previous?.failureClass ?? 'DeliveryError',
+      });
+      return HANDLED;
+    }
+    const waitMs = telegramDeliveryRetryWait(previous, options.reporting.now());
+    if (waitMs !== null && waitMs > 0) return retryAfter(waitMs);
   } catch (error) {
     if (isReportingDatabaseUnavailable(error)) return databaseUnavailableUpdate(options);
     throw error;
@@ -350,9 +396,11 @@ export async function processTelegramUpdate(options: {
     };
   }
 
+  let reservedAttempts: number;
   try {
     const reserved = await state.beginDelivery({ key: deliveryKey, type: 'command', updateId: update.update_id });
-    if (reserved.delivered) return 'handled';
+    if (reserved.delivered) return HANDLED;
+    reservedAttempts = reserved.attempts;
   } catch (error) {
     if (isReportingDatabaseUnavailable(error)) return databaseUnavailableUpdate(options);
     throw error;
@@ -363,29 +411,41 @@ export async function processTelegramUpdate(options: {
       config.privateChatId ?? '',
       response.text,
       response.buttons === undefined
-        ? { disableNotification: true }
-        : { buttons: response.buttons, disableNotification: true },
+        ? { disableNotification: false }
+        : { buttons: response.buttons, disableNotification: false },
       options.signal,
     );
     fallback.markLocalDelivery(update.update_id, deliveryKey, sent.message_id);
     try {
       await state.markDelivered(deliveryKey, sent.message_id);
     } catch (error) {
-      if (isReportingDatabaseUnavailable(error)) return 'deferred';
+      if (isReportingDatabaseUnavailable(error)) return retryAfter(DATABASE_RETRY_MS);
       throw error;
     }
     if (update.callback_query !== undefined) {
       await telegram.answerCallbackQuery(update.callback_query.id, options.signal);
     }
-    return 'handled';
+    return HANDLED;
   } catch (error) {
+    const failure = classifyTelegramDeliveryFailure(error, reservedAttempts);
     try {
-      await state.markFailed(deliveryKey, error instanceof Error ? error.name : 'DeliveryError');
-    } catch {
-      // The original delivery failure remains authoritative; a database failure
-      // here must not terminate the polling service.
+      await state.markFailed(deliveryKey, failure.failureClass);
+    } catch (persistenceError) {
+      options.logger.warn('telegram.delivery_state_deferred', 'Telegram delivery failure state could not be persisted; the update remains pending', {
+        updateId: update.update_id,
+        failureClass: persistenceError instanceof Error ? persistenceError.name : 'PersistenceError',
+      });
+      return retryAfter(DATABASE_RETRY_MS);
     }
-    return 'delivery-failed';
+    if (failure.abandon) {
+      options.logger.warn('telegram.command_abandoned', 'A Telegram command delivery was abandoned after a permanent or exhausted failure', {
+        updateId: update.update_id,
+        attempts: reservedAttempts,
+        failureClass: failure.failureClass,
+      });
+      return HANDLED;
+    }
+    return retryAfter(failure.delayMs);
   }
 }
 
@@ -396,19 +456,19 @@ async function databaseUnavailableUpdate(options: {
   readonly fallback: TelegramUpdateFallbackState;
   readonly signal?: AbortSignal;
 }): Promise<ProcessUpdateResult> {
-  if (options.fallback.noticeSent(options.update.update_id)) return 'deferred';
+  if (options.fallback.noticeSent(options.update.update_id)) return retryAfter(DATABASE_RETRY_MS);
   try {
     await options.telegram.sendMessage(
       options.config.privateChatId ?? '',
       DATABASE_UNAVAILABLE_TEXT,
-      { disableNotification: true },
+      { disableNotification: false },
       options.signal,
     );
     options.fallback.markNotice(options.update.update_id);
   } catch {
-    return 'delivery-failed';
+    return retryAfter(DATABASE_RETRY_MS);
   }
-  return 'deferred';
+  return retryAfter(DATABASE_RETRY_MS);
 }
 
 async function maintenanceLoop(options: {
@@ -478,7 +538,7 @@ export async function executeTelegramOperationsCli(
       await telegram.sendMessage(
         config.privateChatId,
         'Atodotren TEST notification · manual one-shot Telegram delivery check. No operational incident was created.',
-        { disableNotification: true },
+        { disableNotification: false },
       );
       stdout.write('Telegram test notification delivered.\n');
       return 0;
@@ -517,6 +577,10 @@ export async function executeTelegramOperationsCli(
 
 function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function retryAfter(delayMs: number): ProcessUpdateResult {
+  return { status: 'retry', delayMs: Math.max(POLL_BACKOFF_BASE_MS, Math.min(POLL_BACKOFF_MAX_MS, delayMs)) };
 }
 
 async function waitForAbort(signal: AbortSignal): Promise<void> {

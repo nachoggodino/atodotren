@@ -48,6 +48,10 @@
       "types": "./dist/telegram-config.d.ts",
       "default": "./dist/telegram-config.js"
     },
+    "./telegram-delivery-retry": {
+      "types": "./dist/telegram-delivery-retry.d.ts",
+      "default": "./dist/telegram-delivery-retry.js"
+    },
     "./telegram-monitor": {
       "types": "./dist/telegram-monitor.d.ts",
       "default": "./dist/telegram-monitor.js"
