@@ -152,9 +152,12 @@ export class TelegramStateStore {
 
   public async recordResourceSample(sample: ResourceSample, sampledAt: Date = new Date(sample.generatedAt)): Promise<boolean> {
     if (Number.isNaN(sampledAt.getTime())) return false;
+    const database = measurementValue(sample.databaseBytes);
+    const spool = measurementValue(sample.spoolBytes);
     const cpu = measurementValue(preferredMeasurement(sample.hostCpuRatio, sample.telegramProcessCpuRatio));
     const memory = measurementValue(preferredMeasurement(sample.hostMemoryRatio, sample.telegramContainerMemoryRatio));
     const disk = measurementValue(preferredMeasurement(sample.hostDiskFreeRatio, sample.spoolFreeRatio));
+    if ([database, spool, cpu, memory, disk].every((value) => value === null)) return false;
     const result = await this.#pool.query<Record<string, unknown>>(`INSERT INTO operations.telegram_resource_sample (
         sampled_at, database_bytes, spool_bytes, cpu_ratio, memory_ratio, disk_free_ratio
       )
@@ -164,9 +167,7 @@ export class TelegramStateStore {
         WHERE sampled_at > $1::timestamptz - interval '1 hour'
       )
       ON CONFLICT DO NOTHING
-      RETURNING sampled_at`, [
-      sampledAt.toISOString(), measurementValue(sample.databaseBytes), measurementValue(sample.spoolBytes), cpu, memory, disk,
-    ]);
+      RETURNING sampled_at`, [sampledAt.toISOString(), database, spool, cpu, memory, disk]);
     return result.rows.length === 1;
   }
 
