@@ -58,8 +58,14 @@ export async function validateRoleContract(
   ) {
     throw new Error(`Login role ${loginRole} has unsafe attributes`);
   }
+
+  const missingGroups = atodotrenGroupRoles.filter(
+    (required) => !groups.some((role) => role.rolname === required),
+  );
+  if (missingGroups.length > 0) {
+    throw new Error(`Required Atodotren group role ${missingGroups.join(', ')} is missing`);
+  }
   if (
-    groups.length !== atodotrenGroupRoles.length ||
     groups.some(
       (role) =>
         role.rolcanlogin ||
@@ -70,7 +76,7 @@ export async function validateRoleContract(
         role.rolbypassrls,
     )
   ) {
-    throw new Error('Required Atodotren group roles are missing or have unsafe attributes');
+    throw new Error('Required Atodotren group roles have unsafe attributes');
   }
 
   const direct = await client.query<MembershipRow>(
