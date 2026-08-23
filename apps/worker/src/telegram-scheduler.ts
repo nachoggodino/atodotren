@@ -62,7 +62,7 @@ export async function runDigestCheck(options: {
   if (reserved.delivered) return decision;
   const currentStatus = await statusReport(options.reporting);
   const heading = decision === 'normal' ? 'Daily operations digest' : 'PROVISIONAL / FINALIZATION BLOCKED';
-  const text = `${heading}\n${formatReportText(daily)}\nNew service day ${currentServiceDate}: ${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents)}`;
+  const text = `${heading}\n${formatReportText(daily)}\nNew service day ${currentServiceDate}: ${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
   try {
     const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text.slice(0, 4_000), { disableNotification: false }, options.signal);
     await options.state.markDelivered(deliveryKey, sent.message_id);
@@ -73,7 +73,11 @@ export async function runDigestCheck(options: {
   return decision;
 }
 
-function shortCurrentStatus(ingestion: Readonly<Record<string, unknown>> | null, openIncidents: number): string {
-  if (ingestion === null) return `ingestion unavailable; ${openIncidents} open incident(s)`;
-  return `last durable ${String(ingestion.last_durable_cycle_at ?? 'n/a')}; spool ${String(ingestion.spool_pending_count ?? 'n/a')} pending; ${openIncidents} open incident(s)`;
+function shortCurrentStatus(
+  ingestion: Readonly<Record<string, unknown>> | null,
+  openIncidents: number,
+  openMonitors: number,
+): string {
+  if (ingestion === null) return `ingestion unavailable; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
+  return `last durable ${String(ingestion.last_durable_cycle_at ?? 'n/a')}; spool ${String(ingestion.spool_pending_count ?? 'n/a')} pending; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
 }

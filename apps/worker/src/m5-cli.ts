@@ -91,6 +91,18 @@ async function runReport(options: ReportOptions, dependencies: Milestone5Depende
   }
 }
 
+function withoutLegacyTelegram(dependencies: Milestone5Dependencies): Milestone5Dependencies {
+  const environment = dependencies.environment ?? process.env;
+  return {
+    ...dependencies,
+    environment: {
+      ...environment,
+      TELEGRAM_BOT_TOKEN: undefined,
+      TELEGRAM_CHAT_ID: undefined,
+    },
+  };
+}
+
 export async function executeMilestone5Cli(
   arguments_: readonly string[],
   dependencies: Milestone5Dependencies = {},
@@ -103,7 +115,7 @@ export async function executeMilestone5Cli(
       stdout.write(milestone5RootUsage);
       return 0;
     }
-    if (first !== 'report') return await executeMilestone4Cli(arguments_, dependencies);
+    if (first !== 'report') return await executeMilestone4Cli(arguments_, withoutLegacyTelegram(dependencies));
     const now = (dependencies.reportNow ?? (() => new Date()))();
     const options = parseReportOptions(arguments_.slice(1), now);
     if (options.help) {

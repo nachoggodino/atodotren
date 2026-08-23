@@ -1,9 +1,10 @@
-import { createDatabaseConnection, type DatabaseConnection } from '@atodotren/db';
+import { createDatabaseConnection } from '@atodotren/db';
 import { createLogger } from '@atodotren/observability';
 
 import { executeCallback, executeTelegramCommand, parseTelegramCommand, type CommandResponse } from './telegram-commands.js';
 import { deliverIngestionIncidents } from './telegram-alerts.js';
 import { loadTelegramOperationsConfig, type TelegramOperationsConfig } from './telegram-config.js';
+import { TelegramOperationalMonitor } from './telegram-monitor.js';
 import { runDigestCheck } from './telegram-scheduler.js';
 import { ResourceCollector } from './resources.js';
 import { ReportingService } from './reporting-service.js';
@@ -74,6 +75,7 @@ export async function runTelegramOperations(
     baseUrl: config.apiBaseUrl,
     ...(dependencies.fetchImplementation === undefined ? {} : { fetchImplementation: dependencies.fetchImplementation }),
   });
+  const monitor = new TelegramOperationalMonitor({ reporting, resources, state, telegram, config });
   let releaseLock: (() => Promise<void>) | undefined;
   try {
     await telegram.assertLongPollingAvailable(options.signal);
@@ -83,7 +85,7 @@ export async function runTelegramOperations(
       allowedUserId: Number(config.allowedUserId), privateChatId: Number(config.privateChatId),
       reportVersion: config.reportVersion,
     });
-    await pollingLoop({ config, reporting, state, resources, telegram, signal: options.signal, now, logger });
+    await pollingLoop({ config, reporting, state, resources, telegram, monitor, signal: options.signal, now, logger });
   } finally {
     try {
       await releaseLock?.();
@@ -99,6 +101,7 @@ async function pollingLoop(options: {
   readonly state: TelegramStateStore;
   readonly resources: ResourceCollector;
   readonly telegram: TelegramBotApi;
+  readonly monitor: TelegramOperationalMonitor;
   readonly signal: AbortSignal;
   readonly now: () => Date;
   readonly logger: ReturnType<typeof createLogger>;
@@ -124,6 +127,11 @@ async function pollingLoop(options: {
     }
     const current = options.now();
     if (current.getTime() >= nextMaintenanceAt && !options.signal.aborted) {
+      try {
+        await options.monitor.evaluate(current, options.signal);
+      } catch (error) {
+        options.logger.warn('telegram.monitor_failed', 'Telegram operational monitor evaluation failed', { error });
+      }
       try {
         await runDigestCheck({
           now: current, config: options.config, reporting: options.reporting,

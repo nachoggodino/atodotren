@@ -107,6 +107,7 @@ export interface StatusReport extends ReportBase {
   readonly latestFinalization: Readonly<Record<string, unknown>> | null;
   readonly staticFeed: Readonly<Record<string, unknown>> | null;
   readonly openIncidents: number;
+  readonly openMonitorEpisodes: readonly Readonly<Record<string, unknown>>[];
 }
 
 export interface IncidentsReport extends ReportBase {

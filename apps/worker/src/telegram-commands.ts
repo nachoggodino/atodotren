@@ -95,7 +95,7 @@ export async function executeTelegramCommand(options: {
   }
   if (command.name === 'daily') {
     const [daily, status] = await Promise.all([reporting.daily(command.date), statusReport(reporting)]);
-    const technical = `Technical: open incidents ${status.openIncidents}; ingestion ${briefHealth(status.ingestion)}`;
+    const technical = `Technical: ingestion incidents ${status.openIncidents}; bot monitors ${status.openMonitorEpisodes.length}; ingestion ${briefHealth(status.ingestion)}`;
     return { text: bounded(`${formatReportText(daily)}\n${technical}`), chart: daily.chart };
   }
   if (command.name === 'train') return { text: bounded(formatReportText(await trainReport(reporting, command.trainId))) };

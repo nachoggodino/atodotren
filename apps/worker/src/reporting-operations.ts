@@ -19,12 +19,14 @@ import type { ReportingService } from './reporting-service.js';
 export async function statusReport(reporting: ReportingService): Promise<StatusReport> {
   const now = reporting.now();
   const pool = reporting.pool;
-  const [ingestion, canonical, finalization, staticFeed, incidents] = await Promise.all([
+  const [ingestion, canonical, finalization, staticFeed, incidents, monitors] = await Promise.all([
     pool.query('SELECT * FROM operations.report_ingest_health LIMIT 1'),
     pool.query('SELECT * FROM operations.report_canonical_health LIMIT 1'),
     pool.query('SELECT * FROM operations.report_finalization ORDER BY service_date DESC, finalized_at DESC LIMIT 1'),
     pool.query('SELECT * FROM operations.report_static_age ORDER BY network_id LIMIT 1'),
     pool.query("SELECT count(*)::int AS count FROM operations.report_incident_episode WHERE is_open"),
+    pool.query(`SELECT monitor_key, opened_at, last_observed_at, consecutive_count
+      FROM operations.telegram_monitor_episode WHERE is_open ORDER BY opened_at LIMIT 20`),
   ]);
   return {
     ...reportBase(now), kind: 'status', source: 'operational_views', precision: 'operational snapshot',
@@ -33,6 +35,7 @@ export async function statusReport(reporting: ReportingService): Promise<StatusR
     latestFinalization: (finalization.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
     staticFeed: (staticFeed.rows[0] as Readonly<Record<string, unknown>> | undefined) ?? null,
     openIncidents: numberValue(incidents.rows[0]?.count),
+    openMonitorEpisodes: monitors.rows as readonly Readonly<Record<string, unknown>>[],
   };
 }
 
@@ -149,7 +152,12 @@ export function formatReportText(report: ReportResult): string {
   }
   if (report.kind === 'line') return `${report.line.code} — ${report.serviceDate}\n${metricText(report)}\nSource: ${report.source}; precision: ${report.precision}`;
   if (report.kind === 'station') return `${report.station.name} — ${report.serviceDate}\n${metricText(report)}\nSource: ${report.source}; precision: ${report.precision}`;
-  if (report.kind === 'status') return `Status ${report.generatedAt}\nOpen incidents: ${report.openIncidents}\nIngestion: ${JSON.stringify(report.ingestion)}\nCanonical: ${JSON.stringify(report.canonical)}\nFinalization: ${JSON.stringify(report.latestFinalization)}`;
+  if (report.kind === 'status') {
+    const monitors = report.openMonitorEpisodes.length === 0
+      ? 'none'
+      : report.openMonitorEpisodes.map((episode) => String(episode.monitor_key)).join(', ');
+    return `Status ${report.generatedAt}\nOpen ingestion incidents: ${report.openIncidents}\nOpen bot monitor episodes: ${monitors}\nIngestion: ${JSON.stringify(report.ingestion)}\nCanonical: ${JSON.stringify(report.canonical)}\nFinalization: ${JSON.stringify(report.latestFinalization)}`;
+  }
   if (report.kind === 'incidents') return report.incidents.length === 0
     ? 'No open or recent incident episodes.'
     : report.incidents.map((incident) => `${String(incident.incident_key)} · ${incident.is_open === true ? 'ACTIVE' : 'RECOVERED'} · count ${String(incident.occurrence_count)}`).join('\n');
