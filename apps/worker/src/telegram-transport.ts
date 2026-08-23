@@ -41,7 +41,7 @@ export interface InlineButton {
 
 export class TelegramApiError extends Error {
   public readonly status: number;
-  public readonly errorCode?: number;
+  public readonly errorCode: number | undefined;
 
   public constructor(status: number, description: string, errorCode?: number) {
     super(`Telegram Bot API request failed with HTTP ${status}: ${description.slice(0, 160)}`);

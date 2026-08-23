@@ -45,7 +45,7 @@ export function parseTelegramCommand(text: string, now: Date = new Date()): Pars
   const tokens = compact.split(' ');
   const commandMatch = /^\/([a-z]+)(?:@[A-Za-z0-9_]+)?$/u.exec(tokens[0] ?? '');
   if (commandMatch === null) throw new RangeError('Use /help for supported commands');
-  const name = commandMatch[1];
+  const name = commandMatch[1] ?? '';
   const args = tokens.slice(1);
   if (['status', 'incidents', 'resources', 'pilot', 'help'].includes(name)) {
     if (args.length > 0) throw new RangeError(`/${name} does not accept arguments`);
@@ -113,6 +113,7 @@ export async function executeTelegramCommand(options: {
     const report = await reporting.station(selected.id, command.date);
     return report === null ? { text: `No aggregate data is available for ${selected.label} on that service date.` } : { text: bounded(formatReportText(report)), chart: report.chart };
   }
+  if (command.name !== 'trains') throw new Error('Command routing reached an impossible state');
   const candidates = await reporting.lineCandidates(command.query);
   const selected = exactOrUnique(candidates);
   if (selected === null) return candidateResponse('line', candidates, null, state, true);

@@ -205,7 +205,7 @@ async function processUpdate(options: {
   if (reservation.delivered) return true;
   const text = response.chart === undefined ? response.text : `${response.text}\n${chartFallback(response.chart)}`;
   try {
-    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text, { buttons: response.buttons }, options.signal);
+    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text, response.buttons === undefined ? {} : { buttons: response.buttons }, options.signal);
     await options.state.markDelivered(deliveryKey, sent.message_id);
     if (options.update.callback_query !== undefined) {
       await options.telegram.answerCallbackQuery(options.update.callback_query.id, options.signal);

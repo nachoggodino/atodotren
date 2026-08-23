@@ -35,7 +35,7 @@ export class ResourceCollector {
   readonly #hostMetrics: { readonly enabled: boolean; readonly procPath?: string; readonly rootPath?: string };
   readonly #trend: ResourceSample[] = [];
   #previousCpu?: CpuSnapshot;
-  #previousHostCpu?: { readonly idle: number; readonly total: number };
+  #previousHostCpu: { readonly idle: number; readonly total: number } | undefined;
 
   public constructor(options: {
     readonly reporting: ReportingService;

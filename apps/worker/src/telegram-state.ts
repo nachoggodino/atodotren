@@ -3,7 +3,6 @@ import { randomBytes } from 'node:crypto';
 import type { DatabaseConnection } from '@atodotren/db';
 
 type Pool = DatabaseConnection['pool'];
-type PoolClient = Awaited<ReturnType<Pool['connect']>>;
 
 export interface DeliveryRecord {
   readonly delivered: boolean;
