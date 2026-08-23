@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { createDatabaseConnection } from '@atodotren/db';
-import { createLogger, installProcessSafetyHandlers, ShutdownCoordinator } from '@atodotren/observability';
+import { createLogger, createShutdownManager } from '@atodotren/observability';
 
 import { executeCallback, executeTelegramCommand, parseTelegramCommand, type CommandResponse } from './telegram-commands.js';
 import { loadTelegramDeliveryConfig, loadTelegramOperationsConfig, type TelegramOperationsConfig } from './telegram-config.js';
@@ -196,7 +196,7 @@ export async function runTelegramOperations(
   const telegram = new TelegramBotApi({
     token: config.botToken ?? '',
     baseUrl: config.apiBaseUrl,
-    fetchImplementation: dependencies.fetchImplementation,
+    ...(dependencies.fetchImplementation === undefined ? {} : { fetchImplementation: dependencies.fetchImplementation }),
   });
   const releaseLock = await state.acquireLongPollLock();
   try {
@@ -268,7 +268,10 @@ async function pollingLoop(options: {
         });
         result = 'deferred';
       }
-      if (result !== 'handled') break;
+      if (result !== 'handled') {
+        await waitForAbortableDelay(POLL_BACKOFF_BASE_MS, options.signal, sleep);
+        break;
+      }
       try {
         await options.state.confirmUpdate(update.update_id);
         options.fallback.clear(update.update_id);
@@ -278,6 +281,7 @@ async function pollingLoop(options: {
           updateId: update.update_id,
           failureClass: error instanceof Error ? error.name : 'UnknownError',
         });
+        await waitForAbortableDelay(POLL_BACKOFF_BASE_MS, options.signal, sleep);
         break;
       }
     }
@@ -355,10 +359,14 @@ export async function processTelegramUpdate(options: {
   }
 
   try {
-    const sent = await telegram.sendMessage(config.privateChatId ?? '', response.text, {
-      buttons: response.buttons,
-      disableNotification: true,
-    }, options.signal);
+    const sent = await telegram.sendMessage(
+      config.privateChatId ?? '',
+      response.text,
+      response.buttons === undefined
+        ? { disableNotification: true }
+        : { buttons: response.buttons, disableNotification: true },
+      options.signal,
+    );
     fallback.markLocalDelivery(update.update_id, deliveryKey, sent.message_id);
     try {
       await state.markDelivered(deliveryKey, sent.message_id);
@@ -465,7 +473,7 @@ export async function executeTelegramOperationsCli(
       const telegram = new TelegramBotApi({
         token: config.botToken,
         baseUrl: config.apiBaseUrl,
-        fetchImplementation: dependencies.fetchImplementation,
+        ...(dependencies.fetchImplementation === undefined ? {} : { fetchImplementation: dependencies.fetchImplementation }),
       });
       await telegram.sendMessage(
         config.privateChatId,
@@ -492,8 +500,7 @@ export async function executeTelegramOperationsCli(
     return 1;
   }
   const logger = createLogger({ service: 'atodotren-telegram', level: config.logLevel });
-  const shutdown = new ShutdownCoordinator({ logger, timeoutMs: config.shutdownTimeoutMs });
-  installProcessSafetyHandlers({ logger, shutdown });
+  const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
   try {
     await runTelegramOperations(config, { signal: shutdown.signal, dependencies });
     return 0;
@@ -503,6 +510,7 @@ export async function executeTelegramOperationsCli(
     });
     return 1;
   } finally {
+    shutdown.dispose();
     await shutdown.shutdown('telegram-operations-exit');
   }
 }
