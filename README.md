@@ -265,7 +265,9 @@ realtime outages reduce coverage instead of disappearing from the denominator.
 Before any canonical rows are created, an independent expected-day ledger is built
 from the complete preferred active/previous timetable. The whole day remains blocked
 until its final scheduled journey plus grace has elapsed, and finalization verifies
-journey/stop totals and timetable checksum against that ledger.
+journey/stop totals and a stable metric-identity checksum against that ledger. The
+checksum covers line, branch, direction, service pattern, station, stop order, and
+scheduled time while allowing equivalent active/previous feed lineage.
 
 Exact-schedule daily contributions retain raw GTFS service-day seconds and separately
 derive Europe/Madrid civil date, weekday, and 0–86,399 wall-clock seconds. Optional

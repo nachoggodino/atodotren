@@ -219,7 +219,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       },
       migrationsDirectory: resolve(process.cwd(), 'migrations'),
     });
-    assert.equal(migrated.applied.at(-1), '0007_m4_correctness_gates.sql');
+    assert.equal(migrated.applied.at(-1), '0008_timetable_metric_identity.sql');
 
     pool = new Pool({ connectionString: workerDatabaseUrl, max: 4 });
     const dates = await pool.query<{
@@ -487,6 +487,33 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     );
     assert.equal(expectedMaterialization.journeysCreated, 1);
     assert.equal(expectedMaterialization.stopsCreated, 3);
+    const timetableIdentity = await databaseAdmin.query<{ expected: string; canonical: string }>(`
+      SELECT ledger.timetable_checksum AS expected,
+        operations.canonical_timetable_checksum(ledger.service_date, ledger.network_id) AS canonical
+      FROM operations.expected_service_day AS ledger
+      WHERE ledger.service_date = $1::date
+    `, [targetDate]);
+    assert.equal(timetableIdentity.rows[0]?.canonical, timetableIdentity.rows[0]?.expected);
+    await databaseAdmin.query('BEGIN');
+    try {
+      await databaseAdmin.query("SET LOCAL session_replication_role = 'replica'");
+      await databaseAdmin.query(`
+        UPDATE core.journey
+        SET direction = CASE direction WHEN 0 THEN 1 ELSE 0 END
+        WHERE service_date = $1::date AND id = (
+          SELECT id FROM core.journey WHERE service_date = $1::date ORDER BY id LIMIT 1
+        )
+      `, [targetDate]);
+      const driftedIdentity = await databaseAdmin.query<{ expected: string; canonical: string }>(`
+        SELECT ledger.timetable_checksum AS expected,
+          operations.canonical_timetable_checksum(ledger.service_date, ledger.network_id) AS canonical
+        FROM operations.expected_service_day AS ledger
+        WHERE ledger.service_date = $1::date
+      `, [targetDate]);
+      assert.notEqual(driftedIdentity.rows[0]?.canonical, driftedIdentity.rows[0]?.expected);
+    } finally {
+      await databaseAdmin.query('ROLLBACK');
+    }
     const timetableJourneyBeforeClaim = await pool.query<{ id: string }>(`
       SELECT id::text FROM core.journey
       WHERE service_date = $1::date AND source_trip_id = '10TRIP-M4-MISSING'

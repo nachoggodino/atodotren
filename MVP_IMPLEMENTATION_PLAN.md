@@ -775,7 +775,9 @@ ledger; a confirmed zero-success outage remains visible and seals only after exp
 acknowledgement. Continuous Compose maintenance scans the 35-day retained window and
 emits deduplicated finalization warnings. Internal renamed finalization/sealing
 functions are not executable by runtime roles. Destructive retention remains explicit
-and two-stage.
+and two-stage. Timetable verification compares stable metric identity—including line,
+branch, direction, service pattern, station, stop order, and scheduled time—without
+rejecting equivalent active/previous feed lineage.
 
 ### Milestone 5 — Two-week evidence pilot
 
