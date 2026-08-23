@@ -78,6 +78,10 @@ jobs:
             echo 'The ingestion worker must not receive Telegram credentials.' >&2
             exit 1
           fi
+          if grep -q 'createTelegramTransport' apps/worker/src/dispatcher.ts; then
+            echo 'The ingestion worker must not own a Telegram sender transport.' >&2
+            exit 1
+          fi
           if grep -Eq 'docker\.sock|privileged:|^[[:space:]]+ports:' <<<"$telegram_block"; then
             echo 'Telegram operations service exposes a forbidden privileged/network surface.' >&2
             exit 1
@@ -154,3 +158,64 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: ./scripts/compose-smoke.sh example.env
+
+  # BEGIN ONE-SHOT TELEGRAM OWNERSHIP REFACTOR
+  telegram-ownership-refactor:
+    name: CI-only sole Telegram sender refactor
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature-milestone-5
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Remove legacy worker Telegram sender
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python <<'PY'
+          from pathlib import Path
+          path = Path('apps/worker/src/dispatcher.ts')
+          text = path.read_text()
+          if text.count('createTelegramTransport') != 3:
+              raise SystemExit(f'expected three legacy Telegram transport references, found {text.count("createTelegramTransport")}')
+          text = '\n'.join(line for line in text.splitlines() if 'createTelegramTransport' not in line) + '\n'
+          old = 'Sends one clearly labelled test through each configured Telegram, SMTP, and\nheartbeat channel.'
+          new = 'Sends one clearly labelled test through each configured SMTP and heartbeat\nchannel. Telegram delivery belongs exclusively to the telegram-ops service.'
+          if text.count(old) != 1:
+              raise SystemExit('expected legacy test-notifications wording exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          ! grep -q 'createTelegramTransport' apps/worker/src/dispatcher.ts
+          git diff --check
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
+      - name: Commit verified refactor and clean staging machinery
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git rm .github/workflows/m5-telegram-ownership-fix.yml
+          python <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/ci.yml')
+          text = path.read_text()
+          marker = '  # BEGIN ONE-SHOT TELEGRAM OWNERSHIP REFACTOR\n'
+          if text.count(marker) != 1:
+              raise SystemExit('one-shot CI marker missing or duplicated')
+          path.write_text(text.split(marker, 1)[0].rstrip() + '\n')
+          PY
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/worker/src/dispatcher.ts .github/workflows/ci.yml
+          git commit -m 'refactor: make telegram-ops sole Telegram sender'
+          git push origin HEAD:feature-milestone-5
+  # END ONE-SHOT TELEGRAM OWNERSHIP REFACTOR
