@@ -87,32 +87,6 @@ jobs:
             exit 1
           fi
 
-  materialize-readme-cleanup:
-    name: CI-only final README cleanup
-    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    needs: repository-contract
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: feature-milestone-5
-          fetch-depth: 0
-      - name: Apply deterministic README cleanup
-        run: python scripts/m5-readme-final-cleanup.py
-      - name: Commit README cleanup
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          git diff --check
-          git rm scripts/m5-readme-final-cleanup.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add README.md
-          git commit -m 'docs: align milestone 5 Telegram ownership'
-          git push origin HEAD:feature-milestone-5
-
   verify:
     name: Typecheck, lint and unit tests
     runs-on: ubuntu-latest
