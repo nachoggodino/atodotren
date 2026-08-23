@@ -1,60 +1,152 @@
-name: Milestone 4 CI
+name: Milestone 5 CI
 
 on:
-  pull_request:
   push:
+    branches:
+      - main
+      - feature-milestone-5
+  pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: milestone-5-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.15.0
+  MILESTONE4_BASE: 0563dcaa9c9c1d9d7bea3596e3ccaf8b4f0d58b6
+
 jobs:
-  verify:
+  repository-contract:
+    name: Repository contract
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check patch whitespace
+        run: git diff --check "$MILESTONE4_BASE"...HEAD
+      - name: Prove migrations 0001-0008 are immutable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git diff --exit-code "$MILESTONE4_BASE" -- \
+            migrations/0001_repository_foundation.sql \
+            migrations/0002_static_madrid_foundation.sql \
+            migrations/0003_static_mapping_integrity.sql \
+            migrations/0004_realtime_ingestion.sql \
+            migrations/0005_canonical_journeys.sql \
+            migrations/0006_aggregation_retention.sql \
+            migrations/0007_m4_correctness_gates.sql \
+            migrations/0008_timetable_metric_identity.sql
+          sha256sum migrations/000{1,2,3,4,5,6,7,8}_*.sql
+      - name: Reject credential-bearing tracked artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git ls-files | grep -Eq '(^|/)\.env$|(^|/)(id_rsa|id_ed25519)$'; then
+            echo 'Credential-bearing artifact is tracked.' >&2
+            exit 1
+          fi
+          if git grep -En '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' -- ':!package-lock.json'; then
+            echo 'A Telegram-token-shaped value is present in tracked source.' >&2
+            exit 1
+          fi
+      - name: Reject temporary acceptance monitor traces
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if git ls-files | grep -Fx 'scripts/pi-resource-monitor.sh'; then
+            echo 'Temporary Pi resource monitor is still present in the current tree.' >&2
+            exit 1
+          fi
+          if git grep -n 'pi-resource-monitor\.sh'; then
+            echo 'Temporary Pi resource monitor is still referenced in the current tree.' >&2
+            exit 1
+          fi
+      - name: Check Telegram ownership and forbidden deployment surfaces
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if grep -A80 '^  worker:' compose.yaml | grep -Eq 'TELEGRAM_BOT_TOKEN|TELEGRAM_PRIVATE_CHAT_ID|TELEGRAM_ALLOWED_USER_ID'; then
+            echo 'The ingestion worker must not receive Telegram credentials.' >&2
+            exit 1
+          fi
+          if grep -A100 '^  telegram-ops:' compose.yaml | grep -Eq 'docker\.sock|privileged:|ports:'; then
+            echo 'Telegram operations service exposes a forbidden privileged/network surface.' >&2
+            exit 1
+          fi
+
+  verify:
+    name: Typecheck, lint and unit tests
+    runs-on: ubuntu-latest
+    needs: repository-contract
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.15.0
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: npm run verify
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
 
   postgres-contract:
+    name: PostgreSQL ${{ matrix.postgres }} contract
     runs-on: ubuntu-latest
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
-        postgres-image:
+        postgres:
           - postgres:16.14-bookworm
           - postgres:18.4-bookworm
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24.15.0
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: Migration, persistence, security, analytics, and retention contract
-        run: ./scripts/postgres-contract.sh "${{ matrix.postgres-image }}"
+      - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}'
 
-  container-build:
+  docker-build:
+    name: Docker amd64 build
     runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build production image
+        run: docker build --file docker/worker/Dockerfile --tag atodotren-worker:ci .
+      - name: Prove fake Telegram fixture is not in production image
+        run: docker run --rm --entrypoint sh atodotren-worker:ci -c 'test ! -e /app/tests/fixtures/fake-telegram-server.mjs'
+
+  docker-multiarch:
+    name: Docker amd64/arm64 build
+    runs-on: ubuntu-latest
+    needs: verify
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
       - uses: docker/setup-buildx-action@v4
-      - name: Build amd64 and arm64 OCI image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: docker/worker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          outputs: type=oci,dest=/tmp/atodotren-worker-multiarch.tar
+      - name: Build both supported architectures
+        run: >-
+          docker buildx build
+          --platform linux/amd64,linux/arm64
+          --file docker/worker/Dockerfile
+          --output type=oci,dest=/tmp/atodotren-worker-multiarch.tar
+          .
 
   compose-smoke:
+    name: Compose fake-Telegram smoke
     runs-on: ubuntu-latest
+    needs:
+      - postgres-contract
+      - docker-build
     steps:
       - uses: actions/checkout@v6
       - run: ./scripts/compose-smoke.sh example.env
