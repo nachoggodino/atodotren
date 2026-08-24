@@ -15,7 +15,10 @@ test("historical filters are URL-addressable and the matrix exposes keyboard det
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
   await expect(page.getByText(/✓ ≤2m/)).toBeVisible();
-  if (testInfo.project.name.startsWith("desktop")) await page.screenshot({ path: "test-results/screenshots/history-matrix-desktop.png", fullPage: true });
+  if (testInfo.project.name.startsWith("desktop")) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: "test-results/screenshots/history-matrix-desktop.png", fullPage: true });
+  }
 });
 
 test("current-day cancellation and missing-evidence fixtures remain distinct", async ({ page }) => {

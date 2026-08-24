@@ -4,11 +4,21 @@ import { WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Messages } from "@/messages/types";
 
+const OFFLINE_SESSION_KEY = "atodotren:offline";
+
 export function OfflineStatus({ messages }: { readonly messages: Messages }) {
   const [offline, setOffline] = useState(false);
   useEffect(() => {
-    const sync = () => setOffline(!navigator.onLine);
-    sync();
+    const sync = () => {
+      if (navigator.onLine) {
+        sessionStorage.removeItem(OFFLINE_SESSION_KEY);
+        setOffline(false);
+      } else {
+        sessionStorage.setItem(OFFLINE_SESSION_KEY, "1");
+        setOffline(true);
+      }
+    };
+    setOffline(!navigator.onLine || sessionStorage.getItem(OFFLINE_SESSION_KEY) === "1");
     window.addEventListener("online", sync);
     window.addEventListener("offline", sync);
     return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); };

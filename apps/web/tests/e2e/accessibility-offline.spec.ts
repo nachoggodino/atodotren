@@ -14,6 +14,7 @@ test("a cached live page remains explicit when the browser goes offline", async 
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
   await page.reload();
   await context.setOffline(true);
+  await expect(page.getByTestId("offline-status")).toBeVisible();
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("offline-status")).toBeVisible();
   await expect(page.getByTestId("schematic-map")).toBeVisible();
