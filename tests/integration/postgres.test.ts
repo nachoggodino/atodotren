@@ -1016,7 +1016,6 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
         };
         let sawUnresolved = false;
-        let progressedAfterUnresolved = false;
         let updatedTotal = 0;
         for (let attempt = 0; attempt < 20; attempt += 1) {
           const batch = await pool.query<BackfillReport>(
@@ -1025,13 +1024,23 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           const report = batch.rows[0]!.report;
           if (Number(report.scanned) === 0) break;
           assert.equal(Number(report.scanned), 1);
-          if (sawUnresolved) progressedAfterUnresolved = true;
           if (Number(report.unresolved) === 1) sawUnresolved = true;
           updatedTotal += Number(report.updated);
         }
         assert.equal(sawUnresolved, true);
-        assert.equal(progressedAfterUnresolved, true);
         assert.ok(updatedTotal >= 3);
+
+        const laterAt = new Date(captured.getTime() + 8_000);
+        const laterBatch = normalizeFeed(makeFeed(150, laterAt), laterAt, previousIndex);
+        await persistBatch(pool, makePoll(laterBatch, 'after-unresolved'), laterBatch);
+        const afterUnresolved = await pool.query<BackfillReport>(
+          'SELECT operations.backfill_realtime_service_dates(1) AS report',
+        );
+        assert.deepEqual({
+          scanned: Number(afterUnresolved.rows[0]?.report.scanned ?? -1),
+          updated: Number(afterUnresolved.rows[0]?.report.updated ?? -1),
+          unresolved: Number(afterUnresolved.rows[0]?.report.unresolved ?? -1),
+        }, { scanned: 1, updated: 1, unresolved: 0 });
         const recovered = await pool.query<{
           unresolved: string; inferred: string; inferred_dates: string[]; unresolved_reason: string | null;
         }>(`
