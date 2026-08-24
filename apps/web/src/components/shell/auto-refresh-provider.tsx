@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
 
 const STORAGE_KEY = "atodotren:auto-refresh:v1";
+const CHANGE_EVENT = "atodotren:auto-refresh-change";
 
 interface AutoRefreshContextValue {
   readonly enabled: boolean;
@@ -11,19 +12,35 @@ interface AutoRefreshContextValue {
 
 const AutoRefreshContext = createContext<AutoRefreshContextValue | null>(null);
 
+function getSnapshot(): boolean {
+  return window.localStorage.getItem(STORAGE_KEY) !== "paused";
+}
+
+function getServerSnapshot(): boolean {
+  return true;
+}
+
+function subscribe(onStoreChange: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY) onStoreChange();
+  };
+  const onLocalChange = () => onStoreChange();
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(CHANGE_EVENT, onLocalChange);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(CHANGE_EVENT, onLocalChange);
+  };
+}
+
+function storeEnabled(enabled: boolean): void {
+  window.localStorage.setItem(STORAGE_KEY, enabled ? "active" : "paused");
+  window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
 export function AutoRefreshProvider({ children }: { readonly children: ReactNode }) {
-  const [enabled, setEnabled] = useState(true);
-  useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "paused") setEnabled(false);
-  }, []);
-  const value = useMemo<AutoRefreshContextValue>(() => ({
-    enabled,
-    setEnabled: (next) => {
-      setEnabled(next);
-      window.localStorage.setItem(STORAGE_KEY, next ? "active" : "paused");
-    },
-  }), [enabled]);
+  const enabled = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const value = useMemo<AutoRefreshContextValue>(() => ({ enabled, setEnabled: storeEnabled }), [enabled]);
   return <AutoRefreshContext.Provider value={value}>{children}</AutoRefreshContext.Provider>;
 }
 

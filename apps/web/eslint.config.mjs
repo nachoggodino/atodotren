@@ -5,5 +5,11 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["src/lib/fixtures/scenarios.ts", "src/lib/server/postgres-adapter.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { varsIgnorePattern: "^(LiveContextResponse|LiveNetworkResponse|MatrixResponse)$" }],
+    },
+  },
   globalIgnores([".next/**", "out/**", "coverage/**", "playwright-report/**", "test-results/**", "next-env.d.ts"]),
 ]);

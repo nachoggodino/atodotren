@@ -18,9 +18,18 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const onQueryChange = (value: string) => {
+    setQuery(value);
+    if (value.trim() === "") {
+      setResults([]);
+      setSelected(null);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 1) { setResults([]); setSelected(null); return; }
+    if (trimmed.length < 1) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);
@@ -42,7 +51,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
       <label className="mb-2 block text-sm font-bold" htmlFor={inputId}>{messages.landing.searchLabel}</label>
       <div className="flex min-h-14 items-center gap-3 border-b-2 border-foreground bg-transparent px-1">
         <Search aria-hidden="true" className="size-5 text-muted" />
-        <input id={inputId} autoComplete="off" className="min-w-0 flex-1 bg-transparent py-3 text-lg outline-none placeholder:text-muted/70" onChange={(event) => setQuery(event.target.value)} placeholder={messages.landing.searchPlaceholder} value={query} />
+        <input id={inputId} autoComplete="off" className="min-w-0 flex-1 bg-transparent py-3 text-lg outline-none placeholder:text-muted/70" onChange={(event) => onQueryChange(event.target.value)} placeholder={messages.landing.searchPlaceholder} value={query} />
         {loading ? <span aria-label={messages.common.loading} className="size-4 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
       </div>
       {query.trim() !== "" ? <div className="mt-2 overflow-hidden rounded-xl border border-border bg-surface-strong shadow-[var(--shadow-float)]" role="listbox" aria-label={messages.landing.searchLabel}>

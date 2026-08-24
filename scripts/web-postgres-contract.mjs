@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
+import { URL } from "node:url";
 import { Client } from "pg";
 import { migrateToLatest } from "../packages/db/dist/index.js";
 

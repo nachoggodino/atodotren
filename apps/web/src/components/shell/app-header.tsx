@@ -22,7 +22,8 @@ function routeContext(pathname: string, messages: Messages): string {
 }
 
 export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; readonly messages: Messages; readonly pathname: string }) {
-  const [open, setOpen] = useState(false);
+  const [openPathname, setOpenPathname] = useState<string | null>(null);
+  const open = openPathname === pathname;
   const [hidden, setHidden] = useState(false);
   const [height, setHeight] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -32,7 +33,6 @@ export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; r
   const { resolvedTheme, setTheme } = useTheme();
   const refresh = useAutoRefresh();
 
-  useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     previousY.current = window.scrollY;
     const onScroll = () => {
@@ -57,7 +57,7 @@ export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; r
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        setOpenPathname(null);
         menuButtonRef.current?.focus();
       }
     };
@@ -74,7 +74,7 @@ export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; r
 
   return (
     <header className={`sticky top-0 z-50 transition-transform duration-200 ${hidden ? "-translate-y-[120%]" : "translate-y-0"}`}>
-      {open ? <button aria-label={messages.nav.close} className="fixed inset-0 -z-10 cursor-default bg-foreground/10 backdrop-blur-[2px]" onClick={() => setOpen(false)} type="button" /> : null}
+      {open ? <button aria-label={messages.nav.close} className="fixed inset-0 -z-10 cursor-default bg-foreground/10 backdrop-blur-[2px]" onClick={() => setOpenPathname(null)} type="button" /> : null}
       <div className="page-shell pt-3 sm:pt-4">
         <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-float)] backdrop-blur-xl transition-[height] motion-reduce:transition-none" style={{ height: height ?? undefined, transitionDuration: "var(--drawer-duration)" }}>
           <div className="flex min-h-16 items-center gap-3 px-4" ref={topRef}>
@@ -82,7 +82,7 @@ export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; r
               <BrandSymbol className="size-8" /><BrandWordmark />
             </Link>
             <span className="hidden border-l border-border pl-3 text-xs font-semibold text-muted sm:inline">{routeContext(pathname, messages)}</span>
-            <button ref={menuButtonRef} aria-expanded={open} aria-label={open ? messages.nav.close : messages.nav.menu} className="ml-auto grid size-11 place-items-center rounded-lg hover:bg-muted-soft" onClick={() => { setOpen((value) => !value); setHidden(false); }} type="button">
+            <button ref={menuButtonRef} aria-expanded={open} aria-label={open ? messages.nav.close : messages.nav.menu} className="ml-auto grid size-11 place-items-center rounded-lg hover:bg-muted-soft" onClick={() => { setOpenPathname((value) => value === pathname ? null : pathname); setHidden(false); }} type="button">
               <span className="relative block h-4 w-5" aria-hidden="true">
                 <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />
                 <span className={`absolute left-0 top-[7px] h-0.5 w-5 bg-current transition-opacity ${open ? "opacity-0" : ""}`} />
