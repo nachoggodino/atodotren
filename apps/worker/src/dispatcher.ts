@@ -79,11 +79,11 @@ Validates configuration, database, exact role and migration state, permissions, 
 `;
 
 export const ingestUsage = `Usage:
-  worker ingest [--once | --cycles <positive-integer>] [--canonical-maintenance]
+  worker ingest [--once | --cycles <positive-integer>]
 
 Polls enabled GTFS-Realtime feeds without overlapping cycles. Continuous polling
-is the default; --once is equivalent to --cycles 1. --canonical-maintenance runs
-bounded canonicalization and closure after every polling cycle.
+is the default; --once is equivalent to --cycles 1. Maintenance runs in the
+separate worker maintain process and can never delay realtime polling.
 `;
 
 export const replayUsage = `Usage:
@@ -347,7 +347,7 @@ function isPlannedCommand(value: string): value is PlannedCommand {
 }
 
 function parseIngestOptions(arguments_: readonly string[]): {
-  readonly cycles?: number; readonly canonicalMaintenance: boolean; readonly help: boolean;
+  readonly cycles?: number; readonly help: boolean;
 } {
   let parsed;
   try {
@@ -358,7 +358,6 @@ function parseIngestOptions(arguments_: readonly string[]): {
       options: {
         once: { type: 'boolean' },
         cycles: { type: 'string' },
-        'canonical-maintenance': { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
     });
@@ -367,23 +366,22 @@ function parseIngestOptions(arguments_: readonly string[]): {
   }
   if (parsed.values.help === true) {
     if (arguments_.length !== 1) throw new UsageError('ingest help does not accept other options', ingestUsage);
-    return { canonicalMaintenance: false, help: true };
+    return { help: true };
   }
   if (parsed.values.once === true && parsed.values.cycles !== undefined) {
     throw new UsageError('--once and --cycles are mutually exclusive', ingestUsage);
   }
-  const canonicalMaintenance = parsed.values['canonical-maintenance'] ?? false;
-  if (parsed.values.once === true) return { cycles: 1, canonicalMaintenance, help: false };
-  if (parsed.values.cycles === undefined) return { canonicalMaintenance, help: false };
+  if (parsed.values.once === true) return { cycles: 1, help: false };
+  if (parsed.values.cycles === undefined) return { help: false };
   const cycles = Number(parsed.values.cycles);
   if (!Number.isSafeInteger(cycles) || cycles <= 0) {
     throw new UsageError('--cycles must be a positive integer', ingestUsage);
   }
-  return { cycles, canonicalMaintenance, help: false };
+  return { cycles, help: false };
 }
 
 export async function runIngestCommand(
-  cliOptions: { readonly cycles?: number; readonly canonicalMaintenance?: boolean },
+  cliOptions: { readonly cycles?: number },
   dependencies: DispatcherDependencies = {},
 ): Promise<0 | 1> {
   const environment = dependencies.environment ?? process.env;
@@ -396,7 +394,6 @@ export async function runIngestCommand(
   let spool: OutageSpool | undefined;
   try {
     connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
-    const canonicalPool = connection.pool;
     await shutdown.register('database-pool', async () => connection?.close());
     spool = new OutageSpool(config.spool.path, config.spool.maxBytes, config.spool.maxBacklogMs);
     await shutdown.register('sqlite-spool', () => spool?.close());
@@ -428,26 +425,8 @@ export async function runIngestCommand(
       ...(cliOptions.cycles === undefined ? {} : { cycles: cliOptions.cycles }),
       signal: shutdown.signal,
       transports,
-      ...(cliOptions.canonicalMaintenance === true ? {
-        afterCycle: async () => {
-          const canonical = await (dependencies.canonicalize ?? canonicalizeJourneys)({ pool: canonicalPool, limit: 100 });
-          const closed = await (dependencies.closeJourneys ?? closeJourneys)({ pool: canonicalPool, limit: 100 });
-          if (Object.keys(canonical.errors).length > 0 || Object.keys(closed.errors).length > 0) {
-            throw new Error('Canonical maintenance reported bounded errors');
-          }
-          logger.info('canonical.maintenance', 'Canonical maintenance completed', {
-            journeysCreated: canonical.journeysCreated,
-            journeysUpdated: canonical.journeysUpdated,
-            journeysClosed: canonical.journeysClosed + closed.journeysClosed,
-            journeyStopsMaterialized: canonical.journeyStopsMaterialized,
-          });
-        },
-      } : {}),
       onEvent: (event, fields) => {
         if (event.startsWith('notification.')) logger.warn(event, 'Notification operation failed', fields);
-        else if (event === 'canonical.maintenance_failed') logger.error(event, 'Canonical maintenance failed', fields);
-        else if (event === 'finalization.maintenance_failed') logger.warn(event, 'Finalization maintenance failed', fields);
-        else if (event === 'finalization.maintenance_recovered') logger.info(event, 'Finalization maintenance recovered', fields);
         else logger.info(event, 'Realtime feed poll completed', fields);
       },
     });

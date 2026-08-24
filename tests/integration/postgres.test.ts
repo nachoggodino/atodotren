@@ -113,6 +113,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
       resolve(process.cwd(), 'migrations/0010_realtime_service_date_recovery.sql'),
       join(directory, '0010_realtime_service_date_recovery.sql'),
     ),
+    cp(
+      resolve(process.cwd(), 'migrations/0011_isolated_maintenance_finalization.sql'),
+      join(directory, '0011_isolated_maintenance_finalization.sql'),
+    ),
   ]);
 }
 
@@ -211,6 +215,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0008_timetable_metric_identity.sql',
         '0009_reporting_telegram.sql',
         '0010_realtime_service_date_recovery.sql',
+        '0011_isolated_maintenance_finalization.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -236,6 +241,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0008_timetable_metric_identity.sql',
         '0009_reporting_telegram.sql',
         '0010_realtime_service_date_recovery.sql',
+        '0011_isolated_maintenance_finalization.sql',
       ]);
     });
 
@@ -635,6 +641,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0008_timetable_metric_identity.sql',
           '0009_reporting_telegram.sql',
           '0010_realtime_service_date_recovery.sql',
+          '0011_isolated_maintenance_finalization.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });

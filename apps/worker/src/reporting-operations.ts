@@ -54,12 +54,22 @@ export async function incidentsReport(reporting: ReportingService): Promise<Inci
 export async function trainsReport(reporting: ReportingService, lineId: number): Promise<TrainsReport | null> {
   if (!Number.isSafeInteger(lineId) || lineId <= 0) throw new RangeError('lineId must be a positive integer');
   const now = reporting.now();
-  const line = await reporting.pool.query<Record<string, unknown>>('SELECT line_id, public_code, name_es FROM operations.report_line_lookup WHERE line_id = $1 LIMIT 1', [lineId]);
+  const [line, health] = await Promise.all([
+    reporting.pool.query<Record<string, unknown>>('SELECT line_id, public_code, name_es FROM operations.report_line_lookup WHERE line_id = $1 LIMIT 1', [lineId]),
+    reporting.pool.query<Record<string, unknown>>(`SELECT health.last_durable_cycle_at,
+      EXISTS (SELECT 1 FROM operations.report_incident_episode AS incident
+        WHERE incident.incident_key = 'ingest.stale' AND incident.is_open) AS ingest_stale
+      FROM operations.report_ingest_health AS health LIMIT 1`),
+  ]);
   const lineRow = line.rows[0];
   if (lineRow === undefined) return null;
-  const result = await reporting.pool.query<Record<string, unknown>>(`SELECT * FROM operations.report_vehicle_live
-    WHERE line_id = $1 AND captured_at >= clock_timestamp() - interval '30 minutes'
-    ORDER BY captured_at DESC LIMIT ${MAX_TRAINS}`, [lineId]);
+  const lastDurable = instantText(health.rows[0]?.last_durable_cycle_at);
+  const fresh = lastDurable !== null && health.rows[0]?.ingest_stale !== true;
+  const result = fresh
+    ? await reporting.pool.query<Record<string, unknown>>(`SELECT * FROM operations.report_vehicle_live
+      WHERE line_id = $1 AND captured_at >= clock_timestamp() - interval '30 minutes'
+      ORDER BY captured_at DESC LIMIT ${MAX_TRAINS}`, [lineId])
+    : { rows: [] };
   return {
     ...reportBase(now), kind: 'trains', source: 'live_vehicle_state', precision: 'latest canonicalized live state',
     line: { id: lineId, name: displayScalar(lineRow.name_es), code: displayScalar(lineRow.public_code) },

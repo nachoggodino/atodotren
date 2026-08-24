@@ -25,6 +25,9 @@ ${reportingMigration}`;
 
 void test('Compose forwards documented realtime operational thresholds', async () => {
   const compose = await readFile('compose.yaml', 'utf8');
+  assert.match(compose, /worker:\n[\s\S]*?command: \["ingest"\]/u);
+  assert.match(compose, /maintenance:\n[\s\S]*?command: \["maintain"\]/u);
+  assert.doesNotMatch(compose, /canonical-maintenance/u);
   for (const [name, fallback] of [
     ['INGEST_ALERT_FAILURE_THRESHOLD', '3'],
     ['INGEST_STALE_AFTER_MS', '120000'],
@@ -36,4 +39,13 @@ void test('Compose forwards documented realtime operational thresholds', async (
   ]) {
     assert.ok(compose.includes(`${name}: \${${name}:-${fallback}}`), `${name} is not forwarded by Compose`);
   }
+});
+
+void test('finalization correction stages one timetable expansion and preserves bounded eligibility exits', async () => {
+  const migration = await readFile('migrations/0011_isolated_maintenance_finalization.sql', 'utf8');
+  assert.equal((migration.match(/operations\.expected_timetable_stop\(target_date\)/gu) ?? []).length, 1);
+  assert.match(migration, /CREATE TEMP TABLE atodotren_expected_timetable_stop ON COMMIT DROP/u);
+  assert.match(migration, /ANALYZE atodotren_expected_timetable_stop/u);
+  assert.match(migration, /status', 'already_finalized'/u);
+  assert.match(migration, /service_day_grace_not_elapsed/u);
 });

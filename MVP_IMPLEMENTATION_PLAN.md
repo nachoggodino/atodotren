@@ -727,8 +727,8 @@ conversion boundary, bounded partition creation, closure indexes, immutable firs
 presence/closed-row guards, repair lineage, least-privilege runtime writes, and a
 monitor-only canonical health view. The worker exposes bounded `canonicalize`,
 `close-journeys`, and `repair-journeys` JSON commands using short per-journey
-transactions and advisory locks. Continuous ingestion invokes bounded canonicalize
-and close maintenance after every poll cycle, before any future retention deletion.
+transactions and advisory locks. A separate maintenance worker invokes bounded
+canonicalization, closure, and aggregation periodically; ingestion never awaits it.
 
 The representative PostgreSQL fixture built two journeys and all 18 scheduled
 stops. Its four-stop previous-feed journey initially explained one observed stop,
@@ -774,8 +774,8 @@ daily contributions; public exact-time identity uses civil weekday/wall seconds
 while retaining raw GTFS seconds. Classified sealing is transactionally compact and
 keeps no daily date grain. Finalization verifies the complete independent timetable
 ledger; a confirmed zero-success outage remains visible and seals only after explicit
-acknowledgement. Continuous Compose maintenance scans the 35-day retained window and
-emits deduplicated finalization warnings. Internal renamed finalization/sealing
+acknowledgement. Isolated Compose maintenance scans the 35-day retained window and
+attempts finalization once daily after the service-day grace. Internal renamed finalization/sealing
 functions are not executable by runtime roles. Destructive retention remains explicit
 and two-stage. Timetable verification compares stable metric identity—including line,
 branch, direction, service pattern, station, stop order, and scheduled time—without

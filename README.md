@@ -135,7 +135,8 @@ endpoint has a validated URL and independent enable flag in `example.env`.
 Run continuously, once, or for a bounded number of cycles:
 
 ```sh
-npm run worker -- ingest --canonical-maintenance
+npm run worker -- ingest
+npm run worker -- maintain --once
 npm run worker -- ingest --once
 npm run worker -- ingest --cycles 2
 ```
@@ -253,12 +254,13 @@ bounded repair calls skip journeys already at the requested version and continue
 through the date; repairable journeys are processed before expired-evidence errors.
 Commands emit concise JSON reports.
 
-The Compose worker runs `worker ingest --canonical-maintenance`. Every polling cycle
-performs bounded canonicalization and closure; every five minutes the same deployed
-process also recomputes dirty aggregates and invokes bounded finalization/month
-sealing. Automatic finalization searches the oldest eligible dates in the retained
-35-day canonical/timetable window, not only the most recent week. Repeated failures
-emit one warning incident and a recovery event without stopping realtime ingestion.
+Compose runs `worker ingest` without maintenance hooks and a separate `worker maintain`
+process. The maintenance process performs bounded canonicalization, closure, and dirty
+aggregation every five minutes. It attempts finalization/month sealing at most once per
+Madrid calendar day after 06:30, when the service-day grace is expected to have elapsed.
+Automatic finalization searches the oldest eligible dates in the retained 35-day
+canonical/timetable window, not only the most recent week. Each maintenance failure is
+reported without affecting realtime polling.
 Retention deletion remains deliberately manual and two-stage. Manual
 commands remain available for inspection, recovery, and explicit repairs.
 

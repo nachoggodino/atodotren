@@ -324,7 +324,7 @@ export async function processTelegramUpdate(options: {
   readonly resources: ResourceCollector;
   readonly state: TelegramStateStore;
   readonly telegram: TelegramBotApi;
-  readonly logger: Pick<Logger, 'warn'>;
+  readonly logger: Pick<Logger, 'warn'> & Partial<Pick<Logger, 'error'>>;
   readonly fallback: TelegramUpdateFallbackState;
   readonly unauthorizedLogLimiter?: UnauthorizedUpdateLogLimiter;
   readonly signal?: AbortSignal;
@@ -389,6 +389,14 @@ export async function processTelegramUpdate(options: {
     }
   } catch (error) {
     if (isReportingDatabaseUnavailable(error)) return databaseUnavailableUpdate(options);
+    if (!(error instanceof RangeError)) {
+      options.logger.error?.('telegram.command_failed', 'Telegram command or report failed safely', {
+        commandKind: update.callback_query === undefined
+          ? commandKind(update.message?.text)
+          : 'callback',
+        failureClass: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
     response = {
       text: error instanceof RangeError
         ? `${error.message}\nUse /help for supported syntax.`
@@ -447,6 +455,11 @@ export async function processTelegramUpdate(options: {
     }
     return retryAfter(failure.delayMs);
   }
+}
+
+function commandKind(text: string | undefined): string {
+  const match = /^\/([a-z]+)(?:@|\s|$)/u.exec(text?.trim() ?? '');
+  return match?.[1] ?? 'unknown';
 }
 
 async function databaseUnavailableUpdate(options: {

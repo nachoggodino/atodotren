@@ -219,7 +219,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       },
       migrationsDirectory: resolve(process.cwd(), 'migrations'),
     });
-    assert.equal(migrated.applied.at(-1), '0010_realtime_service_date_recovery.sql');
+    assert.equal(migrated.applied.at(-1), '0011_isolated_maintenance_finalization.sql');
 
     pool = new Pool({ connectionString: workerDatabaseUrl, max: 4 });
     const dates = await pool.query<{
@@ -303,19 +303,19 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     );
     assert.equal(partialCurrentDay.status, 'blocked');
     assert.ok((partialCurrentDay.blockers as string[]).includes('service_day_grace_not_elapsed'));
-    const currentLedger = await pool.query<{ expected: string; canonical: string }>(`
+    const currentLedger = await pool.query<{ expected: string | null; canonical: string }>(`
       SELECT (SELECT sum(expected_journey_count)::text FROM operations.expected_service_day
           WHERE service_date = $1::date) AS expected,
         (SELECT count(*)::text FROM core.journey WHERE service_date = $1::date) AS canonical
     `, [currentDate]);
-    assert.deepEqual(currentLedger.rows[0], { expected: '4', canonical: '0' });
+    assert.deepEqual(currentLedger.rows[0], { expected: null, canonical: '0' });
     const partialFinalize = await callReport(
       pool,
       'SELECT operations.finalize_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
       [currentDate, 'aggregate-v1', asOf],
     );
     assert.equal(partialFinalize.status, 'blocked');
-    assert.ok((partialFinalize.blockers as string[]).includes('service_day_grace_not_elapsed'));
+    assert.ok((partialFinalize.blockers as string[]).includes('expected_timetable_ledger_missing'));
 
     const histogramLaw = await databaseAdmin.query<{ associative: boolean; underflow: number; overflow: number }>(`
       SELECT
@@ -480,11 +480,13 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
 
     const closed = await closeJourneys({ pool, serviceDate: targetDate, now: asOf, graceSeconds: 7_200 });
     assert.deepEqual(closed.errors, {}, JSON.stringify(closed));
+    const materializationStarted = performance.now();
     const expectedMaterialization = await callReport(
       pool,
       'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
       [targetDate, 'aggregate-v1', asOf],
     );
+    const materializationDurationMs = performance.now() - materializationStarted;
     assert.equal(expectedMaterialization.journeysCreated, 1);
     assert.equal(expectedMaterialization.stopsCreated, 3);
     const timetableIdentity = await databaseAdmin.query<{ expected: string; canonical: string }>(`
@@ -595,6 +597,15 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       [targetDate, 'aggregate-v1', asOf],
     );
     assert.equal(finalizedV1.status, 'verified', JSON.stringify(finalizedV1));
+    const repeatedStarted = performance.now();
+    const repeatedMaterialization = await callReport(
+      pool,
+      'SELECT operations.materialize_expected_service_day($1::date, $2::text, $3::timestamptz, 7200) AS report',
+      [targetDate, 'aggregate-v1', asOf],
+    );
+    assert.equal(repeatedMaterialization.status, 'already_finalized');
+    const repeatedMaterializationDurationMs = performance.now() - repeatedStarted;
+    assert.ok(repeatedMaterializationDurationMs < 2_000);
     const contributionV1 = await pool.query<{ stop: string; segment: string; journey: string }>(`
       SELECT
         COALESCE(sum(scheduled_opportunities) FILTER (WHERE family = 'stop'), 0)::text AS stop,
@@ -1102,6 +1113,8 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
         deterministicChecksum,
         sealedV1Checksum,
         sealedV2Checksum: sealedV2.checksum,
+        materializationDurationMs: Math.round(materializationDurationMs * 1000) / 1000,
+        repeatedMaterializationDurationMs: Math.round(repeatedMaterializationDurationMs * 1000) / 1000,
         syntheticDays: Number(storage.rows[0]?.synthetic_days),
         totalBytes: Number(storage.rows[0]?.total_bytes),
         indexBytes: Number(storage.rows[0]?.index_bytes),

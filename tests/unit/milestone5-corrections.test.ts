@@ -285,6 +285,7 @@ void test('/trains ambiguity preserves callback intent and completes the trains 
   const pool = {
     query: async (sql: string) => {
       if (sql.includes('report_line_lookup WHERE line_id')) return { rows: [{ line_id: 1, public_code: 'C-1', name_es: 'Cercanías C-1' }] };
+      if (sql.includes('report_ingest_health')) return { rows: [{ last_durable_cycle_at: now, ingest_stale: false }] };
       if (sql.includes('report_vehicle_live')) return { rows: [{ state_key: 'state-1', journey_id: 10, service_date: '2026-08-23', source_trip_id: 'trip-1', vehicle_id: 'v1', captured_at: now, current_station_name_es: 'Atocha', current_status: 'IN_TRANSIT_TO', latest_stop_delay: 30 }] };
       throw new Error(`unexpected query: ${sql}`);
     },
@@ -307,6 +308,56 @@ void test('/trains ambiguity preserves callback intent and completes the trains 
   const completed = await executeCallback({ callbackData, reporting, state });
   assert.match(completed.text, /C-1 active trains/u);
   assert.doesNotMatch(completed.text, /Run \/trains again/u);
+});
+
+void test('/trains reports no fresh vehicles when ingestion health is stale', async () => {
+  let vehicleQueryRan = false;
+  const reporting = {
+    now: () => now,
+    lineCandidates: async () => [{ id: 1, label: 'Cercanías C-1', code: 'C-1', aliases: [], score: 100 }],
+    pool: {
+      query: async (sql: string) => {
+        if (sql.includes('report_line_lookup WHERE line_id')) {
+          return { rows: [{ line_id: 1, public_code: 'C-1', name_es: 'Cercanías C-1' }] };
+        }
+        if (sql.includes('report_ingest_health')) {
+          return { rows: [{ last_durable_cycle_at: new Date(now.getTime() - 180_000), ingest_stale: true }] };
+        }
+        if (sql.includes('report_vehicle_live')) vehicleQueryRan = true;
+        return { rows: [] };
+      },
+    },
+  } as unknown as ReportingService;
+  const response = await executeTelegramCommand({
+    command: { name: 'trains', query: 'C-1' }, reporting,
+    resources: {} as ResourceCollector, state: {} as TelegramStateStore,
+  });
+  assert.match(response.text, /No fresh trains are available for C-1/u);
+  assert.equal(vehicleQueryRan, false);
+});
+
+void test('unexpected report exceptions log only command kind and error classification', async () => {
+  const logged: Array<Readonly<Record<string, unknown>>> = [];
+  let delivered = '';
+  const state = {
+    deliveryForUpdate: async () => null,
+    beginDelivery: async () => ({ delivered: false, attempts: 1, lastAttemptAt: null, messageId: null, failureClass: null }),
+    markDelivered: async () => undefined,
+  } as unknown as TelegramStateStore;
+  const result = await processTelegramUpdate({
+    update: { update_id: 88, message: { message_id: 1, from: { id: 101 }, chat: { id: 202, type: 'private' }, text: '/trains C-1' } },
+    config: loadTelegramOperationsConfig(telegramEnvironment()),
+    reporting: { now: () => now, lineCandidates: async () => { throw new TypeError('SELECT secret FROM credential'); } } as unknown as ReportingService,
+    resources: {} as ResourceCollector,
+    state,
+    telegram: { sendMessage: async (_chat: string, text: string) => { delivered = text; return { message_id: 9 }; } } as unknown as TelegramBotApi,
+    logger: { warn: () => undefined, error: (_event, _message, fields) => { logged.push(fields ?? {}); } },
+    fallback: new TelegramUpdateFallbackState(),
+  });
+  assert.deepEqual(result, { status: 'handled' });
+  assert.match(delivered, /report could not be produced/u);
+  assert.deepEqual(logged, [{ commandKind: 'trains', failureClass: 'TypeError' }]);
+  assert.doesNotMatch(JSON.stringify(logged), /SELECT|secret|credential/u);
 });
 
 void test('scheduled daily digest includes compact resources and unavailable values are not zeroed', async () => {

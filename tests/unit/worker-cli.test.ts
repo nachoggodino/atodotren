@@ -98,13 +98,9 @@ void test('ingest and replay dispatch bounded modes with predictable reports', a
     db: {} as never,
     close: () => Promise.resolve(),
   });
-  let maintenanceRuns = 0;
-  const ingest = await invoke(['ingest', '--cycles', '2', '--canonical-maintenance'], environment, {
+  const ingest = await invoke(['ingest', '--cycles', '2'], environment, {
     connect,
     ingest: async (options) => {
-      for (let cycle = 0; cycle < (options.cycles ?? 0); cycle += 1) {
-        await options.afterCycle?.();
-      }
       return {
         cyclesAttempted: options.cycles ?? 0, successfulCycles: 2,
         postgresPersistedFeeds: 4, spooledFeeds: 0, replayedFeeds: 0,
@@ -113,21 +109,10 @@ void test('ingest and replay dispatch bounded modes with predictable reports', a
         stoppedBySignal: false,
       };
     },
-    canonicalize: () => {
-      maintenanceRuns += 1;
-      return Promise.resolve({
-        errors: {}, journeysCreated: 1, journeysUpdated: 0, journeysClosed: 0,
-        journeyStopsMaterialized: 4,
-      } as never);
-    },
-    closeJourneys: () => {
-      maintenanceRuns += 1;
-      return Promise.resolve({ errors: {}, journeysClosed: 1 } as never);
-    },
   });
   assert.equal(ingest.code, 0);
   assert.equal((JSON.parse(ingest.stdout) as { cyclesAttempted: number }).cyclesAttempted, 2);
-  assert.equal(maintenanceRuns, 4);
+  assert.equal((await invoke(['ingest', '--canonical-maintenance'], environment, { connect })).code, 2);
   const replay = await invoke(['replay'], environment, {
     connect,
     replay: () => Promise.resolve({ replayed: 3, pending: 0 }),

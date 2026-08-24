@@ -20,6 +20,10 @@
       "types": "./dist/m5-cli.d.ts",
       "default": "./dist/m5-cli.js"
     },
+    "./maintenance": {
+      "types": "./dist/maintenance.d.ts",
+      "default": "./dist/maintenance.js"
+    },
     "./reporting-core": {
       "types": "./dist/reporting-core.d.ts",
       "default": "./dist/reporting-core.js"
