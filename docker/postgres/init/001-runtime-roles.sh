@@ -3,11 +3,13 @@ set -Eeuo pipefail
 
 : "${ATODOTREN_WORKER_PASSWORD:?ATODOTREN_WORKER_PASSWORD is required}"
 : "${ATODOTREN_TELEGRAM_PASSWORD:?ATODOTREN_TELEGRAM_PASSWORD is required}"
+: "${ATODOTREN_WEB_PASSWORD:?ATODOTREN_WEB_PASSWORD is required}"
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 
 psql --set=ON_ERROR_STOP=1 \
   --set=worker_password="${ATODOTREN_WORKER_PASSWORD}" \
   --set=telegram_password="${ATODOTREN_TELEGRAM_PASSWORD}" \
+  --set=web_password="${ATODOTREN_WEB_PASSWORD}" \
   --set=migrator_password="${POSTGRES_PASSWORD}" \
   --set=database_name="${POSTGRES_DB}" \
   --username "${POSTGRES_USER}" --dbname "${POSTGRES_DB}" <<'SQL'
@@ -55,6 +57,11 @@ SELECT format(
 ) WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'atodotren_telegram') \gexec
 
 SELECT format(
+  'CREATE ROLE atodotren_web LOGIN INHERIT PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
+  :'web_password'
+) WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'atodotren_web') \gexec
+
+SELECT format(
   'CREATE ROLE atodotren_migrator LOGIN NOINHERIT PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',
   :'migrator_password'
 ) WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'atodotren_migrator') \gexec
@@ -64,7 +71,7 @@ DECLARE
   login_role name;
   existing pg_roles%ROWTYPE;
 BEGIN
-  FOREACH login_role IN ARRAY ARRAY['atodotren_worker', 'atodotren_telegram', 'atodotren_migrator']::name[]
+  FOREACH login_role IN ARRAY ARRAY['atodotren_worker', 'atodotren_telegram', 'atodotren_web', 'atodotren_migrator']::name[]
   LOOP
     SELECT * INTO STRICT existing FROM pg_roles WHERE rolname = login_role;
     IF NOT existing.rolcanlogin
@@ -73,7 +80,7 @@ BEGIN
       OR existing.rolcreaterole
       OR existing.rolreplication
       OR existing.rolbypassrls
-      OR (login_role IN ('atodotren_worker', 'atodotren_telegram') AND NOT existing.rolinherit)
+      OR (login_role IN ('atodotren_worker', 'atodotren_telegram', 'atodotren_web') AND NOT existing.rolinherit)
       OR (login_role = 'atodotren_migrator' AND existing.rolinherit)
     THEN
       RAISE EXCEPTION 'Existing login role % has unsafe attributes', login_role;
@@ -84,6 +91,7 @@ $logins$;
 
 GRANT atodotren_ingest_writer TO atodotren_worker WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 GRANT atodotren_reporting_reader TO atodotren_telegram WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+GRANT atodotren_web_reader TO atodotren_web WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 GRANT atodotren_migration_admin TO atodotren_migrator WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 
 DO $membership_contract$
@@ -113,6 +121,18 @@ BEGIN
   WHERE member_role.rolname = 'atodotren_telegram';
   IF direct_count <> 1 OR exact_count <> 1 THEN
     RAISE EXCEPTION 'atodotren_telegram must have only the exact reporting-reader membership';
+  END IF;
+
+  SELECT count(*), count(*) FILTER (
+    WHERE granted_role.rolname = 'atodotren_web_reader'
+      AND NOT membership.admin_option AND membership.inherit_option AND NOT membership.set_option
+  ) INTO direct_count, exact_count
+  FROM pg_auth_members AS membership
+  JOIN pg_roles AS member_role ON member_role.oid = membership.member
+  JOIN pg_roles AS granted_role ON granted_role.oid = membership.roleid
+  WHERE member_role.rolname = 'atodotren_web';
+  IF direct_count <> 1 OR exact_count <> 1 THEN
+    RAISE EXCEPTION 'atodotren_web must have only the exact web-reader membership';
   END IF;
 
   SELECT count(*), count(*) FILTER (
