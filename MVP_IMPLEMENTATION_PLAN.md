@@ -775,7 +775,7 @@ while retaining raw GTFS seconds. Classified sealing is transactionally compact 
 keeps no daily date grain. Finalization verifies the complete independent timetable
 ledger; a confirmed zero-success outage remains visible and seals only after explicit
 acknowledgement. Isolated Compose maintenance scans the 35-day retained window and
-attempts finalization once daily after the service-day grace. Internal renamed finalization/sealing
+retries finalization between 04:30 and the 06:30 provisional cutoff until verified. Internal renamed finalization/sealing
 functions are not executable by runtime roles. Destructive retention remains explicit
 and two-stage. Timetable verification compares stable metric identity—including line,
 branch, direction, service pattern, station, stop order, and scheduled time—without

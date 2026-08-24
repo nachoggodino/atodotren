@@ -123,6 +123,54 @@ async function buildMilestone4Fixture(
   return fixturePath;
 }
 
+async function buildScaleFinalizationFixture(directory: string, serviceDate: string): Promise<string> {
+  const baseDirectory = resolve('tests/fixtures/gtfs-static/representative');
+  const passthrough = ['agency.txt', 'routes.txt', 'stops.txt', 'shapes.txt'] as const;
+  const entries = await Promise.all(passthrough.map(async (name) => ({
+    name,
+    data: await readFile(join(baseDirectory, name), 'utf8'),
+  })));
+  const journeyCount = 1_151;
+  const stopCount = 15_336;
+  const trips = ['route_id,service_id,trip_id,trip_headsign,direction_id,shape_id'];
+  const stopTimes = [
+    'trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type,timepoint',
+  ];
+  const stops = ['10STOP-A', '10STOP-B', '10STOP-C'];
+  let generatedStops = 0;
+  for (let journey = 0; journey < journeyCount; journey += 1) {
+    const tripId = `10TRIP-SCALE-${journey.toString().padStart(4, '0')}`;
+    trips.push(`10T0001C1,ALL,${tripId},Scale train ${journey},0,10SHAPE-A`);
+    const stopsForJourney = journey < stopCount - journeyCount * 13 ? 14 : 13;
+    const startSeconds = 18_000 + journey * 60;
+    for (let stop = 0; stop < stopsForJourney; stop += 1) {
+      const time = gtfsTime(startSeconds + stop * 120);
+      const stopId = stop === stopsForJourney - 1
+        ? stopsForJourney === 13 ? '10STOP-B' : '10STOP-C'
+        : stops[stop % stops.length]!;
+      stopTimes.push(`${tripId},${time},${time},${stopId},${stop + 1},0,0,1`);
+      generatedStops += 1;
+    }
+  }
+  assert.equal(generatedStops, stopCount);
+  const fixturePath = join(directory, 'milestone4-finalization-scale.zip');
+  await writeFile(fixturePath, createStoredZip([
+    ...entries,
+    { name: 'trips.txt', data: `${trips.join('\n')}\n` },
+    { name: 'stop_times.txt', data: `${stopTimes.join('\n')}\n` },
+    {
+      name: 'calendar.txt',
+      data: 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n' +
+        'ALL,0,0,0,0,0,0,0,20200101,20351231\n',
+    },
+    {
+      name: 'calendar_dates.txt',
+      data: `service_id,date,exception_type\nALL,${serviceDate.replaceAll('-', '')},1\n`,
+    },
+  ]));
+  return fixturePath;
+}
+
 type EvidenceClass = 'reported_prediction' | 'observed_presence' | 'stop_skipped' | 'trip_cancellation';
 
 async function insertEvidence(
@@ -1102,25 +1150,134 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
     assert.ok(Number(storage.rows[0]?.total_bytes) > 0);
     assert.ok(Number(storage.rows[0]?.index_bytes) > 0);
 
-    console.log(JSON.stringify({
-      milestone4Acceptance: {
-        targetDate,
-        stopOpportunities: 31,
-        journeyOpportunities: 4,
-        segmentOpportunities: 27,
-        canonicalDroppedRows: canonicalDrop.droppedRows,
-        pollDroppedRows: pollDrop.droppedRows,
-        deterministicChecksum,
-        sealedV1Checksum,
-        sealedV2Checksum: sealedV2.checksum,
-        materializationDurationMs: Math.round(materializationDurationMs * 1000) / 1000,
-        repeatedMaterializationDurationMs: Math.round(repeatedMaterializationDurationMs * 1000) / 1000,
-        syntheticDays: Number(storage.rows[0]?.synthetic_days),
-        totalBytes: Number(storage.rows[0]?.total_bytes),
-        indexBytes: Number(storage.rows[0]?.index_bytes),
-        queryPlan: planText,
-      },
-    }));
+    const serverVersion = await databaseAdmin.query<{ server_version_num: string }>('SHOW server_version_num');
+    const isProductionPostgres = Number(serverVersion.rows[0]?.server_version_num) >= 180_000;
+    // Compose deploys PostgreSQL 18. Keep the Pi-scale ANALYZE run on that production target;
+    // the PostgreSQL 16 contract remains a compatibility pass without benchmark I/O pressure.
+    if (isProductionPostgres) {
+      const scaleFixturePath = await buildScaleFinalizationFixture(temporaryDirectory, targetDate);
+      const scaleImport = await importStaticFeed({
+        pool,
+        source: { kind: 'file', path: scaleFixturePath },
+        mapping: {
+          ...renfeMadridMapping,
+          canaries: {
+            requiredLineCodes: ['C-1'], requiredStationPublicIds: ['atocha', 'aeropuerto-t4'],
+            minimumStations: 3, minimumTrips: 1_151, requireReferencedShapes: true,
+          },
+        },
+        temporaryDirectory,
+      });
+      assert.equal(scaleImport.result, 'imported', JSON.stringify(scaleImport));
+
+      const scaleClient = databaseAdmin;
+      let scaleFunctionPlan = '';
+      let scaleChecksumPlan = '';
+      try {
+        await scaleClient.query('BEGIN');
+        const functionExplain = await scaleClient.query<{ 'QUERY PLAN': string }>(`
+          EXPLAIN (ANALYZE, BUFFERS)
+          SELECT operations.materialize_expected_service_day(
+            $1::date, 'scale-plan-v1', $2::timestamptz, 7200
+          )
+        `, [targetDate, asOf]);
+        scaleFunctionPlan = functionExplain.rows.map((row) => row['QUERY PLAN']).join('\n');
+        const staged = await scaleClient.query<{ journeys: string; stops: string }>(`
+          SELECT count(DISTINCT source_trip_id)::text AS journeys, count(*)::text AS stops
+          FROM pg_temp.atodotren_expected_timetable_stop
+        `);
+        assert.deepEqual(staged.rows[0], { journeys: '1151', stops: '15336' });
+        const checksumExplain = await scaleClient.query<{ 'QUERY PLAN': string }>(`
+          EXPLAIN (ANALYZE, BUFFERS)
+          SELECT network_id, encode(sha256(convert_to(string_agg(
+            source_trip_id || ':' || stop_sequence || ':' || source_stop_id || ':' ||
+            scheduled_arrival_seconds, E'\\n' ORDER BY source_trip_id, stop_sequence
+          ), 'UTF8')), 'hex')
+          FROM pg_temp.atodotren_expected_timetable_stop
+          GROUP BY network_id, feed_version_id
+        `);
+        scaleChecksumPlan = checksumExplain.rows.map((row) => row['QUERY PLAN']).join('\n');
+        assert.doesNotMatch(`${scaleFunctionPlan}\n${scaleChecksumPlan}`, /temp read=|temp written=|external merge|Disk:/u);
+        await scaleClient.query('ROLLBACK');
+      } finally {
+        await scaleClient.query('ROLLBACK').catch(() => undefined);
+      }
+
+      await databaseAdmin.query(`
+        INSERT INTO operations.daily_feed_coverage (
+          service_date, feed_kind, poll_count, successful_poll_count, matched_madrid_count,
+          non_madrid_count, unmatched_count, invalid_count, evidence_changed_count,
+          response_bytes, first_poll_at, last_poll_at, source_checksum
+        ) VALUES ($1::date, 'trip_updates', 1, 1, 1151, 0, 0, 0, 0, 1,
+          $1::date::timestamptz, $1::date::timestamptz, repeat('b', 64))
+        ON CONFLICT (service_date, feed_kind) DO UPDATE SET
+          poll_count = EXCLUDED.poll_count, successful_poll_count = EXCLUDED.successful_poll_count,
+          matched_madrid_count = EXCLUDED.matched_madrid_count
+      `, [targetDate]);
+      const scaleFinalizationStarted = performance.now();
+      const scaleMaterialization = await callReport(
+        pool,
+        "SELECT operations.materialize_expected_service_day($1::date, 'scale-v1', $2::timestamptz, 7200) AS report",
+        [targetDate, asOf],
+      );
+      assert.deepEqual({
+        status: scaleMaterialization.status,
+        expectedJourneys: scaleMaterialization.expectedJourneys,
+        expectedStops: scaleMaterialization.expectedStops,
+      }, { status: 'materialized', expectedJourneys: 1_151, expectedStops: 15_336 });
+      await callReport(
+        pool,
+        "SELECT analytics.recompute_daily($1::date, 'scale-v1') AS report",
+        [targetDate],
+      );
+      const scaleFinalization = await callReport(
+        pool,
+        "SELECT operations.finalize_service_day($1::date, 'scale-v1', $2::timestamptz, 7200) AS report",
+        [targetDate, asOf],
+      );
+      const scaleFinalizationDurationMs = performance.now() - scaleFinalizationStarted;
+      assert.equal(scaleFinalization.status, 'verified', JSON.stringify(scaleFinalization));
+      const scaleIdentity = await databaseAdmin.query<{ expected: string; canonical: string }>(`
+        SELECT ledger.timetable_checksum AS expected,
+          operations.canonical_timetable_checksum(ledger.service_date, ledger.network_id) AS canonical
+        FROM operations.expected_service_day AS ledger WHERE ledger.service_date = $1::date
+      `, [targetDate]);
+      assert.equal(scaleIdentity.rows[0]?.canonical, scaleIdentity.rows[0]?.expected);
+      const scaleRepeatStarted = performance.now();
+      const scaleRepeated = await callReport(
+        pool,
+        "SELECT operations.materialize_expected_service_day($1::date, 'scale-v1', $2::timestamptz, 7200) AS report",
+        [targetDate, asOf],
+      );
+      const scaleRepeatedDurationMs = performance.now() - scaleRepeatStarted;
+      assert.equal(scaleRepeated.status, 'already_finalized');
+
+      console.log(JSON.stringify({
+        milestone4Acceptance: {
+          targetDate,
+          stopOpportunities: 31,
+          journeyOpportunities: 4,
+          segmentOpportunities: 27,
+          canonicalDroppedRows: canonicalDrop.droppedRows,
+          pollDroppedRows: pollDrop.droppedRows,
+          deterministicChecksum,
+          sealedV1Checksum,
+          sealedV2Checksum: sealedV2.checksum,
+          materializationDurationMs: Math.round(materializationDurationMs * 1000) / 1000,
+          repeatedMaterializationDurationMs: Math.round(repeatedMaterializationDurationMs * 1000) / 1000,
+          scaleJourneys: 1_151,
+          scaleStops: 15_336,
+          scaleFinalizationDurationMs: Math.round(scaleFinalizationDurationMs * 1000) / 1000,
+          scaleRepeatedDurationMs: Math.round(scaleRepeatedDurationMs * 1000) / 1000,
+          scaleFunctionPlan,
+          scaleChecksumPlan,
+          syntheticDays: Number(storage.rows[0]?.synthetic_days),
+          totalBytes: Number(storage.rows[0]?.total_bytes),
+          indexBytes: Number(storage.rows[0]?.index_bytes),
+          queryPlan: planText,
+        },
+      }));
+    }
   } finally {
     await pool?.end().catch(() => undefined);
     await databaseAdmin?.end().catch(() => undefined);

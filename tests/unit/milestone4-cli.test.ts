@@ -56,6 +56,28 @@ void test('Milestone 4 CLI rejects unbounded options and requires explicit reten
   assert.equal((await invoke(['finalize', '--acknowledge-incomplete', 'outage'])).code, 2);
 });
 
+void test('maintenance defaults to the pre-digest finalization window and rejects an inverted window', async () => {
+  const environment = { DATABASE_URL: 'postgresql://worker:password@localhost/atodotren' };
+  let received: { finalizeAfter: string; finalizeBefore: string } | undefined;
+  const result = await invoke(['maintain', '--once'], environment, {
+    connect: connection,
+    maintenance: (options) => {
+      received = { finalizeAfter: options.finalizeAfter, finalizeBefore: options.finalizeBefore };
+      return Promise.resolve({
+        cyclesAttempted: 1, operationFailures: 0, finalizationAttempts: 0, stoppedBySignal: false,
+      });
+    },
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(received, { finalizeAfter: '04:30', finalizeBefore: '06:30' });
+
+  const invalid = await invoke(['maintain', '--once'], {
+    ...environment, MAINTENANCE_FINALIZE_AFTER: '06:30', MAINTENANCE_FINALIZE_BEFORE: '04:30',
+  });
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /must be earlier/u);
+});
+
 void test('automatic finalization scans the retained 35-day window oldest first', async () => {
   let sql = '';
   let values: readonly unknown[] = [];
@@ -152,18 +174,19 @@ void test('finalize exposes separate dry-run, authorize, and confirmed apply mod
   assert.deepEqual(modes, ['plan', 'authorize', 'apply']);
 });
 
-void test('isolated maintenance runs bounded work each cycle and finalizes only once per Madrid day', async () => {
+void test('isolated maintenance retries finalization until verified and then stops for the Madrid day', async () => {
   const instants = [
-    new Date('2026-08-22T03:00:00Z'),
-    new Date('2026-08-22T10:01:00Z'),
-    new Date('2026-08-22T10:05:00Z'),
+    new Date('2026-08-22T02:30:00Z'),
+    new Date('2026-08-22T02:35:00Z'),
+    new Date('2026-08-22T02:40:00Z'),
   ];
   let nowIndex = 0;
   let canonicalRuns = 0;
   let aggregateRuns = 0;
   let finalizationRuns = 0;
   const report = await runMaintenance({
-    pool: {} as never, cycles: 3, intervalMs: 1, finalizeAfter: '04:30',
+    pool: {} as never, cycles: 3, intervalMs: 1,
+    finalizeAfter: '04:30', finalizeBefore: '06:30',
     now: () => instants[Math.min(nowIndex++, instants.length - 1)]!,
     sleep: () => Promise.resolve(),
     canonicalize: () => {
@@ -188,23 +211,26 @@ void test('isolated maintenance runs bounded work each cycle and finalizes only 
       finalizationRuns += 1;
       return Promise.resolve({
         command: 'finalize', algorithmVersion: 'aggregate-v1', checkedAt: instants[0]!.toISOString(),
-        serviceDays: [], months: [], operationsSummaries: [],
+        serviceDays: finalizationRuns === 1 ? [] : [{ status: 'verified' }],
+        months: [], operationsSummaries: [],
         retention: { mode: 'none', candidates: [], authorizations: [], drops: [], liveState: null },
-        errors: [], durationMs: 0,
+        errors: finalizationRuns === 1 ? ['blocked'] : [], durationMs: 0,
       });
     },
   });
-  assert.equal(report.operationFailures, 0);
+  assert.equal(report.operationFailures, 1);
+  assert.equal(report.finalizationAttempts, 2);
   assert.equal(canonicalRuns, 6);
   assert.equal(aggregateRuns, 3);
-  assert.equal(finalizationRuns, 1);
+  assert.equal(finalizationRuns, 2);
 });
 
 void test('maintenance reports failures without stopping later cycles', async () => {
   let canonicalRuns = 0;
   const events: string[] = [];
   const report = await runMaintenance({
-    pool: {} as never, cycles: 2, intervalMs: 1, finalizeAfter: '23:59',
+    pool: {} as never, cycles: 2, intervalMs: 1,
+    finalizeAfter: '23:00', finalizeBefore: '23:59',
     now: () => new Date('2026-08-22T10:00:00Z'), sleep: () => Promise.resolve(),
     onEvent: (event) => events.push(event),
     canonicalize: () => {
@@ -220,4 +246,57 @@ void test('maintenance reports failures without stopping later cycles', async ()
   assert.equal(canonicalRuns, 2);
   assert.equal(report.operationFailures, 1);
   assert.equal(events.filter((event) => event === 'maintenance.operation_failed').length, 1);
+});
+
+void test('maintenance stops retrying at the provisional digest cutoff', async () => {
+  const instants = [
+    new Date('2026-08-22T04:25:00Z'),
+    new Date('2026-08-22T04:30:00Z'),
+  ];
+  let nowIndex = 0;
+  let finalizationRuns = 0;
+  const report = await runMaintenance({
+    pool: {} as never, cycles: 2, intervalMs: 1,
+    finalizeAfter: '04:30', finalizeBefore: '06:30',
+    now: () => instants[Math.min(nowIndex++, instants.length - 1)]!,
+    sleep: () => Promise.resolve(),
+    canonicalize: () => Promise.resolve({ errors: {} } as never),
+    closeJourneys: () => Promise.resolve({ errors: {} } as never),
+    aggregate: () => Promise.resolve({
+      command: 'aggregate', algorithmVersion: 'aggregate-v1', scopesAttempted: 0,
+      succeeded: 0, noops: 0, failed: 0, results: [], errors: [], durationMs: 0,
+    }),
+    finalize: () => {
+      finalizationRuns += 1;
+      return Promise.resolve({
+        command: 'finalize', algorithmVersion: 'aggregate-v1', checkedAt: instants[0]!.toISOString(),
+        serviceDays: [{ status: 'blocked' }], months: [], operationsSummaries: [],
+        retention: { mode: 'none', candidates: [], authorizations: [], drops: [], liveState: null },
+        errors: ['blocked'], durationMs: 0,
+      });
+    },
+  });
+  assert.equal(report.finalizationAttempts, 1);
+  assert.equal(finalizationRuns, 1);
+});
+
+void test('maintenance shutdown interrupts the periodic sleep promptly', async () => {
+  const controller = new AbortController();
+  const started = performance.now();
+  const running = runMaintenance({
+    pool: {} as never, intervalMs: 300_000,
+    finalizeAfter: '23:00', finalizeBefore: '23:59', signal: controller.signal,
+    now: () => new Date('2026-08-22T10:00:00Z'),
+    canonicalize: () => Promise.resolve({ errors: {} } as never),
+    closeJourneys: () => Promise.resolve({ errors: {} } as never),
+    aggregate: () => Promise.resolve({
+      command: 'aggregate', algorithmVersion: 'aggregate-v1', scopesAttempted: 0,
+      succeeded: 0, noops: 0, failed: 0, results: [], errors: [], durationMs: 0,
+    }),
+  });
+  setTimeout(() => controller.abort(), 10);
+  const report = await running;
+  assert.equal(report.cyclesAttempted, 1);
+  assert.equal(report.stoppedBySignal, true);
+  assert.ok(performance.now() - started < 1_000);
 });

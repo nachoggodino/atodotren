@@ -697,7 +697,8 @@ void test('a blocked maintenance process cannot delay fake realtime cycles', asy
   try {
     let maintenanceStarted = false;
     void runMaintenance({
-      pool: {} as never, cycles: 1, intervalMs: 300_000, finalizeAfter: '23:59',
+      pool: {} as never, cycles: 1, intervalMs: 300_000,
+      finalizeAfter: '23:00', finalizeBefore: '23:59',
       canonicalize: () => {
         maintenanceStarted = true;
         return new Promise(() => undefined);

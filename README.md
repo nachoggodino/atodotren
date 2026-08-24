@@ -256,8 +256,9 @@ Commands emit concise JSON reports.
 
 Compose runs `worker ingest` without maintenance hooks and a separate `worker maintain`
 process. The maintenance process performs bounded canonicalization, closure, and dirty
-aggregation every five minutes. It attempts finalization/month sealing at most once per
-Madrid calendar day after 06:30, when the service-day grace is expected to have elapsed.
+aggregation every five minutes. It starts finalization/month sealing after 04:30 and
+retries blocked or transient failures each interval until verified or the 06:30
+provisional-digest cutoff.
 Automatic finalization searches the oldest eligible dates in the retained 35-day
 canonical/timetable window, not only the most recent week. Each maintenance failure is
 reported without affecting realtime polling.
@@ -590,13 +591,14 @@ separately on each target platform. The spool uses Node 24's built-in SQLite, so
 Milestone 4 introduces no third-party native addon; both architectures still run
 their own production dependency installation.
 
-Start the ordinary Milestone 4 Compose sequence. PostgreSQL becomes healthy,
+Start the ordinary Compose sequence after building the shared
+`atodotren-worker:milestone-5` image. PostgreSQL becomes healthy,
 migrations complete, `static-import` uses its configured URL (or the default
 official RENFE source), the bounded spool volume is initialized, and continuous
 ingestion starts only after a real active version exists:
 
 ```sh
-docker compose --env-file .env up --build worker
+docker compose --env-file .env up
 ```
 
 Inspect state and logs, then stop safely:

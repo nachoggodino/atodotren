@@ -47,8 +47,9 @@ export const maintenanceUsage = `Usage:
   worker maintain [--once | --cycles <positive-integer>]
 
 Runs canonicalization, journey closure and aggregation on a bounded periodic loop.
-Finalization is attempted at most once per Madrid calendar day after
-MAINTENANCE_FINALIZE_AFTER (default 06:30). Failures are reported and the loop continues.
+Finalization starts after MAINTENANCE_FINALIZE_AFTER (default 04:30). Blocked or
+failed attempts retry each interval until verified or MAINTENANCE_FINALIZE_BEFORE
+(default 06:30), before the provisional digest cutoff.
 `;
 
 export const milestone4RootUsage = rootUsage
@@ -84,18 +85,28 @@ function parseMaintenance(arguments_: readonly string[]): { readonly cycles?: nu
 }
 
 function maintenanceSettings(environment: Readonly<Record<string, string | undefined>>): {
-  readonly intervalMs: number; readonly finalizeAfter: string;
+  readonly intervalMs: number; readonly finalizeAfter: string; readonly finalizeBefore: string;
 } {
   const intervalMs = Number(environment.MAINTENANCE_INTERVAL_MS ?? '300000');
   if (!Number.isSafeInteger(intervalMs) || intervalMs < 1_000 || intervalMs > 86_400_000) {
     throw new Milestone4UsageError('MAINTENANCE_INTERVAL_MS must be from 1000 through 86400000', maintenanceUsage);
   }
-  const finalizeAfter = environment.MAINTENANCE_FINALIZE_AFTER ?? '06:30';
-  const match = /^(\d{2}):(\d{2})$/u.exec(finalizeAfter);
-  if (match === null || Number(match[1]) > 23 || Number(match[2]) > 59) {
-    throw new Milestone4UsageError('MAINTENANCE_FINALIZE_AFTER must use HH:MM', maintenanceUsage);
+  const clock = (name: string, fallback: string): string => {
+    const value = environment[name] ?? fallback;
+    const match = /^(\d{2}):(\d{2})$/u.exec(value);
+    if (match === null || Number(match[1]) > 23 || Number(match[2]) > 59) {
+      throw new Milestone4UsageError(`${name} must use HH:MM`, maintenanceUsage);
+    }
+    return value;
+  };
+  const finalizeAfter = clock('MAINTENANCE_FINALIZE_AFTER', '04:30');
+  const finalizeBefore = clock('MAINTENANCE_FINALIZE_BEFORE', '06:30');
+  if (finalizeAfter >= finalizeBefore) {
+    throw new Milestone4UsageError(
+      'MAINTENANCE_FINALIZE_AFTER must be earlier than MAINTENANCE_FINALIZE_BEFORE', maintenanceUsage,
+    );
   }
-  return { intervalMs, finalizeAfter };
+  return { intervalMs, finalizeAfter, finalizeBefore };
 }
 
 async function runMaintenanceCommand(
@@ -115,6 +126,7 @@ async function runMaintenanceCommand(
       pool: connection.pool,
       intervalMs: settings.intervalMs,
       finalizeAfter: settings.finalizeAfter,
+      finalizeBefore: settings.finalizeBefore,
       ...(options.cycles === undefined ? {} : { cycles: options.cycles }),
       signal: shutdown.signal,
       ...(dependencies.now === undefined ? {} : { now: dependencies.now }),

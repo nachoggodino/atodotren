@@ -12,6 +12,7 @@ export interface MaintenanceOptions {
   readonly pool: Pool;
   readonly intervalMs: number;
   readonly finalizeAfter: string;
+  readonly finalizeBefore: string;
   readonly cycles?: number | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly sleep?: ((milliseconds: number) => Promise<void>) | undefined;
@@ -42,8 +43,17 @@ function madridClock(now: Date): { readonly date: string; readonly time: string 
   };
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted === true) return Promise.resolve();
+  return new Promise((resolve) => {
+    const completed = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', completed);
+      resolve();
+    };
+    const timer = setTimeout(completed, milliseconds);
+    signal?.addEventListener('abort', completed, { once: true });
+  });
 }
 
 function errorClass(error: unknown): string {
@@ -52,25 +62,27 @@ function errorClass(error: unknown): string {
 
 export async function runMaintenance(options: MaintenanceOptions): Promise<MaintenanceReport> {
   const maximumCycles = options.cycles ?? Number.POSITIVE_INFINITY;
-  const sleep = options.sleep ?? delay;
+  const sleep = options.sleep ?? ((milliseconds) => delay(milliseconds, options.signal));
   const now = options.now ?? (() => new Date());
   let cyclesAttempted = 0;
   let operationFailures = 0;
   let finalizationAttempts = 0;
   let lastFinalizationDate: string | undefined;
 
-  const attempt = async (kind: string, operation: () => Promise<unknown>): Promise<void> => {
+  const attempt = async (kind: string, operation: () => Promise<unknown>): Promise<boolean> => {
     const started = performance.now();
     try {
       await operation();
       options.onEvent?.('maintenance.operation_completed', {
         kind, durationMs: Math.round(performance.now() - started),
       });
+      return true;
     } catch (error) {
       operationFailures += 1;
       options.onEvent?.('maintenance.operation_failed', {
         kind, errorClass: errorClass(error), durationMs: Math.round(performance.now() - started),
       });
+      return false;
     }
   };
 
@@ -92,15 +104,20 @@ export async function runMaintenance(options: MaintenanceOptions): Promise<Maint
 
     const current = now();
     const clock = madridClock(current);
-    if (clock.time >= options.finalizeAfter && lastFinalizationDate !== clock.date) {
-      lastFinalizationDate = clock.date;
+    if (clock.time >= options.finalizeAfter && clock.time < options.finalizeBefore &&
+        lastFinalizationDate !== clock.date) {
       finalizationAttempts += 1;
-      await attempt('finalize', async () => {
+      const completed = await attempt('finalize', async () => {
         const report = await (options.finalize ?? finalizeAnalytics)({
           pool: options.pool, limit: 7, now: current, retentionMode: 'none',
         });
         if (report.errors.length > 0) throw new Error('Finalization reported bounded errors');
+        if (report.serviceDays.some((item) => item.status !== 'verified' && item.status !== 'already_verified') ||
+            report.months.some((item) => item.status !== 'sealed' && item.status !== 'already_sealed')) {
+          throw new Error('Finalization did not verify every selected scope');
+        }
       });
+      if (completed) lastFinalizationDate = clock.date;
     }
 
     const remaining = options.intervalMs - Math.round(performance.now() - cycleStarted);
