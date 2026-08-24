@@ -6,7 +6,7 @@ import { ThemeProvider } from "@/components/shell/theme-provider";
 import { BRAND } from "@/lib/brand/config";
 import "./globals.css";
 
-const OFFLINE_BOOTSTRAP = `(function(){var root=document.documentElement;var key="atodotren:offline";function apply(offline){if(offline){root.setAttribute("data-atodotren-offline","true");try{sessionStorage.setItem(key,"1");}catch{}}else{root.removeAttribute("data-atodotren-offline");try{sessionStorage.removeItem(key);}catch{}}}var remembered=false;try{remembered=sessionStorage.getItem(key)==="1";}catch{}apply(remembered||!navigator.onLine);window.addEventListener("offline",function(){apply(true);});window.addEventListener("online",function(){apply(false);});})();`;
+const OFFLINE_BOOTSTRAP = `(function(){var root=document.documentElement;var key="atodotren:offline";function apply(offline){if(offline){root.setAttribute("data-atodotren-offline","true");try{sessionStorage.setItem(key,"1");}catch{}}else{root.removeAttribute("data-atodotren-offline");try{sessionStorage.removeItem(key);}catch{}}}async function verifyOnline(){try{var response=await fetch("/manifest.webmanifest?atodotren-connectivity="+Date.now(),{cache:"no-store",credentials:"same-origin"});if(response.ok)apply(false);}catch{}}var remembered=false;try{remembered=sessionStorage.getItem(key)==="1";}catch{}if(remembered){apply(true);if(navigator.onLine)void verifyOnline();}else{apply(!navigator.onLine);}window.addEventListener("offline",function(){apply(true);});window.addEventListener("online",function(){void verifyOnline();});})();`;
 
 export const metadata: Metadata = {
   title: { default: BRAND.name, template: `%s · ${BRAND.name}` },
