@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 async function openMenu(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: /Abrir menú|Open menu/ }).click();
-  await expect(page.getByRole("button", { name: /Cerrar menú|Close menu/ })).toHaveAttribute("aria-expanded", "true");
+  const button = page.getByTestId("menu-toggle");
+  await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  await expect(button).toHaveAccessibleName(/Cerrar menú|Close menu/);
 }
 
 test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {

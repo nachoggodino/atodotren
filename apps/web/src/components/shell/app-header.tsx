@@ -82,7 +82,7 @@ export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; r
               <BrandSymbol className="size-8" /><BrandWordmark />
             </Link>
             <span className="hidden border-l border-border pl-3 text-xs font-semibold text-muted sm:inline">{routeContext(pathname, messages)}</span>
-            <button ref={menuButtonRef} aria-expanded={open} aria-label={open ? messages.nav.close : messages.nav.menu} className="ml-auto grid size-11 place-items-center rounded-lg hover:bg-muted-soft" onClick={() => { setOpenPathname((value) => value === pathname ? null : pathname); setHidden(false); }} type="button">
+            <button ref={menuButtonRef} data-testid="menu-toggle" aria-expanded={open} aria-label={open ? messages.nav.close : messages.nav.menu} className="ml-auto grid size-11 place-items-center rounded-lg hover:bg-muted-soft" onClick={() => { setOpenPathname((value) => value === pathname ? null : pathname); setHidden(false); }} type="button">
               <span className="relative block h-4 w-5" aria-hidden="true">
                 <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />
                 <span className={`absolute left-0 top-[7px] h-0.5 w-5 bg-current transition-opacity ${open ? "opacity-0" : ""}`} />
