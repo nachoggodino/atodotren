@@ -83,6 +83,9 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .data-status[data-status="outage"] { color: var(--danger); }
 .data-status[data-status="outage"]::before { background: var(--danger); }
 
+.offline-status { display: none; }
+html[data-atodotren-offline="true"] .offline-status { display: flex; }
+
 .delay-cell { position: relative; min-width: 5.2rem; }
 .delay-cell[data-band="punctual"] { background: color-mix(in oklab, var(--success) 17%, transparent); }
 .delay-cell[data-band="mild"] { background: color-mix(in oklab, var(--warning) 20%, transparent); }
