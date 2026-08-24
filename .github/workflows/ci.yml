@@ -1,22 +1,24 @@
-name: Milestone 5 CI
+name: Repository CI
 
 on:
   push:
     branches:
       - main
       - feature-milestone-5
+      - feature/frontend-alpha
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: milestone-5-${{ github.workflow }}-${{ github.ref }}
+  group: repository-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   NODE_VERSION: 24.15.0
   MILESTONE4_BASE: 0563dcaa9c9c1d9d7bea3596e3ccaf8b4f0d58b6
+  FRONTEND_BASE: 2811eff0632e62cf512480a4ccfa432a01e91ede
 
 jobs:
   repository-contract:
@@ -27,8 +29,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check patch whitespace
-        run: git diff --check "$MILESTONE4_BASE"...HEAD
-      - name: Prove migrations 0001-0008 are immutable
+        run: git diff --check "$FRONTEND_BASE"...HEAD
+      - name: Prove accepted migrations are immutable
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -41,9 +43,20 @@ jobs:
             migrations/0006_aggregation_retention.sql \
             migrations/0007_m4_correctness_gates.sql \
             migrations/0008_timetable_metric_identity.sql
-          sha256sum migrations/000{1,2,3,4,5,6,7,8}_*.sql
-          echo 'Unreleased Milestone 5 migration checksum:'
-          sha256sum migrations/0009_reporting_telegram.sql
+          git diff --exit-code "$FRONTEND_BASE" -- \
+            migrations/0001_repository_foundation.sql \
+            migrations/0002_static_madrid_foundation.sql \
+            migrations/0003_static_mapping_integrity.sql \
+            migrations/0004_realtime_ingestion.sql \
+            migrations/0005_canonical_journeys.sql \
+            migrations/0006_aggregation_retention.sql \
+            migrations/0007_m4_correctness_gates.sql \
+            migrations/0008_timetable_metric_identity.sql \
+            migrations/0009_reporting_telegram.sql \
+            migrations/0010_realtime_service_date_recovery.sql \
+            migrations/0011_isolated_maintenance_finalization.sql \
+            migrations/0012_telegram_reporting_corrections.sql
+          sha256sum migrations/00{01,02,03,04,05,06,07,08,09,10,11,12}_*.sql
       - name: Reject credential-bearing tracked artifacts
         shell: bash
         run: |
@@ -93,9 +106,8 @@ jobs:
             exit 1
           fi
 
-
   verify:
-    name: Typecheck, lint and unit tests
+    name: Worker typecheck, lint and unit tests
     runs-on: ubuntu-latest
     needs: repository-contract
     steps:
@@ -109,10 +121,32 @@ jobs:
       - run: npm run lint
       - run: npm run test:unit
 
-  postgres-contract:
-    name: PostgreSQL ${{ matrix.postgres }} contract
+  web-verify:
+    name: Web typecheck, lint, unit and production build
     runs-on: ubuntu-latest
-    needs: verify
+    needs: repository-contract
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run web:typecheck
+      - run: npm run web:lint
+      - run: npm run web:test
+      - name: Build Next.js production bundle in private fixture preview mode
+        run: npm run web:build
+        env:
+          WEB_DATA_MODE: fixture
+          WEB_ALLOW_FIXTURE_PRODUCTION: "true"
+
+  postgres-contract:
+    name: PostgreSQL ${{ matrix.postgres }} worker + public web contracts
+    runs-on: ubuntu-latest
+    needs:
+      - verify
+      - web-verify
     strategy:
       fail-fast: false
       matrix:
@@ -128,8 +162,33 @@ jobs:
       - run: npm ci
       - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}'
 
+  web-browser:
+    name: Playwright fixture, responsive and accessibility smoke
+    runs-on: ubuntu-latest
+    needs: web-verify
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run web:test:e2e
+      - name: Upload browser inspection artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-alpha-browser-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            apps/web/test-results/screenshots/*.png
+            apps/web/test-results/**/trace.zip
+            apps/web/playwright-report/**
+
   docker-build:
-    name: Docker amd64 build
+    name: Worker Docker amd64 build
     runs-on: ubuntu-latest
     needs: verify
     steps:
@@ -141,7 +200,7 @@ jobs:
         run: docker run --rm --entrypoint sh atodotren-worker:ci -c 'test ! -e /app/tests/fixtures/fake-telegram-server.mjs'
 
   docker-multiarch:
-    name: Docker amd64/arm64 build
+    name: Worker Docker amd64/arm64 build
     runs-on: ubuntu-latest
     needs: verify
     steps:
@@ -154,6 +213,39 @@ jobs:
           --platform linux/amd64,linux/arm64
           --file docker/worker/Dockerfile
           --output type=oci,dest=/tmp/atodotren-worker-multiarch.tar
+          .
+
+  web-docker-build:
+    name: Web Docker amd64 build
+    runs-on: ubuntu-latest
+    needs: web-verify
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build standalone web image
+        run: docker build --file docker/web/Dockerfile --tag atodotren-web:ci .
+      - name: Smoke fixture runtime without database access
+        run: >-
+          docker run --rm -d --name atodotren-web-ci -p 127.0.0.1:3100:3000
+          -e WEB_DATA_MODE=fixture -e WEB_ALLOW_FIXTURE_PRODUCTION=true atodotren-web:ci
+          && for i in {1..30}; do curl --fail --silent http://127.0.0.1:3100/es >/dev/null && break; sleep 1; done
+          && curl --fail http://127.0.0.1:3100/es
+          && docker rm -f atodotren-web-ci
+
+  web-docker-multiarch:
+    name: Web Docker amd64/arm64 build
+    runs-on: ubuntu-latest
+    needs: web-verify
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build both supported architectures
+        run: >-
+          docker buildx build
+          --platform linux/amd64,linux/arm64
+          --file docker/web/Dockerfile
+          --output type=oci,dest=/tmp/atodotren-web-multiarch.tar
           .
 
   compose-smoke:

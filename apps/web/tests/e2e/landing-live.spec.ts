@@ -15,7 +15,10 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.getByRole("link", { name: "Ver hoy" }).click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
   await expect(page.getByTestId("schematic-map")).toBeVisible();
-  if (testInfo.project.name.startsWith("desktop")) await page.screenshot({ path: "test-results/screenshots/live-line-desktop-light.png", fullPage: true });
+  const filename = testInfo.project.name.startsWith("desktop")
+    ? "test-results/screenshots/live-line-desktop-light.png"
+    : "test-results/screenshots/live-line-mobile-light.png";
+  await page.screenshot({ path: filename, fullPage: true });
 });
 
 test("global refresh pause persists and live train detail is keyboard operable", async ({ page }) => {
@@ -45,5 +48,8 @@ test("English routes, theme persistence, mobile drawer and reduced motion remain
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.reload();
   await expect(page.locator("html")).toHaveClass(/dark/);
-  if (testInfo.project.name.startsWith("mobile")) await page.screenshot({ path: "test-results/screenshots/landing-mobile-dark.png", fullPage: true });
+  const filename = testInfo.project.name.startsWith("desktop")
+    ? "test-results/screenshots/landing-desktop-dark.png"
+    : "test-results/screenshots/landing-mobile-dark.png";
+  await page.screenshot({ path: filename, fullPage: true });
 });
