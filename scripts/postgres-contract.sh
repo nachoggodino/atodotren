@@ -12,6 +12,7 @@ web_migrations=(
   migrations/0013_public_web_api.sql
   migrations/0014_web_reader_permissions.sql
   migrations/0015_web_live_contract.sql
+  migrations/0016_web_search_normalization.sql
 )
 
 if ! command -v docker >/dev/null 2>&1; then
