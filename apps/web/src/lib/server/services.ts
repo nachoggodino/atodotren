@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { HistoryFilters } from "@/lib/domain/contracts";
+import type { HistoryFilters, HistoryResponse, MatrixResponse, ResponseMeta } from "@/lib/domain/contracts";
 import { CATALOG_CACHE_SECONDS, CURRENT_HISTORY_CACHE_SECONDS, FINAL_HISTORY_CACHE_SECONDS } from "@/lib/design/tokens";
 import { boundedDateRange } from "@/lib/domain/filters";
 import { getDataAdapter } from "./adapter";
@@ -9,6 +9,12 @@ import { withTtlCache } from "./cache";
 const LIVE_TTL = 30;
 
 function scenarioKey(scenario: string | undefined): string { return scenario ?? "default"; }
+function madridDate(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+function historyTtl(filters: HistoryFilters): number { return filters.to < madridDate() ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS; }
+function normalizeHistoricalMeta<T extends { readonly meta: ResponseMeta }>(value: T): T {
+  if (value.meta.sourceAt !== null || value.meta.status !== "outage") return value;
+  return { ...value, meta: { ...value.meta, status: "live", stale: false } };
+}
 
 export async function searchCatalog(query: string, scenario?: string) {
   const normalized = query.trim().slice(0, 100);
@@ -37,28 +43,35 @@ export async function getJourney(serviceDate: string, journeyId: string, scenari
   return withTtlCache(`journey:${serviceDate}:${journeyId}:${scenarioKey(scenario)}`, LIVE_TTL, () => adapter.journey(serviceDate, journeyId));
 }
 
-export async function getHistoryNetwork(filters: HistoryFilters, scenario?: string) {
+export async function getHistoryNetwork(filters: HistoryFilters, scenario?: string): Promise<HistoryResponse> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  const value = await adapter.historyNetwork(safe);
-  return withTtlCache(`history:network:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, value.meta.finalized ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS, async () => value);
+  return withTtlCache(`history:network:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => normalizeHistoricalMeta(await adapter.historyNetwork(safe)));
 }
 
-export async function getHistoryLine(slug: string, filters: HistoryFilters, scenario?: string) {
+export async function getHistoryLine(slug: string, filters: HistoryFilters, scenario?: string): Promise<HistoryResponse | null> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  const value = await adapter.historyLine(slug, safe);
-  return withTtlCache(`history:line:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, value?.meta.finalized ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS, async () => value);
+  return withTtlCache(`history:line:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => {
+    const value = await adapter.historyLine(slug, safe);
+    return value === null ? null : normalizeHistoricalMeta(value);
+  });
 }
 
-export async function getHistoryStation(slug: string, filters: HistoryFilters, scenario?: string) {
+export async function getHistoryStation(slug: string, filters: HistoryFilters, scenario?: string): Promise<HistoryResponse | null> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  const value = await adapter.historyStation(slug, safe);
-  return withTtlCache(`history:station:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, value?.meta.finalized ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS, async () => value);
+  return withTtlCache(`history:station:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => {
+    const value = await adapter.historyStation(slug, safe);
+    return value === null ? null : normalizeHistoricalMeta(value);
+  });
 }
 
-export async function getMatrix(lineSlug: string, serviceDate: string, scenario?: string) {
+export async function getMatrix(lineSlug: string, serviceDate: string, scenario?: string): Promise<MatrixResponse | null> {
   const adapter = await getDataAdapter(scenario);
-  return withTtlCache(`matrix:${lineSlug}:${serviceDate}:${scenarioKey(scenario)}`, CURRENT_HISTORY_CACHE_SECONDS, () => adapter.matrix(lineSlug, serviceDate));
+  const ttl = serviceDate < madridDate() ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS;
+  return withTtlCache(`matrix:${lineSlug}:${serviceDate}:${scenarioKey(scenario)}`, ttl, async () => {
+    const value = await adapter.matrix(lineSlug, serviceDate);
+    return value === null ? null : normalizeHistoricalMeta(value);
+  });
 }
