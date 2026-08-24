@@ -1,4 +1,4 @@
-const VERSION = "frontend-alpha-v1";
+const VERSION = "frontend-alpha-v2";
 const SHELL_CACHE = `atodotren-shell-${VERSION}`;
 const LIVE_CACHE = `atodotren-live-${VERSION}`;
 const DAILY_CACHE = `atodotren-daily-${VERSION}`;
@@ -54,9 +54,27 @@ function isLivePage(url) {
   return url.origin === self.location.origin && /^\/(es|en)\/live(?:\/|$)/.test(url.pathname);
 }
 
+function isNextStatic(url) {
+  return url.origin === self.location.origin && url.pathname.startsWith("/_next/static/");
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+
+  if (isNextStatic(url)) {
+    event.respondWith((async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      if (response.ok) {
+        const cache = await caches.open(SHELL_CACHE);
+        await cache.put(event.request, response.clone());
+      }
+      return response;
+    })());
+    return;
+  }
 
   if (isLiveApi(url)) {
     event.respondWith((async () => {
