@@ -10,7 +10,6 @@ SELECT
   state.state_key,
   state.captured_at,
   state.service_date,
-  journey.id AS journey_id,
   state.source_trip_id,
   state.vehicle_id,
   line.slug AS line_slug,
@@ -25,7 +24,8 @@ SELECT
   station.name_en AS current_station_name_en,
   state.current_status,
   state.latest_stop_delay,
-  state.vehicle_timestamp
+  state.vehicle_timestamp,
+  journey.id AS journey_id
 FROM ingest.live_vehicle_state AS state
 JOIN core.line AS line ON line.id = state.line_id
 JOIN core.network AS network ON network.id = line.network_id
