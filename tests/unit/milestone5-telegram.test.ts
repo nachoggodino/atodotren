@@ -57,6 +57,7 @@ void test('command parser supports the bounded Milestone 5 syntax', () => {
   assert.deepEqual(parseTelegramCommand('/line C-1 2026-08-22', fixedNow), { name: 'line', query: 'C-1', date: '2026-08-22' });
   assert.deepEqual(parseTelegramCommand('/station Nuevos Ministerios', fixedNow), { name: 'station', query: 'Nuevos Ministerios' });
   assert.deepEqual(parseTelegramCommand('/trains C-1', fixedNow), { name: 'trains', query: 'C-1' });
+  assert.deepEqual(parseTelegramCommand('/trains C1', fixedNow), { name: 'trains', query: 'C1' });
   assert.throws(() => parseTelegramCommand('/sql select 1', fixedNow), /Unknown command/u);
   assert.throws(() => parseTelegramCommand('/daily 2024-01-01', fixedNow), RangeError);
 });
@@ -73,19 +74,21 @@ void test('authorization requires exact user, chat and private chat type', () =>
   assert.equal(isAuthorizedUpdate({ ...update, message: { ...update.message!, chat: { id: 202, type: 'group' } } }, config), false);
 });
 
-void test('fuzzy candidates rank exact aliases above partial names and remain bounded', async () => {
+void test('compact and punctuated line codes resolve to the same exact candidate', async () => {
   const pool = {
     query: async () => ({ rows: [
       { line_id: 2, public_code: 'C-10', name_es: 'Villalba', aliases: [], normalized_slug: 'c 10' },
-      { line_id: 1, public_code: 'C-1', name_es: 'Príncipe Pío - Aeropuerto T4', aliases: ['C1'], normalized_slug: 'c 1' },
+      { line_id: 1, public_code: 'C-1', name_es: 'Príncipe Pío - Aeropuerto T4', aliases: [], normalized_slug: 'c 1' },
       { line_id: 3, public_code: 'C-2', name_es: 'Guadalajara', aliases: [], normalized_slug: 'c 2' },
     ] }),
   } as unknown as DatabaseConnection['pool'];
   const reporting = new ReportingService(pool, () => fixedNow);
-  const candidates = await reporting.lineCandidates('c1');
-  assert.equal(candidates.length, 3);
-  assert.equal(candidates[0]?.id, 1);
-  assert.equal(candidates[0]?.score, 100);
+  for (const input of ['c1', 'C-1']) {
+    const candidates = await reporting.lineCandidates(input);
+    assert.equal(candidates.length, 3);
+    assert.equal(candidates[0]?.id, 1);
+    assert.equal(candidates[0]?.score, 100);
+  }
 });
 
 void test('digest scheduling follows 04:00, 05:00 and 06:30 Madrid time across DST', () => {

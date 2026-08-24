@@ -20,7 +20,7 @@ import {
   telegramHealthStatus,
   waitForAbortableDelay,
 } from '@atodotren/worker/telegram-operations';
-import { pilotReport } from '@atodotren/worker/reporting-operations';
+import { formatReportText, pilotReport } from '@atodotren/worker/reporting-operations';
 import { ReportingService } from '@atodotren/worker/reporting-service';
 import type { ResourceCollector, ResourceSample } from '@atodotren/worker/resources';
 import { runDigestCheck } from '@atodotren/worker/telegram-scheduler';
@@ -344,10 +344,13 @@ void test('unexpected report exceptions log only command kind and error classifi
     beginDelivery: async () => ({ delivered: false, attempts: 1, lastAttemptAt: null, messageId: null, failureClass: null }),
     markDelivered: async () => undefined,
   } as unknown as TelegramStateStore;
+  const databaseError = Object.assign(new Error('SELECT secret FROM credential'), {
+    name: 'error', code: '42501', detail: 'private database detail',
+  });
   const result = await processTelegramUpdate({
     update: { update_id: 88, message: { message_id: 1, from: { id: 101 }, chat: { id: 202, type: 'private' }, text: '/trains C-1' } },
     config: loadTelegramOperationsConfig(telegramEnvironment()),
-    reporting: { now: () => now, lineCandidates: async () => { throw new TypeError('SELECT secret FROM credential'); } } as unknown as ReportingService,
+    reporting: { now: () => now, lineCandidates: async () => { throw databaseError; } } as unknown as ReportingService,
     resources: {} as ResourceCollector,
     state,
     telegram: { sendMessage: async (_chat: string, text: string) => { delivered = text; return { message_id: 9 }; } } as unknown as TelegramBotApi,
@@ -356,8 +359,25 @@ void test('unexpected report exceptions log only command kind and error classifi
   });
   assert.deepEqual(result, { status: 'handled' });
   assert.match(delivered, /report could not be produced/u);
-  assert.deepEqual(logged, [{ commandKind: 'trains', failureClass: 'TypeError' }]);
-  assert.doesNotMatch(JSON.stringify(logged), /SELECT|secret|credential/u);
+  assert.deepEqual(logged, [{ commandKind: 'trains', failureClass: 'error', errorCode: '42501' }]);
+  assert.doesNotMatch(JSON.stringify(logged), /SELECT|secret|credential|private database detail/u);
+});
+
+void test('daily worst rankings require useful samples and label insufficient evidence', async () => {
+  const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+  const pool = {
+    query: async (sql: string, values: readonly unknown[] = []) => {
+      calls.push({ sql, values });
+      return { rows: [] };
+    },
+  } as unknown as DatabaseConnection['pool'];
+  const reporting = new ReportingService(pool, () => now);
+  const report = await reporting.daily('2026-08-22');
+  const lineCall = calls.find((call) => call.sql.includes('report_line_summary'));
+  const stationCall = calls.find((call) => call.sql.includes('report_station_summary'));
+  assert.deepEqual(lineCall?.values, ['2026-08-22', 100]);
+  assert.deepEqual(stationCall?.values, ['2026-08-22', 30]);
+  assert.match(formatReportText(report), /Worst line: insufficient sample · Worst station: insufficient sample/u);
 });
 
 void test('scheduled daily digest includes compact resources and unavailable values are not zeroed', async () => {

@@ -5,6 +5,8 @@ export const MAX_REPORT_LOOKBACK_DAYS = 400;
 export const MAX_TRAINS = 20;
 export const MAX_INCIDENTS = 20;
 export const MAX_LOOKUP_CANDIDATES = 5;
+export const MIN_WORST_LINE_OBSERVATIONS = 100;
+export const MIN_WORST_STATION_OBSERVATIONS = 30;
 
 export interface ChartSpec {
   readonly kind: 'line';
@@ -178,6 +180,10 @@ export function instantText(value: unknown): string | null {
 
 export function normalizeLookup(value: string): string {
   return value.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase().replace(/[^a-z0-9]+/gu, ' ').trim();
+}
+
+export function compactLookup(value: string): string {
+  return normalizeLookup(value).replaceAll(' ', '');
 }
 
 export function currentMadridServiceDate(now: Date = new Date()): string {

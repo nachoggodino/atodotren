@@ -267,7 +267,7 @@ void test('Milestone 4 aggregation, repair, sealing, least privilege, and destru
       },
       migrationsDirectory: resolve(process.cwd(), 'migrations'),
     });
-    assert.equal(migrated.applied.at(-1), '0011_isolated_maintenance_finalization.sql');
+    assert.equal(migrated.applied.at(-1), '0012_telegram_reporting_corrections.sql');
 
     pool = new Pool({ connectionString: workerDatabaseUrl, max: 4 });
     const dates = await pool.query<{

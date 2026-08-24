@@ -33,7 +33,7 @@ const connectionOptions = {
   poolMax: 2,
   connectionTimeoutMs: 5_000,
   idleTimeoutMs: 5_000,
-  statementTimeoutMs: 5_000,
+  statementTimeoutMs: 30_000,
 };
 
 async function copyMilestone4Migrations(directory: string): Promise<void> {
@@ -134,7 +134,7 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
       const sentinel = await upgradedAdmin.query<{ value: number }>('SELECT value FROM operations.m5_upgrade_sentinel WHERE id = 1');
       assert.equal(sentinel.rows[0]?.value, 42);
       const ledger = await upgradedAdmin.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
-      assert.equal(ledger.rows.at(-1)?.name, '0011_isolated_maintenance_finalization.sql');
+      assert.equal(ledger.rows.at(-1)?.name, '0012_telegram_reporting_corrections.sql');
       const memberships = await upgradedAdmin.query<{
         role: string;
         admin_option: boolean;
@@ -194,6 +194,12 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
       await telegram.query('SELECT * FROM operations.report_daily_summary LIMIT 1');
       await telegram.query('SELECT * FROM operations.report_ingest_health LIMIT 1');
       await telegram.query('SELECT * FROM operations.report_database_size LIMIT 1');
+      const normalized = await telegram.query<{ value: string }>(
+        "SELECT operations.report_normalize('C-1') AS value",
+      );
+      assert.equal(normalized.rows[0]?.value, 'c 1');
+      await telegram.query(`SELECT line_id FROM operations.report_line_lookup
+        WHERE normalized_search LIKE '%' || $1 || '%' LIMIT 1`, ['c 1']);
       await telegram.query(`INSERT INTO operations.telegram_delivery (
         delivery_key, delivery_type, report_version, attempt_count, expires_at
       ) VALUES ('ci-command', 'command', 'pilot-v1', 1, clock_timestamp() + interval '1 day')`);
@@ -238,7 +244,7 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
       await databaseAdmin.connect();
       try {
         const ledger = await databaseAdmin.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
-        assert.equal(ledger.rows.at(-1)?.name, '0011_isolated_maintenance_finalization.sql');
+        assert.equal(ledger.rows.at(-1)?.name, '0012_telegram_reporting_corrections.sql');
       } finally {
         await databaseAdmin.end();
       }

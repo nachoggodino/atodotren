@@ -207,8 +207,8 @@ function metricText(report: Extract<ReportResult, { metrics: unknown }>): string
 
 export function formatReportText(report: ReportResult): string {
   if (report.kind === 'daily') {
-    const worstLine = report.worstLine === null ? 'n/a' : `${report.worstLine.code} ${percent(report.worstLine.punctuality)} (n=${report.worstLine.sampleSize})`;
-    const worstStation = report.worstStation === null ? 'n/a' : `${report.worstStation.name} ${percent(report.worstStation.punctuality)} (n=${report.worstStation.sampleSize})`;
+    const worstLine = report.worstLine === null ? 'insufficient sample' : `${report.worstLine.code} ${percent(report.worstLine.punctuality)} (n=${report.worstLine.sampleSize})`;
+    const worstStation = report.worstStation === null ? 'insufficient sample' : `${report.worstStation.name} ${percent(report.worstStation.punctuality)} (n=${report.worstStation.sampleSize})`;
     return `Daily ${report.serviceDate} [${report.finalization.status}]\n${metricText(report)}\nWorst line: ${worstLine} · Worst station: ${worstStation}\nSource: ${report.source}; precision: ${report.precision}; timezone: ${report.timezone}`;
   }
   if (report.kind === 'line') return `${report.line.code} — ${report.serviceDate}\n${metricText(report)}\nSource: ${report.source}; precision: ${report.precision}`;
