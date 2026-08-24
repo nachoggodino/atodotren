@@ -999,12 +999,14 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         }
 
         const unresolvedAt = new Date(captured.getTime() - 1_000);
+        const ambiguousArrivalTime = Math.floor(Date.parse('2026-08-25T09:59:59Z') / 1000);
         const unresolvedFeed: DecodedFeed = {
-          feedKind: 'trip_updates', headerTimestamp: 1, entityTotal: 1, invalidEntities: [],
+          feedKind: 'trip_updates', headerTimestamp: ambiguousArrivalTime, entityTotal: 1, invalidEntities: [],
           entities: [{
-            kind: 'trip_update', entityId: 'intentionally-unresolved', trip: oldDescriptor, timestamp: 1,
+            kind: 'trip_update', entityId: 'intentionally-unresolved', trip: oldDescriptor,
+            timestamp: ambiguousArrivalTime,
             stopUpdates: [{
-              stopSequence: 1, stopId: '10STOP-A', arrivalTime: 1,
+              stopSequence: 1, stopId: '10STOP-A', arrivalTime: ambiguousArrivalTime,
               arrivalDelay: 120, relationship: 'SCHEDULED',
             }],
           }],
@@ -1047,14 +1049,14 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           SELECT count(*) FILTER (WHERE service_date IS NULL)::text AS unresolved,
             count(*) FILTER (WHERE start_date_source = 'inferred')::text AS inferred,
             array_agg(DISTINCT service_date::text) FILTER (WHERE service_date IS NOT NULL) AS inferred_dates,
-            max(service_date_backfill_reason) FILTER (WHERE renfe_arrival_time = 1) AS unresolved_reason
+            max(service_date_backfill_reason) FILTER (WHERE renfe_arrival_time = $1) AS unresolved_reason
           FROM ingest.stop_evidence
           WHERE source_trip_id = '10TRIP-A'
-        `);
+        `, [ambiguousArrivalTime]);
         assert.equal(recovered.rows[0]?.unresolved, '1');
         assert.ok(Number(recovered.rows[0]?.inferred ?? 0) >= 3);
         assert.deepEqual(recovered.rows[0]?.inferred_dates, ['2026-08-24']);
-        assert.equal(recovered.rows[0]?.unresolved_reason, 'no_calendar_candidate');
+        assert.equal(recovered.rows[0]?.unresolved_reason, 'ambiguous_or_too_distant');
         const exhaustedBackfill = await pool.query<{ report: { scanned: number } }>(
           'SELECT operations.backfill_realtime_service_dates(1) AS report',
         );
