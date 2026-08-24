@@ -1,7 +1,7 @@
 "use client";
 
 import { WifiOff } from "lucide-react";
-import { useEffect, useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 import type { Messages } from "@/messages/types";
 
 const OFFLINE_SESSION_KEY = "atodotren:offline";
@@ -30,7 +30,7 @@ function getServerSnapshot() {
 
 export function OfflineStatus({ messages }: { readonly messages: Messages }) {
   const offline = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (offline) sessionStorage.setItem(OFFLINE_SESSION_KEY, "1");
     else if (navigator.onLine) sessionStorage.removeItem(OFFLINE_SESSION_KEY);
   }, [offline]);
