@@ -306,7 +306,7 @@ void test('/trains ambiguity preserves callback intent and completes the trains 
   const callbackId = callbackData.replace(/^r:/u, '');
   assert.equal(callbacks.get(callbackId)?.action, 'trains');
   const completed = await executeCallback({ callbackData, reporting, state });
-  assert.match(completed.text, /C-1 · live trains/u);
+  assert.match(completed.text, /C1 · live trains/u);
   assert.doesNotMatch(completed.text, /Run \/trains again/u);
 });
 
@@ -332,7 +332,7 @@ void test('/trains reports no fresh vehicles when ingestion health is stale', as
     command: { name: 'trains', query: 'C-1' }, reporting,
     resources: {} as ResourceCollector, state: {} as TelegramStateStore,
   });
-  assert.match(response.text, /No fresh trains are available for <b>C-1<\/b>/u);
+  assert.match(response.text, /No fresh trains are available for <b>C1<\/b>/u);
   assert.equal(vehicleQueryRan, false);
 });
 

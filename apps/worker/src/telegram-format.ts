@@ -25,12 +25,17 @@ export function formatTelegramInstant(value: unknown): string {
   return formatInstant(value);
 }
 
+export function compactCercaniasCode(value: string): string {
+  const match = /^c[\s-]*(\d+[a-z]?)$/iu.exec(value.trim());
+  return match === null ? value : `C${match[1] ?? ''}`;
+}
+
 export function formatTelegramReport(report: ReportResult): string {
   if (report.kind === 'daily' || report.kind === 'line' || report.kind === 'station') {
     const title = report.kind === 'daily'
       ? `🚆 Madrid Cercanías · ${formatServiceDate(report.serviceDate)}`
       : report.kind === 'line'
-        ? `🚆 ${escapeTelegramHtml(report.line.code)} · ${formatServiceDate(report.serviceDate)}`
+        ? `🚆 ${escapeTelegramHtml(compactCercaniasCode(report.line.code))} · ${formatServiceDate(report.serviceDate)}`
         : `🚉 ${escapeTelegramHtml(report.station.name)} · ${formatServiceDate(report.serviceDate)}`;
     const state = report.kind === 'daily'
       ? report.finalization.status === 'verified' ? '✅ Verified daily aggregate' : '⏳ Live aggregate · not finalized'
@@ -125,7 +130,7 @@ function formatMetrics(metrics: MetricSummary): string {
 function formatRankings(report: Extract<ReportResult, { kind: 'daily' }>): string {
   const line = report.worstLine === null
     ? 'Not enough evidence'
-    : `${escapeTelegramHtml(report.worstLine.code)} · <b>${percent(report.worstLine.punctuality)}</b> punctual · n=${report.worstLine.sampleSize}`;
+    : `${escapeTelegramHtml(compactCercaniasCode(report.worstLine.code))} · <b>${percent(report.worstLine.punctuality)}</b> punctual · n=${report.worstLine.sampleSize}`;
   const station = report.worstStation === null
     ? 'Not enough evidence'
     : `${escapeTelegramHtml(report.worstStation.name)} · <b>${percent(report.worstStation.punctuality)}</b> punctual · n=${report.worstStation.sampleSize}`;
@@ -184,7 +189,7 @@ function formatTrains(report: Extract<ReportResult, { kind: 'trains' }>): string
     return `• <code>${escapeTelegramHtml(train.trainId)}</code> · ${location}\n  ${delaySignal(train.delaySeconds)} Delay: <b>${duration(train.delaySeconds)}</b> · updated ${formatTime(train.capturedAt)}`;
   });
   return [
-    titleLine(`🚆 ${escapeTelegramHtml(report.line.code)} · live trains`),
+    titleLine(`🚆 ${escapeTelegramHtml(compactCercaniasCode(report.line.code))} · live trains`),
     `<i>${report.trains.length} fresh states · showing up to ${MAX_TRAINS}</i>`,
     '',
     ...rows,
@@ -197,12 +202,13 @@ function formatTrain(report: Extract<ReportResult, { kind: 'train' }>): string {
   if (report.journey === null) return `${titleLine('🚆 Train details')}\n\nNo current or recent canonical state for <code>${escapeTelegramHtml(report.trainId)}</code>.`;
   const row = report.journey;
   const code = read(row, 'public_code');
+  const displayCode = typeof code === 'string' ? compactCercaniasCode(code) : 'Train';
   const destination = read(row, 'final_station_name_es');
   const associatedStop = read(row, 'current_station_name_es');
   const delay = numeric(read(row, 'final_delay_seconds') ?? read(row, 'latest_stop_delay'));
   const lifecycle = read(row, 'lifecycle_status') ?? read(row, 'current_status');
   return [
-    titleLine(`🚆 ${code === null ? 'Train' : escapeTelegramHtml(code)} · ${escapeTelegramHtml(report.trainId)}`),
+    titleLine(`🚆 ${escapeTelegramHtml(displayCode)} · ${escapeTelegramHtml(report.trainId)}`),
     `<i>${escapeTelegramHtml(humanKey(lifecycle))}</i>`,
     '',
     '<b>Journey</b>',

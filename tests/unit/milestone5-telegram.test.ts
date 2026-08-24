@@ -19,7 +19,7 @@ import {
   TelegramWebhookConflictError,
   type TelegramUpdate,
 } from '@atodotren/worker/telegram-transport';
-import { escapeTelegramHtml } from '@atodotren/worker/telegram-format';
+import { compactCercaniasCode, escapeTelegramHtml } from '@atodotren/worker/telegram-format';
 
 const fixedNow = new Date('2026-08-23T11:30:00.000Z');
 
@@ -141,6 +141,8 @@ void test('Bot API startup detects webhook conflict and command registration is 
 
 void test('Telegram HTML escaping protects dynamic Renfe and user text', () => {
   assert.equal(escapeTelegramHtml('Atocha & <C1>'), 'Atocha &amp; &lt;C1&gt;');
+  assert.equal(compactCercaniasCode('C-1'), 'C1');
+  assert.equal(compactCercaniasCode('C8b'), 'C8b');
 });
 
 void test('disabled operations service shuts down cleanly without opening database or Telegram resources', async () => {

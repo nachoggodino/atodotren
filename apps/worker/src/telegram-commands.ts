@@ -10,6 +10,7 @@ import type { ReportingService } from './reporting-service.js';
 import type { ResourceCollector } from './resources.js';
 import {
   escapeTelegramHtml,
+  compactCercaniasCode,
   formatTelegramInstant,
   formatTelegramReport,
   formatTelegramResources,
@@ -146,7 +147,7 @@ async function trainsResponse(
   const report = await trainsReport(reporting, lineId);
   if (report === null) return html(`⚪ Unknown line <b>${escapeTelegramHtml(requested)}</b>.`);
   if (report.trains.length === 0) {
-    return html(`⚪ No fresh trains are available for <b>${escapeTelegramHtml(report.line.code)}</b>. Realtime ingestion may be stale or Renfe may not be reporting vehicles.`);
+    return html(`⚪ No fresh trains are available for <b>${escapeTelegramHtml(compactCercaniasCode(report.line.code))}</b>. Realtime ingestion may be stale or Renfe may not be reporting vehicles.`);
   }
   const buttons: InlineButton[][] = [];
   for (const train of report.trains.slice(0, 10)) {
@@ -167,7 +168,7 @@ async function candidateResponse(
   const buttons: InlineButton[][] = [];
   for (const candidate of candidates.slice(0, 5)) {
     const callbackId = await state.createCallback({ action, kind, entityId: String(candidate.id), reportDate });
-    buttons.push([{ text: `${candidate.code === undefined ? '' : `${candidate.code} · `}${candidate.label}`, callback_data: `r:${callbackId}` }]);
+    buttons.push([{ text: `${candidate.code === undefined ? '' : `${compactCercaniasCode(candidate.code)} · `}${candidate.label}`, callback_data: `r:${callbackId}` }]);
   }
   return {
     ...html(action === 'trains' ? '🔎 <b>Several lines match.</b> Select one:' : `🔎 <b>Several ${kind}s match.</b> Select one:`),
