@@ -1,0 +1,22 @@
+name: atodotren-web-fixture
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    image: atodotren-web:frontend-alpha-fixture
+    environment:
+      NODE_ENV: production
+      WEB_DATA_MODE: fixture
+      WEB_ALLOW_FIXTURE_PRODUCTION: "true"
+      WEB_FIXTURE_SCENARIO: ${WEB_FIXTURE_SCENARIO:-healthy}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/es').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: "no"
