@@ -7,7 +7,11 @@ import type {
   StaticTripCandidate,
   TripDescriptor,
 } from './types.js';
-import { inferCandidateServiceDate, type ServiceDateAnchor } from './service-date.js';
+import {
+  inferCandidateServiceDate,
+  type ServiceDateAnchor,
+  type ServiceInstantCache,
+} from './service-date.js';
 
 interface StopHint {
   readonly stopSequence?: number | undefined;
@@ -15,8 +19,10 @@ interface StopHint {
   readonly arrivalTime?: number | undefined;
 }
 
-interface MatchTemporalContext {
+export interface MatchTemporalContext {
   readonly fallbackInstantSeconds?: number | undefined;
+  readonly serviceInstantCache?: ServiceInstantCache | undefined;
+  readonly onTemporalCandidate?: ((candidate: StaticTripCandidate) => void) | undefined;
 }
 
 const madridRoutePrefix = '10';
@@ -48,18 +54,24 @@ function candidateMatchesHints(candidate: StaticTripCandidate, stops: readonly S
   });
 }
 
+interface TemporalResult {
+  readonly distance?: number | undefined;
+  readonly inferredServiceDate?: string | undefined;
+}
+
 function temporalDistance(
   candidate: StaticTripCandidate,
   descriptor: TripDescriptor,
   stops: readonly StopHint[],
   context: MatchTemporalContext,
-): number | undefined {
+): TemporalResult | undefined {
+  context.onTemporalCandidate?.(candidate);
   const date = normalizedDate(descriptor.startDate);
   if (date !== undefined) {
-    return candidate.serviceDates === undefined || candidate.serviceDates.has(date) ? 0 : Number.POSITIVE_INFINITY;
+    return candidate.serviceDates === undefined || candidate.serviceDates.has(date) ? { distance: 0 } : undefined;
   }
-  if (candidate.serviceDates === undefined) return undefined;
-  if (candidate.serviceDates.size === 0) return Number.POSITIVE_INFINITY;
+  if (candidate.serviceDates === undefined) return {};
+  if (candidate.serviceDates.size === 0) return undefined;
   const anchors = stops.flatMap((hint): ServiceDateAnchor[] => {
     if (hint.arrivalTime === undefined) return [];
     const stop = resolveStop(candidate, hint).stop;
@@ -68,14 +80,44 @@ function temporalDistance(
       scheduledSeconds: stop.arrivalSeconds,
     }];
   });
-  if (anchors.length === 0 && context.fallbackInstantSeconds === undefined) return undefined;
-  return inferCandidateServiceDate(candidate, anchors, context.fallbackInstantSeconds)?.distanceSeconds ??
-    Number.POSITIVE_INFINITY;
+  if (anchors.length === 0 && context.fallbackInstantSeconds === undefined) return {};
+  const inferred = inferCandidateServiceDate(
+    candidate, anchors, context.fallbackInstantSeconds, context.serviceInstantCache,
+  );
+  return inferred === undefined ? undefined : {
+    distance: inferred.distanceSeconds,
+    inferredServiceDate: inferred.date,
+  };
 }
 
 interface VersionMatch {
   readonly result: ResolvedMatch;
   readonly distance?: number | undefined;
+}
+
+function evaluateCandidates(
+  candidates: readonly StaticTripCandidate[],
+  descriptor: TripDescriptor,
+  stops: readonly StopHint[],
+  context: MatchTemporalContext,
+): VersionMatch | undefined {
+  const applicable = candidates.flatMap((candidate) => {
+    const temporal = temporalDistance(candidate, descriptor, stops, context);
+    return temporal === undefined ? [] : [{ candidate, temporal }];
+  });
+  if (applicable.length > 1) return { result: { disposition: 'ambiguous' } };
+  const resolved = applicable[0];
+  if (resolved === undefined) return undefined;
+  return {
+    result: {
+      disposition: 'unmatched',
+      candidate: resolved.candidate,
+      ...(resolved.temporal.inferredServiceDate === undefined ? {} : {
+        inferredServiceDate: resolved.temporal.inferredServiceDate,
+      }),
+    },
+    distance: resolved.temporal.distance,
+  };
 }
 
 function withinVersion(
@@ -85,29 +127,26 @@ function withinVersion(
   stops: readonly StopHint[],
   context: MatchTemporalContext,
 ): VersionMatch | undefined {
-  const versionCandidates = candidates.flatMap((candidate) => {
-    if (candidate.versionPosition !== position) return [];
-    const distance = temporalDistance(candidate, descriptor, stops, context);
-    return distance === Number.POSITIVE_INFINITY ? [] : [{ candidate, distance }];
-  });
+  const versionCandidates = candidates.filter((candidate) => candidate.versionPosition === position);
   if (descriptor.tripId !== undefined) {
-    const exact = versionCandidates.filter(({ candidate }) => candidate.tripId === descriptor.tripId);
-    if (exact.length === 1) {
-      return { result: { disposition: `${position}-exact-trip`, candidate: exact[0]!.candidate }, distance: exact[0]!.distance };
+    const exact = evaluateCandidates(
+      versionCandidates.filter((candidate) => candidate.tripId === descriptor.tripId),
+      descriptor, stops, context,
+    );
+    if (exact !== undefined) {
+      return { ...exact, result: { ...exact.result, disposition: exact.result.disposition === 'ambiguous'
+        ? 'ambiguous' : `${position}-exact-trip` } };
     }
-    if (exact.length > 1) return { result: { disposition: 'ambiguous' } };
   }
   const startSeconds = parseGtfsTime(descriptor.startTime);
   if (descriptor.routeId === undefined || startSeconds === undefined) return undefined;
-  const fallback = versionCandidates.filter(({ candidate }) =>
+  const fallbackCandidates = versionCandidates.filter((candidate) =>
     candidate.routeId === descriptor.routeId && candidate.firstTimeSeconds === startSeconds &&
     candidateMatchesHints(candidate, stops));
-  if (fallback.length === 1) {
-    return { result: { disposition: `${position}-unique-fallback`, candidate: fallback[0]!.candidate },
-      distance: fallback[0]!.distance };
-  }
-  if (fallback.length > 1) return { result: { disposition: 'ambiguous' } };
-  return undefined;
+  const fallback = evaluateCandidates(fallbackCandidates, descriptor, stops, context);
+  if (fallback === undefined) return undefined;
+  return { ...fallback, result: { ...fallback.result, disposition: fallback.result.disposition === 'ambiguous'
+    ? 'ambiguous' : `${position}-unique-fallback` } };
 }
 
 export function matchTrip(

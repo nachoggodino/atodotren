@@ -132,6 +132,27 @@ void test('rollover matching chooses the archive whose calendar date fits the re
   );
   assert.equal(result.disposition, 'previous-exact-trip');
   assert.equal(result.candidate?.feedVersionId, '10');
+  assert.equal(result.inferredServiceDate, '2026-08-17');
+});
+
+void test('exact matching evaluates time only for identity candidates despite a large accumulated cache', () => {
+  const irrelevant = Array.from({ length: 5_000 }, (_, candidateIndex): StaticTripCandidate => ({
+    ...activeTrip,
+    tripId: `10IRRELEVANT${candidateIndex}`,
+    routeId: `10R${candidateIndex % 50}`,
+  }));
+  let evaluated = 0;
+  const arrivalTime = Math.floor(Date.parse('2026-08-17T23:00:30Z') / 1000);
+  const started = performance.now();
+  const result = matchTrip(
+    { candidates: [...irrelevant, activeTrip, previousTrip] },
+    { tripId: activeTrip.tripId, scheduleRelationship: 'SCHEDULED' },
+    [{ stopSequence: 1, stopId: 'A', arrivalTime }],
+    { fallbackInstantSeconds: arrivalTime, onTemporalCandidate: () => { evaluated += 1; } },
+  );
+  assert.equal(result.disposition, 'active-exact-trip');
+  assert.equal(evaluated, 1);
+  assert.ok(performance.now() - started < 2_000);
 });
 
 void test('stop_sequence disambiguates repeated stops and stop_id alone is rejected as ambiguous', () => {

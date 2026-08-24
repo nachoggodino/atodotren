@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 
 import { matchTrip, resolveStop } from './matcher.js';
-import { inferCandidateServiceDate, type ServiceDateAnchor } from './service-date.js';
+import {
+  inferCandidateServiceDate,
+  type ServiceDateAnchor,
+  type ServiceInstantCache,
+} from './service-date.js';
 import type {
   AlertTargetOperation,
   DecodedAlert,
@@ -62,10 +66,15 @@ function resolveServiceDate(
   descriptor: TripDescriptor,
   anchors: readonly ServiceDateAnchor[],
   capturedAt: string,
+  matchedInferredDate: string | undefined,
+  serviceInstantCache: ServiceInstantCache,
 ): ServiceDateResolution {
   const provided = serviceDate(descriptor);
   if (provided !== undefined) return { value: provided, source: 'provided' };
-  const inferred = inferCandidateServiceDate(candidate, anchors, Math.floor(new Date(capturedAt).getTime() / 1000));
+  if (matchedInferredDate !== undefined) return { value: matchedInferredDate, source: 'inferred' };
+  const inferred = inferCandidateServiceDate(
+    candidate, anchors, Math.floor(new Date(capturedAt).getTime() / 1000), serviceInstantCache,
+  );
   return inferred === undefined ? { source: 'missing' } : { value: inferred.date, source: 'inferred' };
 }
 
@@ -129,9 +138,11 @@ function normalizeTripEntity(
   entity: Extract<DecodedEntity, { kind: 'trip_update' }>,
   capturedAt: string,
   index: StaticMatchIndex,
+  serviceInstantCache: ServiceInstantCache,
 ): { operations: PendingOperation[]; filtered?: unknown; disposition: string; invalid: boolean } {
   const match = matchTrip(index, entity.trip, entity.stopUpdates, {
     fallbackInstantSeconds: entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000),
+    serviceInstantCache,
   });
   if (match.candidate === undefined) {
     if (match.disposition === 'ambiguous') {
@@ -160,7 +171,9 @@ function normalizeTripEntity(
   if (anchors.length === 0 && entity.timestamp !== undefined && candidate.firstTimeSeconds !== undefined) {
     anchors.push({ instantSeconds: entity.timestamp, scheduledSeconds: candidate.firstTimeSeconds });
   }
-  const resolvedDate = resolveServiceDate(candidate, entity.trip, anchors, capturedAt);
+  const resolvedDate = resolveServiceDate(
+    candidate, entity.trip, anchors, capturedAt, match.inferredServiceDate, serviceInstantCache,
+  );
   const base = evidenceBase(candidate, entity.trip, resolvedDate.value);
   const operations: PendingOperation[] = [];
   if (entity.trip.scheduleRelationship === 'CANCELED') {
@@ -225,10 +238,12 @@ function normalizeVehicleEntity(
   entity: Extract<DecodedEntity, { kind: 'vehicle_position' }>,
   capturedAt: string,
   index: StaticMatchIndex,
+  serviceInstantCache: ServiceInstantCache,
 ): { operations: PendingOperation[]; filtered?: unknown; disposition: string; invalid: boolean } {
   const stopHint = { stopSequence: entity.currentStopSequence, stopId: entity.stopId };
   const match = matchTrip(index, entity.trip, [stopHint], {
     fallbackInstantSeconds: entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000),
+    serviceInstantCache,
   });
   if (match.candidate === undefined) {
     if (match.disposition === 'ambiguous') {
@@ -259,7 +274,9 @@ function normalizeVehicleEntity(
   const instantSeconds = entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000);
   const scheduledSeconds = resolved.stop?.arrivalSeconds ?? candidate.firstTimeSeconds;
   if (scheduledSeconds !== undefined) anchors.push({ instantSeconds, scheduledSeconds });
-  const resolvedDate = resolveServiceDate(candidate, entity.trip, anchors, capturedAt);
+  const resolvedDate = resolveServiceDate(
+    candidate, entity.trip, anchors, capturedAt, match.inferredServiceDate, serviceInstantCache,
+  );
   const instance = evidenceBase(candidate, entity.trip, resolvedDate.value);
   const stateKey = `${instance}:vehicle:${entity.vehicleId ?? entity.entityId}`;
   const projectionInput = entity.latitude !== undefined ? 'raw_position'
@@ -379,6 +396,7 @@ export function normalizeFeed(feed: DecodedFeed, capturedAt: Date, index: Static
   let nonMadridCount = 0;
   let unmatchedCount = 0;
   let invalidCount = 0;
+  const serviceInstantCache: ServiceInstantCache = new Map();
   for (const invalid of feed.invalidEntities) {
     invalidCount += 1;
     if (plausibleMadrid(invalid)) operations.push(quarantine(feed, captured, invalid));
@@ -386,9 +404,9 @@ export function normalizeFeed(feed: DecodedFeed, capturedAt: Date, index: Static
   }
   for (const entity of feed.entities) {
     const normalized = entity.kind === 'trip_update'
-      ? normalizeTripEntity(feed, entity, captured, index)
+      ? normalizeTripEntity(feed, entity, captured, index, serviceInstantCache)
       : entity.kind === 'vehicle_position'
-        ? normalizeVehicleEntity(feed, entity, captured, index)
+        ? normalizeVehicleEntity(feed, entity, captured, index, serviceInstantCache)
         : normalizeAlertEntity(feed, entity, captured, index);
     operations.push(...normalized.operations);
     if (normalized.filtered !== undefined) filteredEntities.push(normalized.filtered);
