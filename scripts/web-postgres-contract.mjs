@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0015_web_live_contract.sql");
+  assert.equal(migration.applied.at(-1), "0016_web_search_normalization.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
