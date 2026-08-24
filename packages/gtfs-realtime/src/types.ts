@@ -123,6 +123,7 @@ export interface StaticMatchIndex {
 export interface ResolvedMatch {
   readonly disposition: MatchDisposition;
   readonly candidate?: StaticTripCandidate | undefined;
+  readonly inferredServiceDate?: string | undefined;
 }
 
 export interface StopEvidenceOperation {

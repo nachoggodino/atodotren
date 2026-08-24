@@ -43,7 +43,6 @@ export interface IngestRunOptions {
   readonly now?: () => Date;
   readonly onEvent?: (event: string, fields: Readonly<Record<string, unknown>>) => void;
   readonly loadStaticIndex?: typeof loadStaticMatchIndex;
-  readonly afterCycle?: () => Promise<void>;
 }
 
 export interface IngestRunReport {
@@ -184,6 +183,9 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         break;
       }
       const startedAt = now();
+      const feedStarted = performance.now();
+      let staticIndexDurationMs = 0;
+      let matchingNormalizationDurationMs = 0;
       let poll: PollRecord;
       let batch: NormalizedBatch | undefined;
       let acquired: Awaited<ReturnType<typeof acquireFeed>> | undefined;
@@ -199,6 +201,7 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         const capturedAt = now();
         const feed = decodeFeed(acquired.body, endpoint.kind);
         const identities = descriptorsForFeed(feed);
+        const staticIndexStarted = performance.now();
         try {
           const loaded = await loadStaticIndex(
             options.pool,
@@ -214,7 +217,10 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
             throw new StaticIndexUnavailableError({ cause: error });
           }
         }
+        staticIndexDurationMs = Math.round(performance.now() - staticIndexStarted);
+        const matchingStarted = performance.now();
         batch = normalizeFeed(feed, capturedAt, staticCache ?? { candidates: [] });
+        matchingNormalizationDurationMs = Math.round(performance.now() - matchingStarted);
         cycleMatched += batch.matchedMadridCount;
         cycleMatchable += batch.matchedMadridCount + batch.unmatchedCount;
         cycleInvalid += batch.invalidCount;
@@ -252,7 +258,9 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
           errorCode: staticUnavailable ? 'static.index_unavailable' : acquisition?.code ?? decoding?.code ?? 'poll.unexpected',
         });
       }
+      const persistenceStarted = performance.now();
       const durable = await durablePersist(options.pool, options.spool, poll, batch);
+      const persistenceDurationMs = Math.round(performance.now() - persistenceStarted);
       if (!durable.durable) cycleSuccessful = false;
       if (durable.postgres) report.postgresPersistedFeeds += 1;
       else if (durable.durable) report.spooledFeeds += 1;
@@ -265,16 +273,13 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         unresolvedServiceDates: batch?.operations.filter((operation) =>
           operation.kind === 'stop_evidence' && operation.serviceDate === undefined).length ?? 0,
         responseBytes: poll.responseBytes, responseDurationMs: poll.responseDurationMs,
+        acquisitionDurationMs: poll.responseDurationMs,
+        staticIndexDurationMs,
+        matchingNormalizationDurationMs,
+        persistenceDurationMs,
+        totalFeedDurationMs: Math.round(performance.now() - feedStarted),
+        candidateCacheSize: staticCache?.candidates.length ?? 0,
       });
-    }
-
-    if (!(options.signal?.aborted ?? false) && options.afterCycle !== undefined) {
-      try {
-        await options.afterCycle();
-      } catch {
-        cycleSuccessful = false;
-        options.onEvent?.('canonical.maintenance_failed', {});
-      }
     }
 
     if (cycleSuccessful && endpoints.length > 0) {

@@ -2,8 +2,7 @@ import { parseArgs } from 'node:util';
 
 import { ConfigError, loadConfig } from '@atodotren/config';
 import { createDatabaseConnection } from '@atodotren/db';
-import { runIngest } from '@atodotren/gtfs-realtime';
-import { createLogger } from '@atodotren/observability';
+import { createLogger, createShutdownManager } from '@atodotren/observability';
 
 import {
   aggregateDirty,
@@ -17,6 +16,7 @@ import {
   rootUsage,
   type DispatcherDependencies,
 } from './dispatcher.js';
+import { runMaintenance } from './maintenance.js';
 
 type ExitCode = 0 | 1 | 2;
 type Output = Pick<NodeJS.WritableStream, 'write'>;
@@ -43,15 +43,108 @@ already-authorized known partitions and requires the literal confirmation above.
 Acknowledging an incomplete outage day requires an explicit --service-date.
 `;
 
+export const maintenanceUsage = `Usage:
+  worker maintain [--once | --cycles <positive-integer>]
+
+Runs canonicalization, journey closure and aggregation on a bounded periodic loop.
+Finalization starts after MAINTENANCE_FINALIZE_AFTER (default 04:30). Blocked or
+failed attempts retry each interval until verified or MAINTENANCE_FINALIZE_BEFORE
+(default 06:30), before the provisional digest cutoff.
+`;
+
 export const milestone4RootUsage = rootUsage
+  .replace('  ingest          Poll and persist Madrid GTFS-Realtime evidence',
+    '  ingest          Poll and persist Madrid GTFS-Realtime evidence\n  maintain        Run isolated canonical and aggregate maintenance')
   .replace('Recompute dirty aggregate buckets (planned for a later milestone)', 'Recompute bounded dirty daily aggregate scopes')
   .replace('Finalize eligible service days (planned for a later milestone)', 'Verify service days, seal months, and gate retention');
 
 export interface Milestone4Dependencies extends DispatcherDependencies {
   readonly aggregate?: typeof aggregateDirty;
   readonly finalize?: typeof finalizeAnalytics;
-  readonly realtimeIngest?: typeof runIngest;
   readonly now?: () => Date;
+  readonly maintenance?: typeof runMaintenance;
+}
+
+function parseMaintenance(arguments_: readonly string[]): { readonly cycles?: number; readonly help: boolean } {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...arguments_], allowPositionals: false, strict: true,
+      options: { once: { type: 'boolean' }, cycles: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+    });
+  } catch (error) {
+    throw new Milestone4UsageError(error instanceof Error ? error.message : 'Invalid maintain options', maintenanceUsage);
+  }
+  if (parsed.values.help === true) return { help: true };
+  if (parsed.values.once === true && parsed.values.cycles !== undefined) {
+    throw new Milestone4UsageError('--once and --cycles are mutually exclusive', maintenanceUsage);
+  }
+  if (parsed.values.once === true) return { cycles: 1, help: false };
+  const cycles = boundedInteger(parsed.values.cycles, '--cycles', 1, 1_000_000, maintenanceUsage);
+  return { ...(cycles === undefined ? {} : { cycles }), help: false };
+}
+
+function maintenanceSettings(environment: Readonly<Record<string, string | undefined>>): {
+  readonly intervalMs: number; readonly finalizeAfter: string; readonly finalizeBefore: string;
+} {
+  const intervalMs = Number(environment.MAINTENANCE_INTERVAL_MS ?? '300000');
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1_000 || intervalMs > 86_400_000) {
+    throw new Milestone4UsageError('MAINTENANCE_INTERVAL_MS must be from 1000 through 86400000', maintenanceUsage);
+  }
+  const clock = (name: string, fallback: string): string => {
+    const value = environment[name] ?? fallback;
+    const match = /^(\d{2}):(\d{2})$/u.exec(value);
+    if (match === null || Number(match[1]) > 23 || Number(match[2]) > 59) {
+      throw new Milestone4UsageError(`${name} must use HH:MM`, maintenanceUsage);
+    }
+    return value;
+  };
+  const finalizeAfter = clock('MAINTENANCE_FINALIZE_AFTER', '04:30');
+  const finalizeBefore = clock('MAINTENANCE_FINALIZE_BEFORE', '06:30');
+  if (finalizeAfter >= finalizeBefore) {
+    throw new Milestone4UsageError(
+      'MAINTENANCE_FINALIZE_AFTER must be earlier than MAINTENANCE_FINALIZE_BEFORE', maintenanceUsage,
+    );
+  }
+  return { intervalMs, finalizeAfter, finalizeBefore };
+}
+
+async function runMaintenanceCommand(
+  options: { readonly cycles?: number },
+  dependencies: Milestone4Dependencies,
+): Promise<0 | 1> {
+  const environment = dependencies.environment ?? process.env;
+  const config = loadConfig(environment);
+  const settings = maintenanceSettings(environment);
+  const output = dependencies.stderr ?? process.stderr;
+  const logger = createLogger({ service: 'atodotren-maintenance', level: config.logLevel, output });
+  const shutdown = createShutdownManager({ logger, timeoutMs: config.shutdownTimeoutMs });
+  const connection = await (dependencies.connect ?? createDatabaseConnection)(config.database, logger);
+  try {
+    await shutdown.register('database-pool', () => connection.close());
+    const report = await (dependencies.maintenance ?? runMaintenance)({
+      pool: connection.pool,
+      intervalMs: settings.intervalMs,
+      finalizeAfter: settings.finalizeAfter,
+      finalizeBefore: settings.finalizeBefore,
+      ...(options.cycles === undefined ? {} : { cycles: options.cycles }),
+      signal: shutdown.signal,
+      ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
+      ...(dependencies.canonicalize === undefined ? {} : { canonicalize: dependencies.canonicalize }),
+      ...(dependencies.closeJourneys === undefined ? {} : { closeJourneys: dependencies.closeJourneys }),
+      ...(dependencies.aggregate === undefined ? {} : { aggregate: dependencies.aggregate }),
+      ...(dependencies.finalize === undefined ? {} : { finalize: dependencies.finalize }),
+      onEvent: (event, fields) => {
+        if (event === 'maintenance.operation_failed') logger.error(event, 'Maintenance operation failed', fields);
+        else logger.info(event, 'Maintenance operation completed', fields);
+      },
+    });
+    (dependencies.stdout ?? process.stdout).write(`${JSON.stringify({ command: 'maintain', ...report })}\n`);
+    return 0;
+  } finally {
+    await shutdown.shutdown('command-complete');
+    shutdown.dispose();
+  }
 }
 
 interface AggregateCliOptions {
@@ -264,55 +357,6 @@ async function runFinalize(
   }
 }
 
-function withAggregateCadence(
-  arguments_: readonly string[],
-  dependencies: Milestone4Dependencies,
-): DispatcherDependencies {
-  if (arguments_[0] !== 'ingest' || !arguments_.includes('--canonical-maintenance')) return dependencies;
-  let nextAggregateAt = 0;
-  let finalizationFailureActive = false;
-  const now = dependencies.now ?? (() => new Date());
-  const actualIngest = dependencies.realtimeIngest ?? runIngest;
-  return {
-    ...dependencies,
-    ingest: async (options) => actualIngest({
-      ...options,
-      afterCycle: async () => {
-        await options.afterCycle?.();
-        const current = now().getTime();
-        if (current < nextAggregateAt) return;
-        const report = await (dependencies.aggregate ?? aggregateDirty)({ pool: options.pool, limit: 20 });
-        if (report.failed > 0) throw new Error('Aggregate maintenance reported bounded errors');
-        const finalization = await (dependencies.finalize ?? finalizeAnalytics)({
-          pool: options.pool,
-          limit: 7,
-          now: new Date(current),
-          retentionMode: 'none',
-        });
-        if (finalization.errors.length > 0 && !finalizationFailureActive) {
-          options.onEvent?.('finalization.maintenance_failed', {
-            errorCount: finalization.errors.length,
-            errors: finalization.errors.slice(0, 10),
-          });
-          finalizationFailureActive = true;
-        } else if (finalization.errors.length === 0 && finalizationFailureActive) {
-          options.onEvent?.('finalization.maintenance_recovered', {});
-          finalizationFailureActive = false;
-        }
-        nextAggregateAt = current + 5 * 60_000;
-        options.onEvent?.('aggregate.maintenance', {
-          scopesAttempted: report.scopesAttempted,
-          succeeded: report.succeeded,
-          noops: report.noops,
-          serviceDaysFinalized: finalization.serviceDays.length,
-          monthsSealed: finalization.months.length,
-          finalizationErrors: finalization.errors.length,
-        });
-      },
-    }),
-  };
-}
-
 export async function executeMilestone4Cli(
   arguments_: readonly string[],
   dependencies: Milestone4Dependencies = {},
@@ -333,6 +377,14 @@ export async function executeMilestone4Cli(
       }
       return await runAggregate(options, dependencies);
     }
+    if (first === 'maintain') {
+      const options = parseMaintenance(arguments_.slice(1));
+      if (options.help) {
+        stdout.write(maintenanceUsage);
+        return 0;
+      }
+      return await runMaintenanceCommand(options, dependencies);
+    }
     if (first === 'finalize') {
       const options = parseFinalize(arguments_.slice(1));
       if (options.help) {
@@ -341,7 +393,7 @@ export async function executeMilestone4Cli(
       }
       return await runFinalize(options, dependencies);
     }
-    return await executeCli(arguments_, withAggregateCadence(arguments_, dependencies));
+    return await executeCli(arguments_, dependencies);
   } catch (error) {
     if (error instanceof Milestone4UsageError) {
       stderr.write(`${error.message}\n\n${error.usage}`);

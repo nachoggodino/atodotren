@@ -135,7 +135,8 @@ endpoint has a validated URL and independent enable flag in `example.env`.
 Run continuously, once, or for a bounded number of cycles:
 
 ```sh
-npm run worker -- ingest --canonical-maintenance
+npm run worker -- ingest
+npm run worker -- maintain --once
 npm run worker -- ingest --once
 npm run worker -- ingest --cycles 2
 ```
@@ -253,12 +254,14 @@ bounded repair calls skip journeys already at the requested version and continue
 through the date; repairable journeys are processed before expired-evidence errors.
 Commands emit concise JSON reports.
 
-The Compose worker runs `worker ingest --canonical-maintenance`. Every polling cycle
-performs bounded canonicalization and closure; every five minutes the same deployed
-process also recomputes dirty aggregates and invokes bounded finalization/month
-sealing. Automatic finalization searches the oldest eligible dates in the retained
-35-day canonical/timetable window, not only the most recent week. Repeated failures
-emit one warning incident and a recovery event without stopping realtime ingestion.
+Compose runs `worker ingest` without maintenance hooks and a separate `worker maintain`
+process. The maintenance process performs bounded canonicalization, closure, and dirty
+aggregation every five minutes. It starts finalization/month sealing after 04:30 and
+retries blocked or transient failures each interval until verified or the 06:30
+provisional-digest cutoff.
+Automatic finalization searches the oldest eligible dates in the retained 35-day
+canonical/timetable window, not only the most recent week. Each maintenance failure is
+reported without affecting realtime polling.
 Retention deletion remains deliberately manual and two-stage. Manual
 commands remain available for inspection, recovery, and explicit repairs.
 
@@ -588,13 +591,14 @@ separately on each target platform. The spool uses Node 24's built-in SQLite, so
 Milestone 4 introduces no third-party native addon; both architectures still run
 their own production dependency installation.
 
-Start the ordinary Milestone 4 Compose sequence. PostgreSQL becomes healthy,
+Start the ordinary Compose sequence after building the shared
+`atodotren-worker:milestone-5` image. PostgreSQL becomes healthy,
 migrations complete, `static-import` uses its configured URL (or the default
 official RENFE source), the bounded spool volume is initialized, and continuous
 ingestion starts only after a real active version exists:
 
 ```sh
-docker compose --env-file .env up --build worker
+docker compose --env-file .env up
 ```
 
 Inspect state and logs, then stop safely:

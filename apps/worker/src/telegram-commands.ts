@@ -150,6 +150,9 @@ async function trainsResponse(
 ): Promise<CommandResponse> {
   const report = await trainsReport(reporting, lineId);
   if (report === null) return { text: `Unknown line ${requested}.` };
+  if (report.trains.length === 0) {
+    return { text: `No fresh trains are available for ${report.line.code}. Realtime ingestion may be stale or no vehicles are currently reported.` };
+  }
   const buttons: InlineButton[][] = [];
   for (const train of report.trains.slice(0, 10)) {
     const callbackId = await state.createCallback({ action: 'report', kind: 'train', entityId: train.trainId, reportDate: null });

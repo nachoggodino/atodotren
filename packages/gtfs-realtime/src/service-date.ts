@@ -13,6 +13,8 @@ export interface InferredServiceDate {
   readonly distanceSeconds: number;
 }
 
+export type ServiceInstantCache = Map<string, number>;
+
 function wallParts(instantMs: number): readonly number[] {
   const values = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
     timeZone: MADRID_TIMEZONE,
@@ -29,7 +31,10 @@ function wallEpoch(parts: readonly number[]): number {
     parts[3] ?? 0, parts[4] ?? 0, parts[5] ?? 0);
 }
 
-function serviceInstantSeconds(serviceDate: string, seconds: number): number {
+function serviceInstantSeconds(serviceDate: string, seconds: number, cache?: ServiceInstantCache): number {
+  const cacheKey = `${serviceDate}\0${seconds}`;
+  const cached = cache?.get(cacheKey);
+  if (cached !== undefined) return cached;
   const [year, month, day] = serviceDate.split('-').map(Number) as [number, number, number];
   const intendedMs = Date.UTC(year, month - 1, day) + seconds * 1000;
   const offsets = new Set<number>();
@@ -39,19 +44,26 @@ function serviceInstantSeconds(serviceDate: string, seconds: number): number {
   }
   const candidates = [...offsets].map((offset) => intendedMs - offset);
   const exact = candidates.filter((candidate) => wallEpoch(wallParts(candidate)) === intendedMs);
-  if (exact.length > 0) return Math.max(...exact) / 1000;
+  if (exact.length > 0) {
+    const resolved = Math.max(...exact) / 1000;
+    cache?.set(cacheKey, resolved);
+    return resolved;
+  }
   const shifted = candidates.map((candidate) => ({ candidate, wall: wallEpoch(wallParts(candidate)) }))
     .filter(({ wall }) => wall > intendedMs)
     .sort((left, right) => left.wall - right.wall || left.candidate - right.candidate);
   const compatible = shifted[0];
   if (compatible === undefined) throw new RangeError('Cannot resolve Madrid service time');
-  return compatible.candidate / 1000;
+  const resolved = compatible.candidate / 1000;
+  cache?.set(cacheKey, resolved);
+  return resolved;
 }
 
 export function inferCandidateServiceDate(
   candidate: StaticTripCandidate,
   anchors: readonly ServiceDateAnchor[],
   fallbackInstantSeconds?: number,
+  cache?: ServiceInstantCache,
 ): InferredServiceDate | undefined {
   const dates = [...(candidate.serviceDates ?? [])];
   if (dates.length === 0) return undefined;
@@ -64,7 +76,7 @@ export function inferCandidateServiceDate(
   const scored = dates.map((date) => ({
     date,
     distanceSeconds: Math.min(...usableAnchors.map((anchor) => Math.abs(
-      anchor.instantSeconds - serviceInstantSeconds(date, anchor.scheduledSeconds),
+      anchor.instantSeconds - serviceInstantSeconds(date, anchor.scheduledSeconds, cache),
     ))),
   })).sort((left, right) => left.distanceSeconds - right.distanceSeconds || left.date.localeCompare(right.date));
   const best = scored[0];

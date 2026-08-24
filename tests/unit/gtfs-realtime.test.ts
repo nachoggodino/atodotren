@@ -28,6 +28,7 @@ import {
   type StaticMatchIndex,
   type StaticTripCandidate,
 } from '@atodotren/gtfs-realtime';
+import { runMaintenance } from '@atodotren/worker/maintenance';
 
 function encode(entity: readonly object[], header: object = { gtfsRealtimeVersion: '2.0', timestamp: 1_725_000_000 }): Uint8Array {
   return protobufTypes.FeedMessage.encode({ header: header as never, entity: [...entity] as never }).finish();
@@ -132,6 +133,27 @@ void test('rollover matching chooses the archive whose calendar date fits the re
   );
   assert.equal(result.disposition, 'previous-exact-trip');
   assert.equal(result.candidate?.feedVersionId, '10');
+  assert.equal(result.inferredServiceDate, '2026-08-17');
+});
+
+void test('exact matching evaluates time only for identity candidates despite a large accumulated cache', () => {
+  const irrelevant = Array.from({ length: 5_000 }, (_, candidateIndex): StaticTripCandidate => ({
+    ...activeTrip,
+    tripId: `10IRRELEVANT${candidateIndex}`,
+    routeId: `10R${candidateIndex % 50}`,
+  }));
+  let evaluated = 0;
+  const arrivalTime = Math.floor(Date.parse('2026-08-17T23:00:30Z') / 1000);
+  const started = performance.now();
+  const result = matchTrip(
+    { candidates: [...irrelevant, activeTrip, previousTrip] },
+    { tripId: activeTrip.tripId, scheduleRelationship: 'SCHEDULED' },
+    [{ stopSequence: 1, stopId: 'A', arrivalTime }],
+    { fallbackInstantSeconds: arrivalTime, onTemporalCandidate: () => { evaluated += 1; } },
+  );
+  assert.equal(result.disposition, 'active-exact-trip');
+  assert.equal(evaluated, 1);
+  assert.ok(performance.now() - started < 2_000);
 });
 
 void test('stop_sequence disambiguates repeated stops and stop_id alone is rejected as ambiguous', () => {
@@ -658,12 +680,10 @@ void test('cold static-index failure is deferred safely and a later cycle retrie
   }
 });
 
-void test('canonical maintenance runs once per cycle and a failure makes only that cycle unsuccessful', async () => {
+void test('a blocked maintenance process cannot delay fake realtime cycles', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'atodotren-canonical-maintenance-'));
   const spool = new OutageSpool(join(directory, 'spool.sqlite'), 2_000_000);
-  let maintenanceRuns = 0;
   let clock = Date.parse('2099-08-17T10:00:00.000Z');
-  const events: string[] = [];
   const body = encode([{
     id: 'tu-maintenance', tripUpdate: {
       trip: { tripId: '10T1', startDate: '20260817' }, timestamp: 1_725_000_001,
@@ -675,7 +695,16 @@ void test('canonical maintenance runs once per cycle and a failure makes only th
     query: () => Promise.reject(new Error('PostgreSQL unavailable')),
   };
   try {
-    const report = await runIngest({
+    let maintenanceStarted = false;
+    void runMaintenance({
+      pool: {} as never, cycles: 1, intervalMs: 300_000,
+      finalizeAfter: '23:00', finalizeBefore: '23:59',
+      canonicalize: () => {
+        maintenanceStarted = true;
+        return new Promise(() => undefined);
+      },
+    });
+    const report = await Promise.race([runIngest({
       pool: unavailablePool as never,
       spool,
       cycles: 2,
@@ -689,19 +718,11 @@ void test('canonical maintenance runs once per cycle and a failure makes only th
       },
       fetchImplementation: () => Promise.resolve(new Response(body, { status: 200 })),
       loadStaticIndex: () => Promise.resolve(index),
-      afterCycle: () => {
-        maintenanceRuns += 1;
-        return maintenanceRuns === 1
-          ? Promise.reject(new Error('Canonical maintenance failed'))
-          : Promise.resolve();
-      },
-      onEvent: (event) => events.push(event),
       sleep: () => Promise.resolve(),
       now: () => { const value = new Date(clock); clock += 1_000; return value; },
-    });
-    assert.equal(maintenanceRuns, 2);
-    assert.equal(report.successfulCycles, 1);
-    assert.equal(events.filter((event) => event === 'canonical.maintenance_failed').length, 1);
+    }), new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('ingestion was delayed')), 2_000))]);
+    assert.equal(maintenanceStarted, true);
+    assert.equal(report.successfulCycles, 2);
   } finally {
     spool.close();
     await rm(directory, { recursive: true, force: true });

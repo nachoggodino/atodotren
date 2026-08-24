@@ -134,7 +134,7 @@ void test('existing Milestone 4 database upgrades roles before 0009 without repl
       const sentinel = await upgradedAdmin.query<{ value: number }>('SELECT value FROM operations.m5_upgrade_sentinel WHERE id = 1');
       assert.equal(sentinel.rows[0]?.value, 42);
       const ledger = await upgradedAdmin.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
-      assert.equal(ledger.rows.at(-1)?.name, '0010_realtime_service_date_recovery.sql');
+      assert.equal(ledger.rows.at(-1)?.name, '0011_isolated_maintenance_finalization.sql');
       const memberships = await upgradedAdmin.query<{
         role: string;
         admin_option: boolean;
@@ -238,7 +238,7 @@ void test('Milestone 5 reporting role and Telegram state stay least-privilege', 
       await databaseAdmin.connect();
       try {
         const ledger = await databaseAdmin.query<{ name: string }>('SELECT name FROM operations.schema_migration ORDER BY name');
-        assert.equal(ledger.rows.at(-1)?.name, '0010_realtime_service_date_recovery.sql');
+        assert.equal(ledger.rows.at(-1)?.name, '0011_isolated_maintenance_finalization.sql');
       } finally {
         await databaseAdmin.end();
       }
