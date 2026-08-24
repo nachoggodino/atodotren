@@ -794,12 +794,16 @@ deployment environment file.
 Supported read-only commands are `/status`, `/daily [date|yesterday]`, `/line <name>
 [date]`, `/station <name> [date]`, `/trains <line>`, `/train <id>`, `/incidents`,
 `/resources`, `/pilot`, and `/help`. Line/station matching is case- and accent-insensitive,
-alias-aware and partial; ambiguous matches return at most five inline choices. Reports use
+alias-aware and partial; compact Cercanías codes such as `C1` are preferred command input,
+while official punctuated labels such as `C-1` remain accepted and are preserved in output.
+Ambiguous matches return at most five inline choices. Reports use
 parameterized bounded queries and short statement timeouts. Daily metrics include scheduled
 stop opportunities, usable coverage/sample size, punctuality at delay <=120 seconds,
 average delay, approximate median from the retained h30-v1 histogram, canceled and
-missing-evidence rates, worst line/station with sample sizes, and a seven-day trend. There
-is no low-sample suppression gate. Exact recent state is labelled separately from compact
+missing-evidence rates, worst line/station with sample sizes, and a seven-day trend. To avoid
+misleading pilot rankings, worst-line selection requires 100 usable observations and
+worst-station selection requires 30; otherwise the answer says `insufficient sample`.
+Exact recent state is labelled separately from compact
 aggregate answers.
 
 Daily scheduling uses `Europe/Madrid`: readiness checks begin at 04:00, normal delivery is

@@ -30,14 +30,14 @@ export const telegramHelp = `Atodotren operations bot
 /daily [YYYY-MM-DD|yesterday]
 /line <name> [date]
 /station <name> [date]
-/trains <line>
+/trains <line> (compact codes such as C1 are accepted)
 /train <id>
 /incidents
 /resources
 /pilot
 /help
 
-Examples: /daily yesterday · /line C-1 2026-08-22 · /station Atocha`;
+Examples: /daily yesterday · /line C1 2026-08-22 · /trains C1 · /station Atocha`;
 
 export function parseTelegramCommand(text: string, now: Date = new Date()): ParsedCommand {
   const compact = text.trim().replace(/\s+/gu, ' ');

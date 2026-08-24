@@ -394,7 +394,7 @@ export async function processTelegramUpdate(options: {
         commandKind: update.callback_query === undefined
           ? commandKind(update.message?.text)
           : 'callback',
-        failureClass: error instanceof Error ? error.name : 'UnknownError',
+        ...safeOperationalError(error),
       });
     }
     response = {
@@ -460,6 +460,17 @@ export async function processTelegramUpdate(options: {
 function commandKind(text: string | undefined): string {
   const match = /^\/([a-z]+)(?:@|\s|$)/u.exec(text?.trim() ?? '');
   return match?.[1] ?? 'unknown';
+}
+
+function safeOperationalError(error: unknown): Readonly<Record<string, string>> {
+  const failureClass = error instanceof Error ? error.name : 'UnknownError';
+  const rawCode = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as { readonly code?: unknown }).code
+    : undefined;
+  return {
+    failureClass,
+    ...(typeof rawCode === 'string' && /^[A-Z0-9]{5}$/u.test(rawCode) ? { errorCode: rawCode } : {}),
+  };
 }
 
 async function databaseUnavailableUpdate(options: {

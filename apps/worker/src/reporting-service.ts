@@ -2,7 +2,10 @@ import type { DatabaseConnection } from '@atodotren/db';
 
 import {
   MAX_LOOKUP_CANDIDATES,
+  MIN_WORST_LINE_OBSERVATIONS,
+  MIN_WORST_STATION_OBSERVATIONS,
   candidateScore,
+  compactLookup,
   dateText,
   instantText,
   metricSummary,
@@ -40,19 +43,24 @@ export class ReportingService {
 
   public async lineCandidates(input: string): Promise<readonly LookupCandidate[]> {
     const query = normalizeLookup(input);
+    const compactQuery = compactLookup(input);
     if (query.length < 1 || query.length > 80) throw new RangeError('Line lookup must contain 1 through 80 normalized characters');
     const result = await this.#pool.query<Record<string, unknown>>(
       `SELECT line_id, public_code, name_es, aliases, normalized_slug
        FROM operations.report_line_lookup
        WHERE normalized_search LIKE '%' || $1 || '%'
+          OR replace(normalized_search, ' ', '') LIKE '%' || $2 || '%'
        ORDER BY display_order, name_es
-       LIMIT 20`, [query],
+       LIMIT 20`, [query, compactQuery],
     );
-    return result.rows.map((row) => ({
-      id: numberValue(row.line_id), label: String(row.name_es), code: String(row.public_code),
-      aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
-      score: candidateScore(query, [String(row.public_code), String(row.name_es), String(row.normalized_slug), ...(Array.isArray(row.aliases) ? row.aliases.map(String) : [])]),
-    })).sort((left, right) => right.score - left.score || left.label.localeCompare(right.label)).slice(0, MAX_LOOKUP_CANDIDATES);
+    return result.rows.map((row) => {
+      const aliases = Array.isArray(row.aliases) ? row.aliases.map(String) : [];
+      const values = [String(row.public_code), String(row.name_es), String(row.normalized_slug), ...aliases];
+      return {
+        id: numberValue(row.line_id), label: String(row.name_es), code: String(row.public_code), aliases,
+        score: Math.max(candidateScore(query, values), candidateScore(compactQuery, values.map(compactLookup))),
+      };
+    }).sort((left, right) => right.score - left.score || left.label.localeCompare(right.label)).slice(0, MAX_LOOKUP_CANDIDATES);
   }
 
   public async stationCandidates(input: string): Promise<readonly LookupCandidate[]> {
@@ -80,11 +88,13 @@ export class ReportingService {
       this.#pool.query<SummaryRow>(`SELECT * FROM operations.report_daily_summary
         WHERE service_date BETWEEN $1::date - 6 AND $1::date ORDER BY service_date`, [serviceDate]),
       this.#pool.query<NamedSummaryRow>(`SELECT * FROM operations.report_line_summary
-        WHERE service_date = $1::date AND valid_delay_observations > 0
-        ORDER BY punctual_count::numeric / NULLIF(valid_delay_observations, 0), valid_delay_observations DESC LIMIT 1`, [serviceDate]),
+        WHERE service_date = $1::date AND valid_delay_observations >= $2
+        ORDER BY punctual_count::numeric / NULLIF(valid_delay_observations, 0), valid_delay_observations DESC LIMIT 1`,
+      [serviceDate, MIN_WORST_LINE_OBSERVATIONS]),
       this.#pool.query<NamedSummaryRow>(`SELECT * FROM operations.report_station_summary
-        WHERE service_date = $1::date AND valid_delay_observations > 0
-        ORDER BY punctual_count::numeric / NULLIF(valid_delay_observations, 0), valid_delay_observations DESC LIMIT 1`, [serviceDate]),
+        WHERE service_date = $1::date AND valid_delay_observations >= $2
+        ORDER BY punctual_count::numeric / NULLIF(valid_delay_observations, 0), valid_delay_observations DESC LIMIT 1`,
+      [serviceDate, MIN_WORST_STATION_OBSERVATIONS]),
       this.#pool.query<Record<string, unknown>>(`SELECT service_date, aggregate_algorithm_version, status, finalized_at
         FROM operations.report_finalization WHERE service_date = $1::date
         ORDER BY finalized_at DESC LIMIT 1`, [serviceDate]),
