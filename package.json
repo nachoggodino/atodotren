@@ -2,7 +2,7 @@
   "name": "atodotren",
   "version": "0.0.0",
   "private": true,
-  "description": "Provider-neutral Madrid Cercanias evidence ingestion foundation",
+  "description": "Provider-neutral Madrid Cercanias evidence ingestion and public accountability application",
   "type": "module",
   "packageManager": "npm@11.12.1",
   "engines": {
@@ -33,6 +33,13 @@
     "accept:realtime": "./scripts/realtime-acceptance.sh",
     "typecheck": "tsc -b && tsc --project scripts/tsconfig.json --noEmit && tsc --project tests/tsconfig.json --noEmit",
     "verify": "npm run typecheck && npm run lint && npm run test:unit",
+    "web:dev": "npm run dev --workspace @atodotren/web",
+    "web:build": "npm run build --workspace @atodotren/web",
+    "web:start": "npm run start --workspace @atodotren/web",
+    "web:lint": "npm run lint --workspace @atodotren/web",
+    "web:typecheck": "npm run typecheck --workspace @atodotren/web",
+    "web:test": "npm run test --workspace @atodotren/web",
+    "web:test:e2e": "npm run test:e2e --workspace @atodotren/web",
     "worker": "npm run build --silent && node apps/worker/dist/cli.js"
   },
   "devDependencies": {
