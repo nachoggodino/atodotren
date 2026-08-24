@@ -57,6 +57,10 @@ void test('Telegram-specific validation rejects invalid late-stage values', () =
   assert.throws(() => loadTelegramOperationsConfig({
     ...telegramEnvironment(), TELEGRAM_ALERT_DISK_WARNING_RATIO: '0.05', TELEGRAM_ALERT_DISK_CRITICAL_RATIO: '0.08',
   }), /Critical disk free ratio/u);
+  const sharedIngestionThreshold = loadTelegramOperationsConfig({
+    ...telegramEnvironment(), INGEST_ALERT_FAILURE_THRESHOLD: '30',
+  });
+  assert.equal(sharedIngestionThreshold.thresholds.ingestionIncidentConsecutive, 30);
 });
 
 void test('Milestone 5 worker path strips legacy Telegram delivery credentials', async () => {
@@ -101,7 +105,7 @@ void test('bot monitor persists critical ingestion/static episodes and delivers 
   const resources = { collect: async () => resourceSample() } as unknown as ResourceCollector;
   const delivered = new Set<string>();
   const state = {
-    delivery: async (key: string) => delivered.has(key) ? { delivered: true, attempts: 1 } : undefined,
+    delivery: async (key: string) => delivered.has(key) ? { delivered: true, attempts: 1 } : null,
     beginDelivery: async (options: { readonly key: string }) => ({ delivered: delivered.has(options.key), attempts: 1 }),
     markDelivered: async (key: string) => { delivered.add(key); },
     markFailed: async () => undefined,

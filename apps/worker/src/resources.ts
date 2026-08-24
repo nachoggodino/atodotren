@@ -118,30 +118,15 @@ export function formatRatio(measurement: Measurement<number>): string {
 export function formatBytes(measurement: Measurement<number>): string {
   const value = measurementValue(measurement);
   if (value === null) return `unavailable${measurement.reason === undefined ? '' : ` (${measurement.reason})`}`;
+  return formatByteValue(value);
+}
+
+export function formatByteValue(value: number | null, unavailable = 'unavailable'): string {
+  if (value === null) return unavailable;
   if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;
   if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB`;
   return `${Math.round(value)} B`;
-}
-
-export function compactResourceSection(
-  sample: ResourceSample,
-  ingestion: Readonly<Record<string, unknown>> | null,
-  openIncidents: number,
-  openMonitors: number,
-): string {
-  const cpu = preferredMeasurement(sample.hostCpuRatio, sample.telegramProcessCpuRatio);
-  const memoryRatio = preferredMeasurement(sample.hostMemoryRatio, sample.telegramContainerMemoryRatio);
-  const memory = measurementValue(memoryRatio) === null
-    ? `RSS ${formatBytes(sample.telegramProcessRssBytes)}`
-    : formatRatio(memoryRatio);
-  const disk = preferredMeasurement(sample.hostDiskFreeRatio, sample.spoolFreeRatio);
-  const pending = scalar(ingestion?.spool_pending_count);
-  return [
-    `Resources: CPU ${formatRatio(cpu)} · memory ${memory} · disk free ${formatRatio(disk)}`,
-    `Storage: database ${formatBytes(sample.databaseBytes)} · spool ${formatBytes(sample.spoolBytes)} · pending ${pending}`,
-    `Open incidents: ingestion ${openIncidents} · bot monitors ${openMonitors}`,
-  ].join('\n');
 }
 
 async function readContainerMemory(): Promise<Measurement<number>> {
@@ -252,25 +237,4 @@ async function readHost(
     disk = unavailable('host root filesystem read failed');
   }
   return { cpu, memory, disk, ...(snapshot === undefined ? {} : { snapshot }) };
-}
-
-export function formatResources(sample: ResourceSample, trend: readonly ResourceSample[]): string {
-  const first = trend[0];
-  const firstDatabase = first === undefined ? null : measurementValue(first.databaseBytes);
-  const currentDatabase = measurementValue(sample.databaseBytes);
-  const dbDelta = firstDatabase === null || currentDatabase === null ? null : currentDatabase - firstDatabase;
-  return [
-    `Resources ${sample.generatedAt}`,
-    `telegram CPU ${formatRatio(sample.telegramProcessCpuRatio)} · RSS ${formatBytes(sample.telegramProcessRssBytes)} · container memory ${formatRatio(sample.telegramContainerMemoryRatio)}`,
-    `worker CPU ${formatRatio(sample.workerContainerCpuRatio)} · memory ${formatRatio(sample.workerContainerMemoryRatio)}`,
-    `spool ${formatBytes(sample.spoolBytes)} · disk free ${formatRatio(sample.spoolFreeRatio)}`,
-    `database ${formatBytes(sample.databaseBytes)}${dbDelta === null ? '' : ` · short trend ${dbDelta >= 0 ? '+' : ''}${dbDelta} B`}`,
-    `host CPU ${formatRatio(sample.hostCpuRatio)} · memory ${formatRatio(sample.hostMemoryRatio)} · disk free ${formatRatio(sample.hostDiskFreeRatio)}`,
-  ].join('\n');
-}
-
-function scalar(value: unknown): string {
-  if (value === null || value === undefined) return 'unavailable';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') return String(value);
-  return 'unavailable';
 }

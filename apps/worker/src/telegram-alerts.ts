@@ -1,6 +1,11 @@
 import type { ReportingService } from './reporting-service.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
-import type { TelegramStateStore, DeliveryRecord } from './telegram-state.js';
+import {
+  TELEGRAM_DELIVERY_MAX_ATTEMPTS,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from './telegram-delivery-retry.js';
+import type { TelegramStateStore } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
 import { formatTelegramIncident } from './telegram-format.js';
 
@@ -17,7 +22,6 @@ const immediateCriticalKeys = new Set([
   'ingest.repeated_failure',
   'ingest.matching_collapse',
   'ingest.malformed_spike',
-  'spool.shedding',
   'spool.replay_failure',
   'static.version_mismatch',
 ]);
@@ -86,20 +90,15 @@ async function deliverOnce(options: {
   readonly reporting: ReportingService;
 }): Promise<void> {
   const existing = await options.state.delivery(options.key);
-  if (existing?.delivered === true || !retryDue(existing, options.now)) return;
+  if (existing?.delivered === true || telegramDeliveryAbandoned(existing)) return;
+  const retryWaitMs = telegramDeliveryRetryWait(existing, options.now);
+  if (retryWaitMs !== null && retryWaitMs > 0) return;
   const reserved = await options.state.beginDelivery({ key: options.key, type: options.type });
-  if (reserved.delivered || reserved.attempts > 8) return;
+  if (reserved.delivered || reserved.attempts > TELEGRAM_DELIVERY_MAX_ATTEMPTS) return;
   try {
     const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', options.text, { disableNotification: false, parseMode: 'HTML' }, options.signal);
     await options.state.markDelivered(options.key, sent.message_id);
   } catch (error) {
     await options.state.markFailed(options.key, error instanceof Error ? error.name : 'DeliveryError');
   }
-}
-
-function retryDue(record: DeliveryRecord | null, now: Date): boolean {
-  if (record === null || record.lastAttemptAt === null) return true;
-  const exponent = Math.max(0, Math.min(6, record.attempts - 1));
-  const delayMs = Math.min(300_000, 5_000 * 2 ** exponent);
-  return now.getTime() - record.lastAttemptAt.getTime() >= delayMs;
 }

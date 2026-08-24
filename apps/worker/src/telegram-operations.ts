@@ -384,6 +384,7 @@ export async function processTelegramUpdate(options: {
         command: parseTelegramCommand(update.message?.text ?? '', options.reporting.now()),
         reporting: options.reporting,
         resources: options.resources,
+        resourceThresholds: config.thresholds,
         state,
       });
     }

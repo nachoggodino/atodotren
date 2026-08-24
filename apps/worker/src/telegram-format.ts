@@ -1,20 +1,43 @@
-import { MAX_TRAINS, type MetricSummary, type ReportResult } from './reporting-core.js';
 import {
+  MAX_TRAINS,
+  PUNCTUALITY_THRESHOLD_SECONDS,
+  REPORT_TIMEZONE,
+  type MetricSummary,
+  type ReportResult,
+} from './reporting-core.js';
+import {
+  formatByteValue,
   formatBytes,
   formatRatio,
   measurementValue,
   preferredMeasurement,
   type ResourceSample,
 } from './resources.js';
+import type { TelegramOperationsConfig } from './telegram-config.js';
+
+const GOOD_PUNCTUALITY_RATE = 0.8;
+const WARNING_PUNCTUALITY_RATE = 0.5;
+const GOOD_COVERAGE_RATE = 0.8;
+const WARNING_COVERAGE_RATE = 0.6;
+const WARNING_DELAY_SECONDS = 300;
+const RESOURCE_WARNING_FRACTION = 0.8;
+const PUNCTUALITY_WINDOW = PUNCTUALITY_THRESHOLD_SECONDS % 60 === 0
+  ? `${PUNCTUALITY_THRESHOLD_SECONDS / 60} min`
+  : `${PUNCTUALITY_THRESHOLD_SECONDS}s`;
+
+export type TelegramResourceThresholds = Pick<
+  TelegramOperationsConfig['thresholds'],
+  'cpuRatio' | 'memoryRatio' | 'diskWarningRatio' | 'diskCriticalRatio'
+>;
 
 const madridDate = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', year: 'numeric',
+  timeZone: REPORT_TIMEZONE, day: '2-digit', month: 'short', year: 'numeric',
 });
 const madridTime = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  timeZone: REPORT_TIMEZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 const madridDateTime = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Europe/Madrid', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  timeZone: REPORT_TIMEZONE, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
 export function escapeTelegramHtml(value: unknown): string {
@@ -39,10 +62,10 @@ export function formatTelegramReport(report: ReportResult): string {
         : `🚉 ${escapeTelegramHtml(report.station.name)} · ${formatServiceDate(report.serviceDate)}`;
     const state = report.kind === 'daily'
       ? report.finalization.status === 'verified' ? '✅ Verified daily aggregate' : '⏳ Live aggregate · not finalized'
-      : '⏳ Daily aggregate';
+        : '📊 Stop-call aggregate';
     const sections = [titleLine(title), `<i>${state}</i>`, '', formatMetrics(report.metrics)];
     if (report.kind === 'daily') sections.push('', formatRankings(report));
-    sections.push('', `<i>Stop-call metrics · punctual means ≤2 min · median is approximate</i>`);
+    sections.push('', `<i>Stop-call metrics · punctual means ≤${PUNCTUALITY_WINDOW} · median is approximate</i>`);
     return sections.join('\n');
   }
   if (report.kind === 'status') return formatStatus(report);
@@ -52,7 +75,11 @@ export function formatTelegramReport(report: ReportResult): string {
   return formatPilot(report);
 }
 
-export function formatTelegramResources(sample: ResourceSample, trend: readonly ResourceSample[]): string {
+export function formatTelegramResources(
+  sample: ResourceSample,
+  trend: readonly ResourceSample[],
+  thresholds: TelegramResourceThresholds,
+): string {
   const firstDatabase = trend[0] === undefined ? null : measurementValue(trend[0].databaseBytes);
   const currentDatabase = measurementValue(sample.databaseBytes);
   const delta = firstDatabase === null || currentDatabase === null ? null : currentDatabase - firstDatabase;
@@ -64,9 +91,9 @@ export function formatTelegramResources(sample: ResourceSample, trend: readonly 
     `<i>Snapshot ${formatInstant(sample.generatedAt)}</i>`,
     '',
     '<b>Host / service</b>',
-    `${ratioSignal(measurementValue(cpu), 0.75, 0.9, false)} CPU: <b>${escapeTelegramHtml(formatRatio(cpu))}</b>`,
-    `${ratioSignal(measurementValue(memory), 0.7, 0.85, false)} Memory: <b>${escapeTelegramHtml(formatRatio(memory))}</b> · bot RSS ${escapeTelegramHtml(formatBytes(sample.telegramProcessRssBytes))}`,
-    `${ratioSignal(measurementValue(disk), 0.15, 0.08, true)} Disk free: <b>${escapeTelegramHtml(formatRatio(disk))}</b>`,
+    `${ratioSignal(measurementValue(cpu), thresholds.cpuRatio * RESOURCE_WARNING_FRACTION, thresholds.cpuRatio, false)} CPU: <b>${escapeTelegramHtml(formatRatio(cpu))}</b>`,
+    `${ratioSignal(measurementValue(memory), thresholds.memoryRatio * RESOURCE_WARNING_FRACTION, thresholds.memoryRatio, false)} Memory: <b>${escapeTelegramHtml(formatRatio(memory))}</b> · bot RSS ${escapeTelegramHtml(formatBytes(sample.telegramProcessRssBytes))}`,
+    `${ratioSignal(measurementValue(disk), thresholds.diskWarningRatio, thresholds.diskCriticalRatio, true)} Disk free: <b>${escapeTelegramHtml(formatRatio(disk))}</b>`,
     '',
     '<b>Storage</b>',
     `🗄 Database: <b>${escapeTelegramHtml(formatBytes(sample.databaseBytes))}</b>${delta === null ? '' : ` · trend ${escapeTelegramHtml(formatSignedBytes(delta))}`}`,
@@ -116,12 +143,12 @@ export function telegramHelpText(): string {
 function formatMetrics(metrics: MetricSummary): string {
   return [
     '<b>Reliability</b>',
-    `${metricSignal(metrics.punctuality, 0.8, 0.5)} Punctual within 2 min: <b>${percent(metrics.punctuality)}</b>`,
+    `${metricSignal(metrics.punctuality, GOOD_PUNCTUALITY_RATE, WARNING_PUNCTUALITY_RATE)} Punctual within ${PUNCTUALITY_WINDOW}: <b>${percent(metrics.punctuality)}</b>`,
     `${delaySignal(metrics.averageArrivalDelaySeconds)} Average delay: <b>${duration(metrics.averageArrivalDelaySeconds)}</b>`,
     `${delaySignal(metrics.medianArrivalDelaySeconds)} Median delay: <b>~${duration(metrics.medianArrivalDelaySeconds)}</b>`,
     '',
     '<b>Evidence</b>',
-    `${metricSignal(metrics.coverage, 0.8, 0.6)} Coverage: <b>${percent(metrics.coverage)}</b> · ${metrics.usableObservations.toLocaleString('en-GB')} / ${metrics.scheduledStopOpportunities.toLocaleString('en-GB')} stop calls`,
+    `${metricSignal(metrics.coverage, GOOD_COVERAGE_RATE, WARNING_COVERAGE_RATE)} Coverage: <b>${percent(metrics.coverage)}</b> · ${metrics.usableObservations.toLocaleString('en-GB')} / ${metrics.scheduledStopOpportunities.toLocaleString('en-GB')} stop calls`,
     `❌ Canceled stop calls: <b>${metrics.canceled.toLocaleString('en-GB')}</b> · ${percent(metrics.canceledRate)}`,
     `❓ Missing evidence: <b>${metrics.missingEvidence.toLocaleString('en-GB')}</b> · ${percent(metrics.missingEvidenceRate)}`,
   ].join('\n');
@@ -249,7 +276,9 @@ function formatPilot(report: Extract<ReportResult, { kind: 'pilot' }>): string {
 function titleLine(value: string): string { return `<b>${value}</b>`; }
 function percent(value: number | null): string { return value === null ? 'Unavailable' : `${(value * 100).toFixed(1)}%`; }
 function metricSignal(value: number | null, good: number, warning: number): string { return value === null ? '⚪' : value >= good ? '🟢' : value >= warning ? '🟠' : '🔴'; }
-function delaySignal(value: number | null): string { return value === null ? '⚪' : value <= 120 ? '🟢' : value <= 300 ? '🟠' : '🔴'; }
+function delaySignal(value: number | null): string {
+  return value === null ? '⚪' : value <= PUNCTUALITY_THRESHOLD_SECONDS ? '🟢' : value <= WARNING_DELAY_SECONDS ? '🟠' : '🔴';
+}
 function ratioSignal(value: number | null, warning: number, critical: number, inverse: boolean): string {
   if (value === null) return '⚪';
   if (inverse) return value < critical ? '🔴' : value < warning ? '🟠' : '🟢';
@@ -277,15 +306,8 @@ function formatServiceDate(value: unknown): string {
   const date = value instanceof Date ? value : new Date(`${value.slice(0, 10)}T12:00:00.000Z`);
   return Number.isNaN(date.getTime()) ? escapeTelegramHtml(value) : escapeTelegramHtml(madridDate.format(date));
 }
-function formatBytesValue(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return 'Unavailable';
-  if (number >= 1024 ** 3) return `${(number / 1024 ** 3).toFixed(2)} GiB`;
-  if (number >= 1024 ** 2) return `${(number / 1024 ** 2).toFixed(1)} MiB`;
-  if (number >= 1024) return `${(number / 1024).toFixed(1)} KiB`;
-  return `${Math.round(number)} B`;
-}
-function formatSignedBytes(value: number): string { return `${value >= 0 ? '+' : '−'}${formatBytesValue(Math.abs(value))}`; }
+function formatBytesValue(value: unknown): string { return formatByteValue(numeric(value), 'Unavailable'); }
+function formatSignedBytes(value: number): string { return `${value >= 0 ? '+' : '−'}${formatByteValue(Math.abs(value))}`; }
 function humanKey(value: unknown): string {
   if (value === null || value === undefined) return 'Unavailable';
   if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'bigint' && typeof value !== 'boolean') return 'Unavailable';

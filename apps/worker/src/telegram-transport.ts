@@ -40,6 +40,7 @@ export interface InlineButton {
 }
 
 export type TelegramParseMode = 'HTML';
+export const TELEGRAM_TEXT_LIMIT = 4_000;
 
 export class TelegramApiError extends Error {
   public readonly status: number;
@@ -138,7 +139,7 @@ export class TelegramBotApi {
     options: { readonly buttons?: readonly (readonly InlineButton[])[]; readonly disableNotification?: boolean; readonly parseMode?: TelegramParseMode } = {},
     signal?: AbortSignal,
   ): Promise<{ readonly message_id: number }> {
-    if (text.length > 4_000) throw new RangeError('Telegram text response exceeds the bounded 4000-character service limit');
+    if (text.length > TELEGRAM_TEXT_LIMIT) throw new RangeError(`Telegram text response exceeds the bounded ${TELEGRAM_TEXT_LIMIT}-character service limit`);
     return this.#call<{ readonly message_id: number }>('sendMessage', {
       chat_id: chatId,
       text,

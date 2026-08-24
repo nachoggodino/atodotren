@@ -1,6 +1,11 @@
 import type { Measurement, ResourceCollector } from './resources.js';
 import type { ReportingService } from './reporting-service.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
+import {
+  TELEGRAM_DELIVERY_MAX_ATTEMPTS,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from './telegram-delivery-retry.js';
 import type { TelegramStateStore } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
 import { formatTelegramIncident } from './telegram-format.js';
@@ -228,6 +233,7 @@ export class TelegramOperationalMonitor {
         key: `monitor:recovery:${episode}`,
         type: 'monitor_recovery',
         text: formatTelegramIncident({ active: false, key: options.key, openedAt: row.opened_at, recoveredAt: row.recovered_at, detail: `${options.title} has recovered.` }),
+        now: options.now,
         signal: options.signal,
       });
       return;
@@ -253,6 +259,7 @@ export class TelegramOperationalMonitor {
       key: `monitor:active:${episodeKey(row)}`,
       type: 'monitor_active',
       text: formatTelegramIncident({ active: true, key: options.key, openedAt: row.opened_at, observations: row.consecutive_count, detail: `${options.title}. Current measured value: ${rendered}.` }),
+      now: options.now,
       signal: options.signal,
     });
   }
@@ -261,12 +268,15 @@ export class TelegramOperationalMonitor {
     readonly key: string;
     readonly type: 'monitor_active' | 'monitor_recovery';
     readonly text: string;
+    readonly now: Date;
     readonly signal: AbortSignal | undefined;
   }): Promise<void> {
     const existing = await this.#state.delivery(options.key);
-    if (existing?.delivered === true) return;
+    if (existing?.delivered === true || telegramDeliveryAbandoned(existing)) return;
+    const retryWaitMs = telegramDeliveryRetryWait(existing, options.now);
+    if (retryWaitMs !== null && retryWaitMs > 0) return;
     const reserved = await this.#state.beginDelivery({ key: options.key, type: options.type });
-    if (reserved.delivered || reserved.attempts > 8) return;
+    if (reserved.delivered || reserved.attempts > TELEGRAM_DELIVERY_MAX_ATTEMPTS) return;
     try {
       const sent = await this.#telegram.sendMessage(this.#config.privateChatId ?? '', options.text, { disableNotification: false, parseMode: 'HTML' }, options.signal);
       await this.#state.markDelivered(options.key, sent.message_id);

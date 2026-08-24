@@ -98,7 +98,7 @@ export async function runDigestCheck(options: {
   const heading = decision === 'normal'
     ? '🌅 <b>Daily operations digest</b>'
     : '🟠 <b>PROVISIONAL DIGEST</b>\n<i>Finalization did not complete before the reporting cutoff.</i>';
-  const resources = formatTelegramResources(sample, options.resources.trend());
+  const resources = formatTelegramResources(sample, options.resources.trend(), options.config.thresholds);
   const text = `${heading}\n\n${formatTelegramReport(daily)}\n\n${resources}\n\n<b>New service day · ${escapeTelegramHtml(currentServiceDate)}</b>\n${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
   try {
     const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text, { disableNotification: false, parseMode: 'HTML' }, options.signal);

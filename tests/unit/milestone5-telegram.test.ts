@@ -19,7 +19,7 @@ import {
   TelegramWebhookConflictError,
   type TelegramUpdate,
 } from '@atodotren/worker/telegram-transport';
-import { compactCercaniasCode, escapeTelegramHtml } from '@atodotren/worker/telegram-format';
+import { compactCercaniasCode, escapeTelegramHtml, formatTelegramReport } from '@atodotren/worker/telegram-format';
 
 const fixedNow = new Date('2026-08-23T11:30:00.000Z');
 
@@ -143,6 +143,32 @@ void test('Telegram HTML escaping protects dynamic Renfe and user text', () => {
   assert.equal(escapeTelegramHtml('Atocha & <C1>'), 'Atocha &amp; &lt;C1&gt;');
   assert.equal(compactCercaniasCode('C-1'), 'C1');
   assert.equal(compactCercaniasCode('C8b'), 'C8b');
+});
+
+void test('Telegram reports use neutral aggregate labels and structured escaped output', () => {
+  const metrics = {
+    scheduledStopOpportunities: 10, usableObservations: 8, coverage: 0.8,
+    punctualCount: 7, punctuality: 0.875, averageArrivalDelaySeconds: 20,
+    medianArrivalDelaySeconds: 15, canceled: 1, canceledRate: 0.1,
+    missingEvidence: 1, missingEvidenceRate: 0.1,
+  };
+  const line = formatTelegramReport({
+    contractVersion: 'report-v1', generatedAt: fixedNow.toISOString(), timezone: 'Europe/Madrid',
+    source: 'daily_aggregate', precision: 'fixture', kind: 'line', serviceDate: '2026-08-22',
+    line: { id: 1, name: 'Cercanías C-1', code: 'C-1' }, metrics,
+    chart: { kind: 'line', title: 'trend', xLabel: 'date', yLabel: 'pct', points: [] },
+  });
+  assert.match(line, /📊 Stop-call aggregate/u);
+  assert.doesNotMatch(line, /⏳/u);
+
+  const status = formatTelegramReport({
+    contractVersion: 'report-v1', generatedAt: fixedNow.toISOString(), timezone: 'Europe/Madrid',
+    source: 'operational_views', precision: 'snapshot', kind: 'status', ingestion: null,
+    canonical: null, latestFinalization: null, staticFeed: null, openIncidents: 0,
+    openMonitorEpisodes: [{ monitor_key: '<unsafe&monitor>' }],
+  });
+  assert.match(status, /&lt;unsafe&amp;monitor&gt;/u);
+  assert.doesNotMatch(status, /[{}"]+/u);
 });
 
 void test('disabled operations service shuts down cleanly without opening database or Telegram resources', async () => {

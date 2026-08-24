@@ -15,9 +15,10 @@ import {
   formatTelegramReport,
   formatTelegramResources,
   telegramHelpText,
+  type TelegramResourceThresholds,
 } from './telegram-format.js';
 import type { TelegramStateStore } from './telegram-state.js';
-import type { InlineButton } from './telegram-transport.js';
+import { TELEGRAM_TEXT_LIMIT, type InlineButton, type TelegramParseMode } from './telegram-transport.js';
 
 export type ParsedCommand =
   | { readonly name: 'status' | 'incidents' | 'resources' | 'pilot' | 'help' }
@@ -28,7 +29,7 @@ export type ParsedCommand =
 
 export interface CommandResponse {
   readonly text: string;
-  readonly parseMode?: 'HTML';
+  readonly parseMode?: TelegramParseMode;
   readonly buttons?: readonly (readonly InlineButton[])[];
   readonly chart?: ChartSpec;
 }
@@ -78,9 +79,10 @@ export async function executeTelegramCommand(options: {
   readonly command: ParsedCommand;
   readonly reporting: ReportingService;
   readonly resources: ResourceCollector;
+  readonly resourceThresholds: TelegramResourceThresholds;
   readonly state: TelegramStateStore;
 }): Promise<CommandResponse> {
-  const { command, reporting, resources, state } = options;
+  const { command, reporting, resources, resourceThresholds, state } = options;
   if (command.name === 'help') return html(telegramHelp);
   if (command.name === 'status') return html(formatTelegramReport(await statusReport(reporting)));
   if (command.name === 'incidents') return html(formatTelegramReport(await incidentsReport(reporting)));
@@ -88,7 +90,7 @@ export async function executeTelegramCommand(options: {
   if (command.name === 'resources') {
     const sample = await resources.collect();
     await state.recordResourceSample(sample);
-    return html(formatTelegramResources(sample, resources.trend()));
+    return html(formatTelegramResources(sample, resources.trend(), resourceThresholds));
   }
   if (command.name === 'daily') {
     const [daily, status] = await Promise.all([reporting.daily(command.date), statusReport(reporting)]);
@@ -196,6 +198,13 @@ function displayScalar(value: unknown): string {
 }
 
 function html(text: string): CommandResponse {
-  if (text.length > 3_900) throw new RangeError('Formatted Telegram response exceeds the bounded service limit');
+  if (text.length > TELEGRAM_TEXT_LIMIT) throw new TelegramFormattingError();
   return { text, parseMode: 'HTML' };
+}
+
+class TelegramFormattingError extends Error {
+  public constructor() {
+    super('Formatted Telegram response exceeds the bounded service limit');
+    this.name = 'TelegramFormattingError';
+  }
 }

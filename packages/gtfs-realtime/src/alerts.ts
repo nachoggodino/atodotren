@@ -13,27 +13,6 @@ export interface AlertTransport {
   send(message: AlertMessage): Promise<void>;
 }
 
-export function createTelegramTransport(
-  config: { readonly botToken: string; readonly chatId: string },
-  fetchImplementation: typeof fetch = fetch,
-): AlertTransport {
-  return {
-    name: 'telegram',
-    async send(message): Promise<void> {
-      const response = await fetchImplementation(
-        `https://api.telegram.org/bot${encodeURIComponent(config.botToken)}/sendMessage`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ chat_id: config.chatId, text: `${message.title}\n\n${message.body}` }),
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
-      if (!response.ok) throw new Error(`Telegram returned HTTP ${response.status}`);
-    },
-  };
-}
-
 export function createSmtpTransport(config: {
   readonly host: string;
   readonly port: number;
@@ -65,17 +44,6 @@ export function createSmtpTransport(config: {
       });
     },
   };
-}
-
-export async function sendOperationalAlert(
-  transports: readonly AlertTransport[],
-  message: AlertMessage,
-): Promise<void> {
-  const results = await Promise.allSettled(transports.map(async (transport) => transport.send(message)));
-  const failures = results.filter((result) => result.status === 'rejected');
-  if (failures.length > 0) throw new AggregateError(
-    failures.map((failure) => failure.reason as unknown), 'Alert delivery failed',
-  );
 }
 
 export class RetryingAlertDelivery {
