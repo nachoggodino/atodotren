@@ -419,8 +419,8 @@ export async function processTelegramUpdate(options: {
       config.privateChatId ?? '',
       response.text,
       response.buttons === undefined
-        ? { disableNotification: false }
-        : { buttons: response.buttons, disableNotification: false },
+        ? { disableNotification: false, ...(response.parseMode === undefined ? {} : { parseMode: response.parseMode }) }
+        : { buttons: response.buttons, disableNotification: false, ...(response.parseMode === undefined ? {} : { parseMode: response.parseMode }) },
       options.signal,
     );
     fallback.markLocalDelivery(update.update_id, deliveryKey, sent.message_id);

@@ -19,6 +19,7 @@ import {
   TelegramWebhookConflictError,
   type TelegramUpdate,
 } from '@atodotren/worker/telegram-transport';
+import { escapeTelegramHtml } from '@atodotren/worker/telegram-format';
 
 const fixedNow = new Date('2026-08-23T11:30:00.000Z');
 
@@ -129,10 +130,17 @@ void test('Bot API startup detects webhook conflict and command registration is 
   const poll = calls.find((call) => call.method === 'getUpdates')?.body;
   assert.equal(poll?.offset, 42);
   assert.deepEqual(poll?.allowed_updates, ['message', 'callback_query']);
+  await api.sendMessage('202', '<b>Safe &amp; readable</b>', { parseMode: 'HTML' });
+  const message = calls.find((call) => call.method === 'sendMessage')?.body;
+  assert.equal(message?.parse_mode, 'HTML');
 
   const conflictFetch = (async () => new Response(JSON.stringify({ ok: true, result: { url: 'https://example.invalid/webhook' } }), { status: 200 })) as typeof fetch;
   const conflict = new TelegramBotApi({ token: 'fake', baseUrl: 'http://fake', fetchImplementation: conflictFetch });
   await assert.rejects(conflict.assertLongPollingAvailable(), TelegramWebhookConflictError);
+});
+
+void test('Telegram HTML escaping protects dynamic Renfe and user text', () => {
+  assert.equal(escapeTelegramHtml('Atocha & <C1>'), 'Atocha &amp; &lt;C1&gt;');
 });
 
 void test('disabled operations service shuts down cleanly without opening database or Telegram resources', async () => {

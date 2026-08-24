@@ -17,6 +17,7 @@ export interface TelegramOperationsConfig {
   readonly callbackTtlMs: number;
   readonly deliveryRetentionDays: number;
   readonly thresholds: {
+    readonly ingestionIncidentConsecutive: number;
     readonly durableIngestionStaleMs: number;
     readonly spoolBacklogMs: number;
     readonly postgresConsecutive: number;
@@ -180,6 +181,7 @@ export function loadTelegramOperationsConfig(environment: Environment = process.
   const diskCriticalRatio = ratio(environment, 'TELEGRAM_ALERT_DISK_CRITICAL_RATIO', 0.08, issues);
   if (diskCriticalRatio >= diskWarningRatio) issues.push('Critical disk free ratio must be lower than warning ratio');
   const thresholds = {
+    ingestionIncidentConsecutive: integer(environment, 'INGEST_ALERT_FAILURE_THRESHOLD', 3, 1, 20, issues),
     durableIngestionStaleMs: integer(environment, 'INGEST_STALE_AFTER_MS', 120_000, 30_000, 86_400_000, issues),
     spoolBacklogMs: integer(environment, 'TELEGRAM_ALERT_SPOOL_BACKLOG_MS', 300_000, 60_000, 3_600_000, issues),
     postgresConsecutive: integer(environment, 'TELEGRAM_ALERT_POSTGRES_CONSECUTIVE', 3, 1, 20, issues),

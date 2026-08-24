@@ -2,6 +2,7 @@ import type { ReportingService } from './reporting-service.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
 import type { TelegramStateStore, DeliveryRecord } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
+import { formatTelegramIncident } from './telegram-format.js';
 
 interface IncidentRow {
   readonly incident_key: string;
@@ -46,7 +47,7 @@ export async function deliverIngestionIncidents(options: {
       await deliverOnce({
         key: activeKey,
         type: 'incident_active',
-        text: `ACTIVE · ${incident.incident_key}\nOpened ${new Date(incident.opened_at).toISOString()} · observations ${incident.occurrence_count}\nUse /status and /incidents for bounded detail.`,
+        text: formatTelegramIncident({ active: true, key: incident.incident_key, openedAt: incident.opened_at, observations: incident.occurrence_count }),
         ...options,
       });
       continue;
@@ -56,14 +57,17 @@ export async function deliverIngestionIncidents(options: {
     await deliverOnce({
       key: `incident:recovery:${episode}`,
       type: 'incident_recovery',
-      text: `RECOVERY · ${incident.incident_key}\nOpened ${new Date(incident.opened_at).toISOString()} · recovered ${incident.recovered_at === null ? 'n/a' : new Date(incident.recovered_at).toISOString()}\nUse /incidents for recent episodes.`,
+      text: formatTelegramIncident({ active: false, key: incident.incident_key, openedAt: incident.opened_at, recoveredAt: incident.recovered_at }),
       ...options,
     });
   }
 }
 
 function eligible(incident: IncidentRow, config: TelegramOperationsConfig, now: Date): boolean {
-  if (immediateCriticalKeys.has(incident.incident_key)) return true;
+  if (incident.incident_key === 'spool.shedding') return true;
+  if (immediateCriticalKeys.has(incident.incident_key)) {
+    return Number(incident.occurrence_count) >= config.thresholds.ingestionIncidentConsecutive;
+  }
   if (incident.incident_key === 'spool.growth') {
     return now.getTime() - new Date(incident.opened_at).getTime() >= config.thresholds.spoolBacklogMs;
   }
@@ -86,7 +90,7 @@ async function deliverOnce(options: {
   const reserved = await options.state.beginDelivery({ key: options.key, type: options.type });
   if (reserved.delivered || reserved.attempts > 8) return;
   try {
-    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', options.text, { disableNotification: false }, options.signal);
+    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', options.text, { disableNotification: false, parseMode: 'HTML' }, options.signal);
     await options.state.markDelivered(options.key, sent.message_id);
   } catch (error) {
     await options.state.markFailed(options.key, error instanceof Error ? error.name : 'DeliveryError');

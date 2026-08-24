@@ -794,8 +794,8 @@ deployment environment file.
 Supported read-only commands are `/status`, `/daily [date|yesterday]`, `/line <name>
 [date]`, `/station <name> [date]`, `/trains <line>`, `/train <id>`, `/incidents`,
 `/resources`, `/pilot`, and `/help`. Line/station matching is case- and accent-insensitive,
-alias-aware and partial; compact Cercanías codes such as `C1` are preferred command input,
-while official punctuated labels such as `C-1` remain accepted and are preserved in output.
+alias-aware and partial; compact Cercanías codes such as `C1` are preferred command input
+and display, while punctuated variants such as `C-1` remain accepted.
 Ambiguous matches return at most five inline choices. Reports use
 parameterized bounded queries and short statement timeouts. Daily metrics include scheduled
 stop opportunities, usable coverage/sample size, punctuality at delay <=120 seconds,
@@ -805,6 +805,14 @@ misleading pilot rankings, worst-line selection requires 100 usable observations
 worst-station selection requires 30; otherwise the answer says `insufficient sample`.
 Exact recent state is labelled separately from compact
 aggregate answers.
+
+Telegram responses use the Bot API HTML parse mode with escaped dynamic values. A restrained
+semantic vocabulary makes status scannable without relying on color alone: green means
+healthy/recovered, amber means live or warning, red means degraded/active, and white means
+unavailable. Reports use headings, whitespace, bold values, italic context, human-readable
+Madrid timestamps, durations and byte sizes; operational database rows are never emitted as
+raw JSON. Live train stops are labelled as next/associated Renfe stops rather than physical
+GPS positions, and unavailable delays remain explicit instead of being inferred.
 
 Daily scheduling uses `Europe/Madrid`: readiness checks begin at 04:00, normal delivery is
 targeted at 05:00 when the previous service day is verified, and one clearly labelled
@@ -826,6 +834,10 @@ only by the existing `INGEST_MATCHING_RATE_MINIMUM`,
 `INGEST_MATCHING_RATE_RECOVERY_MINIMUM`, `INGEST_MATCHING_RECOVERY_THRESHOLD`,
 `INGEST_ALERT_FAILURE_THRESHOLD`, and `INGEST_MALFORMED_RATE_MAXIMUM` settings. There are
 no duplicate `TELEGRAM_ALERT_MATCHING_*` or `TELEGRAM_ALERT_MALFORMED_*` settings.
+Except for one-shot spool shedding, `telegram-ops` does not deliver worker-owned incident
+episodes until their persisted observation count reaches `INGEST_ALERT_FAILURE_THRESHOLD`;
+this keeps the delivery layer aligned with the ingestion detector and avoids alerts for a
+single transient matching sample.
 Telegram-specific defaults remain: ingestion freshness from `INGEST_STALE_AFTER_MS`
 (2 minutes), spool backlog 5 minutes, PostgreSQL unavailable after three bot checks, CPU
 above 90% for 15 minutes, memory above 85% for 10 minutes, disk below 15% warning/below 8%

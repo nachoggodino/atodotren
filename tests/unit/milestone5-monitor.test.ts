@@ -113,8 +113,8 @@ void test('bot monitor persists critical ingestion/static episodes and delivers 
   const monitor = new TelegramOperationalMonitor({ reporting, resources, state, telegram, config });
   await monitor.evaluate(now);
   await monitor.evaluate(new Date(now.getTime() + 60_000));
-  assert.equal(messages.filter((message) => message.includes('ingest.stale')).length, 1);
-  assert.equal(messages.filter((message) => message.includes('static.stale')).length, 1);
+  assert.equal(messages.filter((message) => message.includes('ingest · stale')).length, 1);
+  assert.equal(messages.filter((message) => message.includes('static · stale')).length, 1);
 });
 
 void test('simultaneous worker ingest.stale and watchdog stale state produce one ACTIVE and one RECOVERY', async () => {
@@ -163,13 +163,54 @@ void test('simultaneous worker ingest.stale and watchdog stale state produce one
 
   await deliverIngestionIncidents({ config, reporting, state, telegram, now });
   await monitor.evaluate(now);
-  assert.equal(messages.filter((message) => message.startsWith('ACTIVE · ingest.stale')).length, 1);
+  assert.equal(messages.filter((message) => message.includes('ACTIVE INCIDENT') && message.includes('ingest · stale')).length, 1);
 
   stale = false;
   workerIncidentOpen = false;
   const recoveryTime = new Date(now.getTime() + 60_000);
   await deliverIngestionIncidents({ config, reporting, state, telegram, now: recoveryTime });
   await monitor.evaluate(recoveryTime);
-  assert.equal(messages.filter((message) => message.startsWith('RECOVERY · ingest.stale')).length, 1);
-  assert.equal(messages.filter((message) => message.includes('ingest.stale')).length, 2);
+  assert.equal(messages.filter((message) => message.includes('RECOVERED') && message.includes('ingest · stale')).length, 1);
+  assert.equal(messages.filter((message) => message.includes('ingest · stale')).length, 2);
+});
+
+void test('Telegram waits for the ingestion incident threshold before delivering ACTIVE', async () => {
+  let occurrenceCount = 1;
+  const pool = {
+    query: async () => ({ rows: [{
+      incident_key: 'ingest.matching_collapse', opened_at: now, last_observed_at: now,
+      occurrence_count: occurrenceCount, is_open: true, recovered_at: null,
+    }] }),
+  } as unknown as DatabaseConnection['pool'];
+  const reporting = new ReportingService(pool, () => now);
+  const delivered = new Set<string>();
+  const state = {
+    delivery: async (key: string) => delivered.has(key) ? { delivered: true, attempts: 1, lastAttemptAt: now } : null,
+    beginDelivery: async (options: { readonly key: string }) => ({ delivered: delivered.has(options.key), attempts: 1, lastAttemptAt: now }),
+    markDelivered: async (key: string) => { delivered.add(key); },
+    markFailed: async () => undefined,
+  } as unknown as TelegramStateStore;
+  const messages: string[] = [];
+  const sendOptions: Array<Readonly<Record<string, unknown>>> = [];
+  const telegram = {
+    sendMessage: async (_chat: string, text: string, options: Readonly<Record<string, unknown>>) => {
+      messages.push(text);
+      sendOptions.push(options);
+      return { message_id: messages.length };
+    },
+  } as unknown as TelegramBotApi;
+  const config = loadTelegramOperationsConfig(telegramEnvironment());
+
+  await deliverIngestionIncidents({ config, reporting, state, telegram, now });
+  occurrenceCount = 2;
+  await deliverIngestionIncidents({ config, reporting, state, telegram, now });
+  assert.equal(messages.length, 0);
+
+  occurrenceCount = 3;
+  await deliverIngestionIncidents({ config, reporting, state, telegram, now });
+  await deliverIngestionIncidents({ config, reporting, state, telegram, now });
+  assert.equal(messages.length, 1);
+  assert.match(messages[0] ?? '', /ACTIVE INCIDENT/u);
+  assert.match(messages[0] ?? '', /Confirmed observations: <b>3<\/b>/u);
+  assert.equal(sendOptions[0]?.parseMode, 'HTML');
 });

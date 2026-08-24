@@ -301,12 +301,12 @@ void test('/trains ambiguity preserves callback intent and completes the trains 
   const ambiguous = await executeTelegramCommand({
     command: { name: 'trains', query: 'C' }, reporting, resources: {} as ResourceCollector, state,
   });
-  assert.match(ambiguous.text, /Select the intended line/u);
+  assert.match(ambiguous.text, /Several lines match/u);
   const callbackData = ambiguous.buttons?.[0]?.[0]?.callback_data ?? '';
   const callbackId = callbackData.replace(/^r:/u, '');
   assert.equal(callbacks.get(callbackId)?.action, 'trains');
   const completed = await executeCallback({ callbackData, reporting, state });
-  assert.match(completed.text, /C-1 active trains/u);
+  assert.match(completed.text, /C-1 · live trains/u);
   assert.doesNotMatch(completed.text, /Run \/trains again/u);
 });
 
@@ -332,7 +332,7 @@ void test('/trains reports no fresh vehicles when ingestion health is stale', as
     command: { name: 'trains', query: 'C-1' }, reporting,
     resources: {} as ResourceCollector, state: {} as TelegramStateStore,
   });
-  assert.match(response.text, /No fresh trains are available for C-1/u);
+  assert.match(response.text, /No fresh trains are available for <b>C-1<\/b>/u);
   assert.equal(vehicleQueryRan, false);
 });
 
@@ -402,7 +402,7 @@ void test('scheduled daily digest includes compact resources and unavailable val
     },
   } as unknown as DatabaseConnection['pool'];
   const reporting = { now: () => now, pool, daily: async () => daily } as unknown as ReportingService;
-  const resources = { collect: async () => unavailableSample() } as unknown as ResourceCollector;
+  const resources = { collect: async () => unavailableSample(), trend: () => [] } as unknown as ResourceCollector;
   let recorded = false;
   const state = {
     delivery: async () => null,
@@ -416,10 +416,9 @@ void test('scheduled daily digest includes compact resources and unavailable val
   const decision = await runDigestCheck({ now, config: loadTelegramOperationsConfig(telegramEnvironment()), reporting, resources, state, telegram });
   assert.equal(decision, 'normal');
   assert.equal(recorded, true);
-  assert.match(messages[0] ?? '', /Resources: CPU unavailable/u);
-  assert.match(messages[0] ?? '', /Storage: database unavailable/u);
-  assert.match(messages[0] ?? '', /spool unavailable/u);
-  assert.match(messages[0] ?? '', /pending unavailable/u);
+  assert.match(messages[0] ?? '', /CPU: <b>unavailable/u);
+  assert.match(messages[0] ?? '', /Database: <b>unavailable/u);
+  assert.match(messages[0] ?? '', /Realtime spool: <b>unavailable/u);
   assert.doesNotMatch(messages[0] ?? '', /database 0 B/u);
 });
 
