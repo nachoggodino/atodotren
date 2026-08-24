@@ -1,0 +1,141 @@
+name: Frontend lint cleanup
+
+on:
+  push:
+    branches:
+      - feature/frontend-alpha
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/frontend-alpha
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - name: Apply targeted lint fixes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path}: {old[:120]!r}")
+              file.write_text(text.replace(old, new))
+
+          replace(
+              "scripts/web-postgres-contract.mjs",
+              'import assert from "node:assert/strict";\n',
+              'import assert from "node:assert/strict";\nimport { URL } from "node:url";\n',
+          )
+
+          Path("apps/web/postcss.config.mjs").write_text('''const config = {\n  plugins: {\n    "@tailwindcss/postcss": {},\n  },\n};\n\nexport default config;\n''')
+
+          replace(
+              "apps/web/src/components/charts/delay-distribution.tsx",
+              'import type { Lang } from "@/lib/domain/contracts";\n',
+              '',
+          )
+          replace(
+              "apps/web/src/components/charts/delay-distribution.tsx",
+              'export function DelayDistribution({ values, lang, messages }: { readonly values: readonly number[]; readonly lang: Lang; readonly messages: Messages }) {',
+              'export function DelayDistribution({ values, messages }: { readonly values: readonly number[]; readonly messages: Messages }) {',
+          )
+          replace(
+              "apps/web/src/components/charts/history-trend.tsx",
+              'import type { HistoryPoint, Lang } from "@/lib/domain/contracts";\n',
+              'import type { HistoryPoint } from "@/lib/domain/contracts";\n',
+          )
+          replace(
+              "apps/web/src/components/charts/history-trend.tsx",
+              'export function HistoryTrend({ points, lang, messages }: { readonly points: readonly HistoryPoint[]; readonly lang: Lang; readonly messages: Messages }) {',
+              'export function HistoryTrend({ points, messages }: { readonly points: readonly HistoryPoint[]; readonly messages: Messages }) {',
+          )
+
+          for path in [
+              "apps/web/src/components/history/history-layout.tsx",
+              "apps/web/src/app/[lang]/live/page.tsx",
+              "apps/web/src/app/[lang]/live/line/[slug]/page.tsx",
+          ]:
+              file = Path(path)
+              text = file.read_text()
+              text = text.replace(' lang={lang} messages={messages} />', ' messages={messages} />')
+              file.write_text(text)
+
+          entity = Path("apps/web/src/components/search/entity-search.tsx")
+          text = entity.read_text()
+          old = '''  useEffect(() => {\n    const trimmed = query.trim();\n    if (trimmed.length < 1) { setResults([]); setSelected(null); return; }\n'''
+          new = '''  const onQueryChange = (value: string) => {\n    setQuery(value);\n    if (value.trim() === "") {\n      setResults([]);\n      setSelected(null);\n      setLoading(false);\n    }\n  };\n\n  useEffect(() => {\n    const trimmed = query.trim();\n    if (trimmed.length < 1) return;\n'''
+          if old not in text:
+              raise SystemExit("entity search effect shape changed")
+          text = text.replace(old, new)
+          old = 'onChange={(event) => setQuery(event.target.value)}'
+          if old not in text:
+              raise SystemExit("entity search input shape changed")
+          text = text.replace(old, 'onChange={(event) => onQueryChange(event.target.value)}')
+          entity.write_text(text)
+
+          header = Path("apps/web/src/components/shell/app-header.tsx")
+          text = header.read_text()
+          replacements = [
+              ('  const [open, setOpen] = useState(false);\n', '  const [openPathname, setOpenPathname] = useState<string | null>(null);\n  const open = openPathname === pathname;\n'),
+              ('\n  useEffect(() => setOpen(false), [pathname]);', ''),
+              ('setOpen(false)', 'setOpenPathname(null)'),
+              ('setOpen((value) => !value)', 'setOpenPathname((value) => value === pathname ? null : pathname)'),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"app header shape changed: {old!r}")
+              text = text.replace(old, new)
+          header.write_text(text)
+
+          Path("apps/web/src/components/shell/auto-refresh-provider.tsx").write_text('''"use client";\n\nimport { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";\n\nconst STORAGE_KEY = "atodotren:auto-refresh:v1";\nconst CHANGE_EVENT = "atodotren:auto-refresh-change";\n\ninterface AutoRefreshContextValue {\n  readonly enabled: boolean;\n  readonly setEnabled: (enabled: boolean) => void;\n}\n\nconst AutoRefreshContext = createContext<AutoRefreshContextValue | null>(null);\n\nfunction getSnapshot(): boolean {\n  return window.localStorage.getItem(STORAGE_KEY) !== "paused";\n}\n\nfunction getServerSnapshot(): boolean {\n  return true;\n}\n\nfunction subscribe(onStoreChange: () => void): () => void {\n  const onStorage = (event: StorageEvent) => {\n    if (event.key === STORAGE_KEY) onStoreChange();\n  };\n  const onLocalChange = () => onStoreChange();\n  window.addEventListener("storage", onStorage);\n  window.addEventListener(CHANGE_EVENT, onLocalChange);\n  return () => {\n    window.removeEventListener("storage", onStorage);\n    window.removeEventListener(CHANGE_EVENT, onLocalChange);\n  };\n}\n\nfunction storeEnabled(enabled: boolean): void {\n  window.localStorage.setItem(STORAGE_KEY, enabled ? "active" : "paused");\n  window.dispatchEvent(new Event(CHANGE_EVENT));\n}\n\nexport function AutoRefreshProvider({ children }: { readonly children: ReactNode }) {\n  const enabled = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);\n  const value = useMemo<AutoRefreshContextValue>(() => ({ enabled, setEnabled: storeEnabled }), [enabled]);\n  return <AutoRefreshContext.Provider value={value}>{children}</AutoRefreshContext.Provider>;\n}\n\nexport function useAutoRefresh(): AutoRefreshContextValue {\n  const value = useContext(AutoRefreshContext);\n  if (value === null) throw new Error("useAutoRefresh must be used inside AutoRefreshProvider");\n  return value;\n}\n''')
+
+          replace(
+              "apps/web/src/lib/fixtures/scenarios.ts",
+              ", LiveContextResponse, LiveNetworkResponse",
+              "",
+          )
+          replace(
+              "apps/web/src/lib/server/postgres-adapter.ts",
+              ", LiveContextResponse, LiveNetworkResponse",
+              "",
+          )
+          replace(
+              "apps/web/src/lib/server/postgres-adapter.ts",
+              ", MatrixResponse",
+              "",
+          )
+          PY
+          git rm .github/workflows/frontend-lint-fix.yml
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify root TypeScript and lint
+        run: |
+          npm run typecheck
+          npm run lint
+      - name: Verify web TypeScript and lint
+        run: |
+          npm run web:typecheck
+          npm run web:lint
+      - name: Commit verified cleanup
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(web): resolve frontend lint findings'
+          git push origin HEAD:feature/frontend-alpha
