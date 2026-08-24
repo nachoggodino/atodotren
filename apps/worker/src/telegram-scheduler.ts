@@ -1,7 +1,8 @@
 import { currentMadridServiceDate, REPORT_TIMEZONE, shiftIsoDate } from './reporting-core.js';
-import { formatReportText, statusReport } from './reporting-operations.js';
+import { statusReport } from './reporting-operations.js';
 import type { ReportingService } from './reporting-service.js';
-import { compactResourceSection, type ResourceCollector } from './resources.js';
+import type { ResourceCollector } from './resources.js';
+import { escapeTelegramHtml, formatTelegramInstant, formatTelegramReport, formatTelegramResources } from './telegram-format.js';
 import {
   classifyTelegramDeliveryFailure,
   telegramDeliveryAbandoned,
@@ -94,16 +95,13 @@ export async function runDigestCheck(options: {
     options.resources.collect(),
   ]);
   await options.state.recordResourceSample(sample, options.now);
-  const heading = decision === 'normal' ? 'Daily operations digest' : 'PROVISIONAL / FINALIZATION BLOCKED';
-  const resources = compactResourceSection(
-    sample,
-    currentStatus.ingestion,
-    currentStatus.openIncidents,
-    currentStatus.openMonitorEpisodes.length,
-  );
-  const text = `${heading}\n${formatReportText(daily)}\n${resources}\nNew service day ${currentServiceDate}: ${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
+  const heading = decision === 'normal'
+    ? '🌅 <b>Daily operations digest</b>'
+    : '🟠 <b>PROVISIONAL DIGEST</b>\n<i>Finalization did not complete before the reporting cutoff.</i>';
+  const resources = formatTelegramResources(sample, options.resources.trend(), options.config.thresholds);
+  const text = `${heading}\n\n${formatTelegramReport(daily)}\n\n${resources}\n\n<b>New service day · ${escapeTelegramHtml(currentServiceDate)}</b>\n${shortCurrentStatus(currentStatus.ingestion, currentStatus.openIncidents, currentStatus.openMonitorEpisodes.length)}`;
   try {
-    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text.slice(0, 4_000), { disableNotification: false }, options.signal);
+    const sent = await options.telegram.sendMessage(options.config.privateChatId ?? '', text, { disableNotification: false, parseMode: 'HTML' }, options.signal);
     await options.state.markDelivered(deliveryKey, sent.message_id);
   } catch (error) {
     const failure = classifyTelegramDeliveryFailure(error, reserved.attempts);
@@ -118,8 +116,9 @@ function shortCurrentStatus(
   openIncidents: number,
   openMonitors: number,
 ): string {
-  if (ingestion === null) return `ingestion unavailable; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
-  return `last durable ${displayScalar(ingestion.last_durable_cycle_at)}; spool ${displayScalar(ingestion.spool_pending_count)} pending; ${openIncidents} ingestion incident(s); ${openMonitors} bot monitor(s)`;
+  if (ingestion === null) return `⚪ Ingestion unavailable · ${openIncidents} ingestion incidents · ${openMonitors} bot monitors`;
+  const healthy = openIncidents === 0 && openMonitors === 0;
+  return `${healthy ? '🟢' : '🟠'} Latest durable <b>${formatTelegramInstant(ingestion.last_durable_cycle_at)}</b>\nSpool <b>${escapeTelegramHtml(displayScalar(ingestion.spool_pending_count))} pending</b> · incidents <b>${openIncidents}</b> · monitors <b>${openMonitors}</b>`;
 }
 
 function displayScalar(value: unknown): string {

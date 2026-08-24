@@ -120,7 +120,7 @@ for _attempt in {1..30}; do
   sleep 1
 done
 telegram_state="$(compose exec --no-TTY fake-telegram node -e "fetch('http://localhost:4020/state').then(r=>r.json()).then(s=>console.log(JSON.stringify(s)))")"
-if ! grep -q 'Status ' <<<"${telegram_state}"; then
+if ! grep -q 'System status' <<<"${telegram_state}" || ! grep -q '"parse_mode":"HTML"' <<<"${telegram_state}"; then
   compose logs telegram-ops fake-telegram >&2
   echo "Fake Telegram command did not round-trip: ${telegram_state}" >&2
   exit 1

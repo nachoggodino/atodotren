@@ -56,6 +56,10 @@
       "types": "./dist/telegram-delivery-retry.d.ts",
       "default": "./dist/telegram-delivery-retry.js"
     },
+    "./telegram-format": {
+      "types": "./dist/telegram-format.d.ts",
+      "default": "./dist/telegram-format.js"
+    },
     "./telegram-monitor": {
       "types": "./dist/telegram-monitor.d.ts",
       "default": "./dist/telegram-monitor.js"

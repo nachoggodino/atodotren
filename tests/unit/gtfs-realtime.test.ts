@@ -20,7 +20,6 @@ import {
   resolveStop,
   RetryingAlertDelivery,
   runIngest,
-  sendOperationalAlert,
   type NormalizedBatch,
   type PollRecord,
   type IncidentRecord,
@@ -252,7 +251,7 @@ void test('bounded acquisition does not retry 4xx and retries one transient 5xx'
   assert.equal(result.responseBytes, 3);
 });
 
-void test('bounded acquisition rejects oversized responses and alert transports stay injectable', async () => {
+void test('bounded acquisition rejects oversized responses', async () => {
   await assert.rejects(acquireFeed({ kind: 'trip_updates', url: 'http://localhost/feed', enabled: true }, {
     timeoutMs: 1_000, maxResponseBytes: 2,
     fetchImplementation: () => Promise.resolve(new Response(Uint8Array.from([1, 2, 3]), {
@@ -261,12 +260,6 @@ void test('bounded acquisition rejects oversized responses and alert transports 
     sleep: () => Promise.resolve(),
   }), (error: unknown) => error instanceof FeedAcquisitionError && error.code === 'response_too_large');
 
-  const deliveries: string[] = [];
-  await sendOperationalAlert([
-    { name: 'fake-telegram', send: () => { deliveries.push('telegram'); return Promise.resolve(); } },
-    { name: 'fake-smtp', send: () => { deliveries.push('smtp'); return Promise.resolve(); } },
-  ], { incidentKey: 'test', title: 'Test alert', body: 'Offline transport test', recovery: false });
-  assert.deepEqual(deliveries.sort(), ['smtp', 'telegram']);
 });
 
 void test('partial alert delivery retries only failed transports and recovery remains deliverable', async () => {

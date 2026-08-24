@@ -1,8 +1,14 @@
 import type { Measurement, ResourceCollector } from './resources.js';
 import type { ReportingService } from './reporting-service.js';
 import type { TelegramOperationsConfig } from './telegram-config.js';
+import {
+  TELEGRAM_DELIVERY_MAX_ATTEMPTS,
+  telegramDeliveryAbandoned,
+  telegramDeliveryRetryWait,
+} from './telegram-delivery-retry.js';
 import type { TelegramStateStore } from './telegram-state.js';
 import type { TelegramBotApi } from './telegram-transport.js';
+import { formatTelegramIncident } from './telegram-format.js';
 
 interface MonitorRow {
   readonly monitor_key: string;
@@ -43,8 +49,14 @@ export class TelegramOperationalMonitor {
         try {
           await this.#telegram.sendMessage(
             this.#config.privateChatId ?? '',
-            `ACTIVE · postgres.unavailable\nPostgreSQL has failed ${this.#postgresFailures} consecutive Telegram-service checks. Reporting and durable bot state are unavailable until recovery.`,
-            { disableNotification: false },
+            formatTelegramIncident({
+              active: true,
+              key: 'postgres.unavailable',
+              openedAt: now,
+              observations: this.#postgresFailures,
+              detail: 'Reporting and durable bot state are unavailable until PostgreSQL recovers.',
+            }),
+            { disableNotification: false, parseMode: 'HTML' },
             signal,
           );
           this.#postgresAlertSent = true;
@@ -61,8 +73,8 @@ export class TelegramOperationalMonitor {
         try {
           await this.#telegram.sendMessage(
             this.#config.privateChatId ?? '',
-            'RECOVERY · postgres.unavailable\nPostgreSQL reporting access is available again.',
-            { disableNotification: false },
+            formatTelegramIncident({ active: false, key: 'postgres.unavailable', openedAt: now, recoveredAt: now, detail: 'PostgreSQL reporting access is available again.' }),
+            { disableNotification: false, parseMode: 'HTML' },
             signal,
           );
         } catch {
@@ -220,7 +232,8 @@ export class TelegramOperationalMonitor {
       await this.#deliverOnce({
         key: `monitor:recovery:${episode}`,
         type: 'monitor_recovery',
-        text: `RECOVERY · ${options.key}\n${options.title} has recovered.`,
+        text: formatTelegramIncident({ active: false, key: options.key, openedAt: row.opened_at, recoveredAt: row.recovered_at, detail: `${options.title} has recovered.` }),
+        now: options.now,
         signal: options.signal,
       });
       return;
@@ -245,7 +258,8 @@ export class TelegramOperationalMonitor {
     await this.#deliverOnce({
       key: `monitor:active:${episodeKey(row)}`,
       type: 'monitor_active',
-      text: `ACTIVE · ${options.key}\n${options.title}. Current measured value: ${rendered}.\nUse /status and /resources for bounded detail.`,
+      text: formatTelegramIncident({ active: true, key: options.key, openedAt: row.opened_at, observations: row.consecutive_count, detail: `${options.title}. Current measured value: ${rendered}.` }),
+      now: options.now,
       signal: options.signal,
     });
   }
@@ -254,14 +268,17 @@ export class TelegramOperationalMonitor {
     readonly key: string;
     readonly type: 'monitor_active' | 'monitor_recovery';
     readonly text: string;
+    readonly now: Date;
     readonly signal: AbortSignal | undefined;
   }): Promise<void> {
     const existing = await this.#state.delivery(options.key);
-    if (existing?.delivered === true) return;
+    if (existing?.delivered === true || telegramDeliveryAbandoned(existing)) return;
+    const retryWaitMs = telegramDeliveryRetryWait(existing, options.now);
+    if (retryWaitMs !== null && retryWaitMs > 0) return;
     const reserved = await this.#state.beginDelivery({ key: options.key, type: options.type });
-    if (reserved.delivered || reserved.attempts > 8) return;
+    if (reserved.delivered || reserved.attempts > TELEGRAM_DELIVERY_MAX_ATTEMPTS) return;
     try {
-      const sent = await this.#telegram.sendMessage(this.#config.privateChatId ?? '', options.text, { disableNotification: false }, options.signal);
+      const sent = await this.#telegram.sendMessage(this.#config.privateChatId ?? '', options.text, { disableNotification: false, parseMode: 'HTML' }, options.signal);
       await this.#state.markDelivered(options.key, sent.message_id);
     } catch (error) {
       await this.#state.markFailed(options.key, error instanceof Error ? error.name : 'DeliveryError');

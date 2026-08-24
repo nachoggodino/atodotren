@@ -1,6 +1,7 @@
 import {
   MAX_INCIDENTS,
   MAX_TRAINS,
+  PUNCTUALITY_THRESHOLD_SECONDS,
   currentMadridServiceDate,
   dateText,
   instantText,
@@ -197,7 +198,7 @@ function metricText(report: Extract<ReportResult, { metrics: unknown }>): string
   return [
     `scheduled stops ${metrics.scheduledStopOpportunities}`,
     `usable ${metrics.usableObservations} (${percent(metrics.coverage)} coverage)`,
-    `punctual <=120s ${percent(metrics.punctuality)}`,
+    `punctual <=${PUNCTUALITY_THRESHOLD_SECONDS}s ${percent(metrics.punctuality)}`,
     `avg ${seconds(metrics.averageArrivalDelaySeconds)}`,
     `median ~${seconds(metrics.medianArrivalDelaySeconds)}`,
     `canceled ${metrics.canceled} (${percent(metrics.canceledRate)})`,

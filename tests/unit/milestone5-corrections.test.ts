@@ -299,14 +299,15 @@ void test('/trains ambiguity preserves callback intent and completes the trains 
     ],
   } as unknown as ReportingService;
   const ambiguous = await executeTelegramCommand({
-    command: { name: 'trains', query: 'C' }, reporting, resources: {} as ResourceCollector, state,
+    command: { name: 'trains', query: 'C' }, reporting, resources: {} as ResourceCollector,
+    resourceThresholds: loadTelegramOperationsConfig(telegramEnvironment()).thresholds, state,
   });
-  assert.match(ambiguous.text, /Select the intended line/u);
+  assert.match(ambiguous.text, /Several lines match/u);
   const callbackData = ambiguous.buttons?.[0]?.[0]?.callback_data ?? '';
   const callbackId = callbackData.replace(/^r:/u, '');
   assert.equal(callbacks.get(callbackId)?.action, 'trains');
   const completed = await executeCallback({ callbackData, reporting, state });
-  assert.match(completed.text, /C-1 active trains/u);
+  assert.match(completed.text, /C1 · live trains/u);
   assert.doesNotMatch(completed.text, /Run \/trains again/u);
 });
 
@@ -330,9 +331,11 @@ void test('/trains reports no fresh vehicles when ingestion health is stale', as
   } as unknown as ReportingService;
   const response = await executeTelegramCommand({
     command: { name: 'trains', query: 'C-1' }, reporting,
-    resources: {} as ResourceCollector, state: {} as TelegramStateStore,
+    resources: {} as ResourceCollector,
+    resourceThresholds: loadTelegramOperationsConfig(telegramEnvironment()).thresholds,
+    state: {} as TelegramStateStore,
   });
-  assert.match(response.text, /No fresh trains are available for C-1/u);
+  assert.match(response.text, /No fresh trains are available for <b>C1<\/b>/u);
   assert.equal(vehicleQueryRan, false);
 });
 
@@ -361,6 +364,45 @@ void test('unexpected report exceptions log only command kind and error classifi
   assert.match(delivered, /report could not be produced/u);
   assert.deepEqual(logged, [{ commandKind: 'trains', failureClass: 'error', errorCode: '42501' }]);
   assert.doesNotMatch(JSON.stringify(logged), /SELECT|secret|credential|private database detail/u);
+});
+
+void test('oversized formatted reports are internal failures rather than command syntax errors', async () => {
+  let delivered = '';
+  const logged: Array<Readonly<Record<string, unknown>>> = [];
+  const state = {
+    deliveryForUpdate: async () => null,
+    beginDelivery: async () => ({ delivered: false, attempts: 1, lastAttemptAt: null, messageId: null, failureClass: null }),
+    markDelivered: async () => undefined,
+  } as unknown as TelegramStateStore;
+  const reporting = {
+    now: () => now,
+    lineCandidates: async () => [{ id: 1, label: 'C1', code: 'C1', aliases: [], score: 100 }],
+    line: async () => ({
+      contractVersion: 'report-v1', generatedAt: now.toISOString(), timezone: 'Europe/Madrid',
+      source: 'daily_aggregate', precision: 'fixture', kind: 'line', serviceDate: '2026-08-23',
+      line: { id: 1, name: 'C1', code: `C${'1'.repeat(4_100)}` },
+      metrics: {
+        scheduledStopOpportunities: 1, usableObservations: 1, coverage: 1,
+        punctualCount: 1, punctuality: 1, averageArrivalDelaySeconds: 0,
+        medianArrivalDelaySeconds: 0, canceled: 0, canceledRate: 0,
+        missingEvidence: 0, missingEvidenceRate: 0,
+      },
+      chart: { kind: 'line', title: 'fixture', xLabel: 'date', yLabel: 'rate', points: [] },
+    }),
+  } as unknown as ReportingService;
+
+  await processTelegramUpdate({
+    update: { update_id: 89, message: { message_id: 1, from: { id: 101 }, chat: { id: 202, type: 'private' }, text: '/line C1' } },
+    config: loadTelegramOperationsConfig(telegramEnvironment()), reporting,
+    resources: {} as ResourceCollector, state,
+    telegram: { sendMessage: async (_chat: string, text: string) => { delivered = text; return { message_id: 10 }; } } as unknown as TelegramBotApi,
+    logger: { warn: () => undefined, error: (_event, _message, fields) => { logged.push(fields ?? {}); } },
+    fallback: new TelegramUpdateFallbackState(),
+  });
+
+  assert.match(delivered, /report could not be produced/u);
+  assert.doesNotMatch(delivered, /Use \/help/u);
+  assert.deepEqual(logged, [{ commandKind: 'line', failureClass: 'TelegramFormattingError' }]);
 });
 
 void test('daily worst rankings require useful samples and label insufficient evidence', async () => {
@@ -402,7 +444,7 @@ void test('scheduled daily digest includes compact resources and unavailable val
     },
   } as unknown as DatabaseConnection['pool'];
   const reporting = { now: () => now, pool, daily: async () => daily } as unknown as ReportingService;
-  const resources = { collect: async () => unavailableSample() } as unknown as ResourceCollector;
+  const resources = { collect: async () => unavailableSample(), trend: () => [] } as unknown as ResourceCollector;
   let recorded = false;
   const state = {
     delivery: async () => null,
@@ -416,10 +458,9 @@ void test('scheduled daily digest includes compact resources and unavailable val
   const decision = await runDigestCheck({ now, config: loadTelegramOperationsConfig(telegramEnvironment()), reporting, resources, state, telegram });
   assert.equal(decision, 'normal');
   assert.equal(recorded, true);
-  assert.match(messages[0] ?? '', /Resources: CPU unavailable/u);
-  assert.match(messages[0] ?? '', /Storage: database unavailable/u);
-  assert.match(messages[0] ?? '', /spool unavailable/u);
-  assert.match(messages[0] ?? '', /pending unavailable/u);
+  assert.match(messages[0] ?? '', /CPU: <b>unavailable/u);
+  assert.match(messages[0] ?? '', /Database: <b>unavailable/u);
+  assert.match(messages[0] ?? '', /Realtime spool: <b>unavailable/u);
   assert.doesNotMatch(messages[0] ?? '', /database 0 B/u);
 });
 
