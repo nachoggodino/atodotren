@@ -7,10 +7,16 @@ import type {
   StaticTripCandidate,
   TripDescriptor,
 } from './types.js';
+import { inferCandidateServiceDate, type ServiceDateAnchor } from './service-date.js';
 
 interface StopHint {
   readonly stopSequence?: number | undefined;
   readonly stopId?: string | undefined;
+  readonly arrivalTime?: number | undefined;
+}
+
+interface MatchTemporalContext {
+  readonly fallbackInstantSeconds?: number | undefined;
 }
 
 const madridRoutePrefix = '10';
@@ -42,9 +48,34 @@ function candidateMatchesHints(candidate: StaticTripCandidate, stops: readonly S
   });
 }
 
-function serviceDateMatches(candidate: StaticTripCandidate, descriptor: TripDescriptor): boolean {
+function temporalDistance(
+  candidate: StaticTripCandidate,
+  descriptor: TripDescriptor,
+  stops: readonly StopHint[],
+  context: MatchTemporalContext,
+): number | undefined {
   const date = normalizedDate(descriptor.startDate);
-  return date === undefined || candidate.serviceDates === undefined || candidate.serviceDates.has(date);
+  if (date !== undefined) {
+    return candidate.serviceDates === undefined || candidate.serviceDates.has(date) ? 0 : Number.POSITIVE_INFINITY;
+  }
+  if (candidate.serviceDates === undefined) return undefined;
+  if (candidate.serviceDates.size === 0) return Number.POSITIVE_INFINITY;
+  const anchors = stops.flatMap((hint): ServiceDateAnchor[] => {
+    if (hint.arrivalTime === undefined) return [];
+    const stop = resolveStop(candidate, hint).stop;
+    return stop?.arrivalSeconds === undefined ? [] : [{
+      instantSeconds: hint.arrivalTime,
+      scheduledSeconds: stop.arrivalSeconds,
+    }];
+  });
+  if (anchors.length === 0 && context.fallbackInstantSeconds === undefined) return undefined;
+  return inferCandidateServiceDate(candidate, anchors, context.fallbackInstantSeconds)?.distanceSeconds ??
+    Number.POSITIVE_INFINITY;
+}
+
+interface VersionMatch {
+  readonly result: ResolvedMatch;
+  readonly distance?: number | undefined;
 }
 
 function withinVersion(
@@ -52,25 +83,30 @@ function withinVersion(
   position: 'active' | 'previous',
   descriptor: TripDescriptor,
   stops: readonly StopHint[],
-): ResolvedMatch | undefined {
-  const versionCandidates = candidates.filter((candidate) =>
-    candidate.versionPosition === position && serviceDateMatches(candidate, descriptor));
+  context: MatchTemporalContext,
+): VersionMatch | undefined {
+  const versionCandidates = candidates.flatMap((candidate) => {
+    if (candidate.versionPosition !== position) return [];
+    const distance = temporalDistance(candidate, descriptor, stops, context);
+    return distance === Number.POSITIVE_INFINITY ? [] : [{ candidate, distance }];
+  });
   if (descriptor.tripId !== undefined) {
-    const exact = versionCandidates.filter((candidate) => candidate.tripId === descriptor.tripId);
+    const exact = versionCandidates.filter(({ candidate }) => candidate.tripId === descriptor.tripId);
     if (exact.length === 1) {
-      return { disposition: `${position}-exact-trip`, candidate: exact[0]! };
+      return { result: { disposition: `${position}-exact-trip`, candidate: exact[0]!.candidate }, distance: exact[0]!.distance };
     }
-    if (exact.length > 1) return { disposition: 'ambiguous' };
+    if (exact.length > 1) return { result: { disposition: 'ambiguous' } };
   }
   const startSeconds = parseGtfsTime(descriptor.startTime);
   if (descriptor.routeId === undefined || startSeconds === undefined) return undefined;
-  const fallback = versionCandidates.filter((candidate) =>
+  const fallback = versionCandidates.filter(({ candidate }) =>
     candidate.routeId === descriptor.routeId && candidate.firstTimeSeconds === startSeconds &&
     candidateMatchesHints(candidate, stops));
   if (fallback.length === 1) {
-    return { disposition: `${position}-unique-fallback`, candidate: fallback[0]! };
+    return { result: { disposition: `${position}-unique-fallback`, candidate: fallback[0]!.candidate },
+      distance: fallback[0]!.distance };
   }
-  if (fallback.length > 1) return { disposition: 'ambiguous' };
+  if (fallback.length > 1) return { result: { disposition: 'ambiguous' } };
   return undefined;
 }
 
@@ -78,11 +114,16 @@ export function matchTrip(
   index: StaticMatchIndex,
   descriptor: TripDescriptor,
   stops: readonly StopHint[] = [],
+  context: MatchTemporalContext = {},
 ): ResolvedMatch {
-  const active = withinVersion(index.candidates, 'active', descriptor, stops);
-  if (active !== undefined) return active;
-  const previous = withinVersion(index.candidates, 'previous', descriptor, stops);
-  if (previous !== undefined) return previous;
+  const active = withinVersion(index.candidates, 'active', descriptor, stops, context);
+  if (active?.result.disposition === 'ambiguous') return active.result;
+  const previous = withinVersion(index.candidates, 'previous', descriptor, stops, context);
+  if (previous?.result.disposition === 'ambiguous' && active === undefined) return previous.result;
+  if (active !== undefined && previous !== undefined && previous.distance !== undefined &&
+      (active.distance === undefined || previous.distance < active.distance)) return previous.result;
+  if (active !== undefined) return active.result;
+  if (previous !== undefined) return previous.result;
   if (descriptor.routeId !== undefined && !descriptor.routeId.startsWith(madridRoutePrefix)) {
     return { disposition: 'non-madrid' };
   }
@@ -148,6 +189,7 @@ export async function loadStaticMatchIndex(
   descriptors: readonly TripDescriptor[],
   alertRouteIds: readonly string[] = [],
   alertStopIds: readonly string[] = [],
+  inferenceDates: readonly string[] = [],
 ): Promise<StaticMatchIndex> {
   const versionResult = await pool.query<{
     active_feed_version_id: string;
@@ -168,10 +210,10 @@ export async function loadStaticMatchIndex(
   };
   const tripIds = [...new Set(descriptors.flatMap((descriptor) => descriptor.tripId === undefined ? [] : [descriptor.tripId]))];
   const routeIds = [...new Set(descriptors.flatMap((descriptor) => descriptor.routeId === undefined ? [] : [descriptor.routeId]))];
-  const requestedDates = [...new Set(descriptors.flatMap((descriptor) => {
+  const requestedDates = [...new Set([...inferenceDates, ...descriptors.flatMap((descriptor) => {
     const date = normalizedDate(descriptor.startDate);
     return date === undefined ? [] : [date];
-  }))];
+  })])];
   const allRouteIds = [...new Set([...routeIds, ...alertRouteIds])];
   if (tripIds.length === 0 && allRouteIds.length === 0 && alertStopIds.length === 0) {
     return { candidates: [], versionIdentity };

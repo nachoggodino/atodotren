@@ -46,9 +46,11 @@ const databaseName = `atodotren_test_${process.pid}_${Date.now()}`;
 const adminBaseUrl = requiredEnvironment('TEST_ADMIN_DATABASE_URL');
 const migratorBaseUrl = requiredEnvironment('TEST_MIGRATOR_DATABASE_URL');
 const workerBaseUrl = requiredEnvironment('TEST_WORKER_DATABASE_URL');
+const telegramBaseUrl = requiredEnvironment('TEST_TELEGRAM_DATABASE_URL');
 const adminDatabaseUrl = withDatabase(adminBaseUrl, databaseName);
 const migratorDatabaseUrl = withDatabase(migratorBaseUrl, databaseName);
 const workerDatabaseUrl = withDatabase(workerBaseUrl, databaseName);
+const telegramDatabaseUrl = withDatabase(telegramBaseUrl, databaseName);
 
 const baseConnectionOptions = {
   sslMode: 'disable' as const,
@@ -106,6 +108,10 @@ async function copyCurrentMigrations(directory: string): Promise<void> {
     cp(
       resolve(process.cwd(), 'migrations/0009_reporting_telegram.sql'),
       join(directory, '0009_reporting_telegram.sql'),
+    ),
+    cp(
+      resolve(process.cwd(), 'migrations/0010_realtime_service_date_recovery.sql'),
+      join(directory, '0010_realtime_service_date_recovery.sql'),
     ),
   ]);
 }
@@ -204,6 +210,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
         '0009_reporting_telegram.sql',
+        '0010_realtime_service_date_recovery.sql',
       ]);
       assert.deepEqual(result.alreadyApplied, []);
     });
@@ -228,6 +235,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         '0007_m4_correctness_gates.sql',
         '0008_timetable_metric_identity.sql',
         '0009_reporting_telegram.sql',
+        '0010_realtime_service_date_recovery.sql',
       ]);
     });
 
@@ -626,6 +634,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           '0007_m4_correctness_gates.sql',
           '0008_timetable_metric_identity.sql',
           '0009_reporting_telegram.sql',
+          '0010_realtime_service_date_recovery.sql',
         ]);
 
         const migratedAdmin = new Client({ connectionString: adminDatabaseUrl });
@@ -834,6 +843,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         const entries = await Promise.all(fixtureNames.map(async (name) => {
           let data = await readFile(join(representativeFixtureDirectory, name), 'utf8');
           if (name === 'trips.txt' || name === 'stop_times.txt') data = data.replaceAll('10TRIP-A', '10TRIP-NEW');
+          if (name === 'calendar.txt') data = data.replaceAll('20260101,20261231', '20990101,20991231');
           return { name, data };
         }));
         const changedPath = join(directory, 'changed-trip.zip');
@@ -846,9 +856,16 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
 
         const oldDescriptor = { tripId: '10TRIP-A', scheduleRelationship: 'SCHEDULED' } as const;
         const previousIndex = await loadStaticMatchIndex(pool, [oldDescriptor]);
-        assert.equal(matchTrip(previousIndex, oldDescriptor).disposition, 'previous-exact-trip');
+        const previousMatch = matchTrip(previousIndex, oldDescriptor);
+        assert.equal(previousMatch.disposition, 'previous-exact-trip');
+        const previousFeedVersionId = previousMatch.candidate!.feedVersionId;
+        const fallbackDate = await pool.query<{ feed_version_id: string }>(`
+          SELECT feed_version_id::text
+          FROM operations.timetable_service_dates(date '2026-08-24', date '2026-08-24')
+        `);
+        assert.equal(fallbackDate.rows[0]?.feed_version_id, previousIndex.versionIdentity?.previousFeedVersionId);
 
-        const captured = new Date();
+        const captured = new Date('2026-08-24T22:05:00Z');
         const makeFeed = (delay: number, at: Date): DecodedFeed => ({
           feedKind: 'trip_updates', headerTimestamp: Math.floor(at.getTime() / 1000), entityTotal: 2,
           invalidEntities: [],
@@ -983,6 +1000,75 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
           spool.close();
         }
 
+        const unresolvedAt = new Date(captured.getTime() - 1_000);
+        const ambiguousArrivalTime = Math.floor(Date.parse('2026-08-25T09:59:59Z') / 1000);
+        const unresolvedIdentity = checksum(['intentionally-unresolved', unresolvedAt.toISOString()]);
+        await pool.query(`
+          INSERT INTO ingest.stop_evidence (
+            captured_at, idempotency_key, evidence_key, evidence_checksum, feed_kind,
+            feed_version_id, source_trip_id, service_date, start_date_source,
+            stop_id, stop_sequence, station_id, renfe_arrival_time, renfe_arrival_delay,
+            trip_relationship, stop_relationship, source_timestamp,
+            matching_method, matching_version, evidence_classification
+          )
+          SELECT $1, $2, 'legacy:ambiguous-date', $2, 'trip_updates', $3, $4, NULL, 'missing',
+            stop_time.stop_id, stop_time.stop_sequence, station_map.station_id, $5, 120,
+            'SCHEDULED', 'SCHEDULED', $5, 'previous-exact-trip', 'madrid-v1', 'reported_prediction'
+          FROM gtfs_static.stop_time AS stop_time
+          JOIN gtfs_static.stop_station_map AS station_map
+            ON station_map.feed_version_id = stop_time.feed_version_id
+           AND station_map.stop_id = stop_time.stop_id
+          WHERE stop_time.feed_version_id = $3 AND stop_time.trip_id = $4 AND stop_time.stop_sequence = 1
+        `, [unresolvedAt, unresolvedIdentity, previousFeedVersionId, oldDescriptor.tripId, ambiguousArrivalTime]);
+
+        type BackfillReport = {
+          report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
+        };
+        let sawUnresolved = false;
+        let updatedTotal = 0;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const batch = await pool.query<BackfillReport>(
+            'SELECT operations.backfill_realtime_service_dates(1) AS report',
+          );
+          const report = batch.rows[0]!.report;
+          if (Number(report.scanned) === 0) break;
+          assert.equal(Number(report.scanned), 1);
+          if (Number(report.unresolved) === 1) sawUnresolved = true;
+          updatedTotal += Number(report.updated);
+        }
+        assert.equal(sawUnresolved, true);
+        assert.ok(updatedTotal >= 3);
+
+        const laterAt = new Date(captured.getTime() + 8_000);
+        const laterBatch = normalizeFeed(makeFeed(150, laterAt), laterAt, previousIndex);
+        await persistBatch(pool, makePoll(laterBatch, 'after-unresolved'), laterBatch);
+        const afterUnresolved = await pool.query<BackfillReport>(
+          'SELECT operations.backfill_realtime_service_dates(1) AS report',
+        );
+        assert.deepEqual({
+          scanned: Number(afterUnresolved.rows[0]?.report.scanned ?? -1),
+          updated: Number(afterUnresolved.rows[0]?.report.updated ?? -1),
+          unresolved: Number(afterUnresolved.rows[0]?.report.unresolved ?? -1),
+        }, { scanned: 1, updated: 1, unresolved: 0 });
+        const recovered = await pool.query<{
+          unresolved: string; inferred: string; inferred_dates: string[]; unresolved_reason: string | null;
+        }>(`
+          SELECT count(*) FILTER (WHERE service_date IS NULL)::text AS unresolved,
+            count(*) FILTER (WHERE start_date_source = 'inferred')::text AS inferred,
+            array_agg(DISTINCT service_date::text) FILTER (WHERE service_date IS NOT NULL) AS inferred_dates,
+            max(service_date_backfill_reason) FILTER (WHERE renfe_arrival_time = $1) AS unresolved_reason
+          FROM ingest.stop_evidence
+          WHERE source_trip_id = '10TRIP-A'
+        `, [ambiguousArrivalTime]);
+        assert.equal(recovered.rows[0]?.unresolved, '1');
+        assert.ok(Number(recovered.rows[0]?.inferred ?? 0) >= 3);
+        assert.deepEqual(recovered.rows[0]?.inferred_dates, ['2026-08-24']);
+        assert.equal(recovered.rows[0]?.unresolved_reason, 'ambiguous_or_too_distant');
+        const exhaustedBackfill = await pool.query<{ report: { scanned: number } }>(
+          'SELECT operations.backfill_realtime_service_dates(1) AS report',
+        );
+        assert.equal(Number(exhaustedBackfill.rows[0]?.report.scanned ?? -1), 0);
+
         const permissions = await pool.query<{ can_delete_evidence: boolean; can_update_vehicle: boolean }>(`
           SELECT
             has_table_privilege(current_user, 'ingest.stop_evidence', 'DELETE') AS can_delete_evidence,
@@ -1028,6 +1114,49 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
       }
     });
 
+    await t.test('live and finalized poll coverage use the same Madrid day boundary', async () => {
+      const pool = new Pool({ connectionString: workerDatabaseUrl, max: 2 });
+      const reportingPool = new Pool({ connectionString: telegramDatabaseUrl, max: 1 });
+      try {
+        const boundary = await pool.query<{
+          service_date: string; inside_at: Date; outside_at: Date;
+        }>(`
+          SELECT (current_date + 2)::text AS service_date,
+            ((current_date + 2)::timestamp AT TIME ZONE 'Europe/Madrid') + interval '30 minutes' AS inside_at,
+            ((current_date + 3)::timestamp AT TIME ZONE 'Europe/Madrid') + interval '30 minutes' AS outside_at
+        `);
+        const value = boundary.rows[0]!;
+        const makeBoundaryPoll = (capturedAt: Date, suffix: string): PollRecord => ({
+          idempotencyKey: checksum(['madrid-midnight', suffix]),
+          feedKind: 'service_alerts', startedAt: capturedAt.toISOString(), completedAt: capturedAt.toISOString(),
+          capturedAt: capturedAt.toISOString(), resultClass: 'success', responseBytes: 10, entityTotal: 1,
+          matchedMadridCount: 1, nonMadridCount: 0, unmatchedCount: 0, invalidCount: 0,
+          responseDurationMs: 1, persistenceDurationMs: 0,
+        });
+        await persistBatch(pool, makeBoundaryPoll(value.inside_at, 'inside'));
+        await persistBatch(pool, makeBoundaryPoll(value.outside_at, 'outside'));
+
+        const live = await reportingPool.query<{ poll_count: string }>(`
+          SELECT poll_count::text FROM operations.report_feed_coverage
+          WHERE service_date = $1::date AND feed_kind = 'service_alerts'
+        `, [value.service_date]);
+        assert.equal(live.rows[0]?.poll_count, '1');
+
+        await pool.query('SELECT operations.summarize_operations_date($1::date)', [value.service_date]);
+        const finalized = await reportingPool.query<{ poll_count: string; first_poll_at: Date; last_poll_at: Date }>(`
+          SELECT poll_count::text, first_poll_at, last_poll_at
+          FROM operations.report_feed_coverage
+          WHERE service_date = $1::date AND feed_kind = 'service_alerts'
+        `, [value.service_date]);
+        assert.equal(finalized.rows[0]?.poll_count, '1');
+        assert.equal(finalized.rows[0]?.first_poll_at.toISOString(), value.inside_at.toISOString());
+        assert.equal(finalized.rows[0]?.last_poll_at.toISOString(), value.inside_at.toISOString());
+      } finally {
+        await reportingPool.end();
+        await pool.end();
+      }
+    });
+
     await t.test('canonical journeys materialize full schedules, close without inventing evidence, cancel partially, and repair explicitly', async () => {
       const directory = await mkdtemp('/tmp/atodotren-canonical-integration-');
       const pool = new Pool({ connectionString: workerDatabaseUrl, max: 4 });
@@ -1059,7 +1188,11 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         assert.equal(imported.result, 'imported', JSON.stringify(imported));
         const activeVersion = imported.feedVersionId;
         assert.ok(activeVersion !== undefined);
-        const serviceDate = new Date().toISOString().slice(0, 10);
+        const serviceDateResult = await pool.query<{ service_date: string }>(`
+          SELECT (current_date + CASE extract(isodow FROM current_date)::integer
+            WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1 END)::text AS service_date
+        `);
+        const serviceDate = serviceDateResult.rows[0]!.service_date;
         const lineage = await pool.query<{ previous_id: string; active_id: string }>(`
           SELECT previous_feed_version_id AS previous_id, id AS active_id
           FROM gtfs_static.feed_version WHERE status = 'active'
