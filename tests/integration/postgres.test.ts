@@ -856,7 +856,9 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
 
         const oldDescriptor = { tripId: '10TRIP-A', scheduleRelationship: 'SCHEDULED' } as const;
         const previousIndex = await loadStaticMatchIndex(pool, [oldDescriptor]);
-        assert.equal(matchTrip(previousIndex, oldDescriptor).disposition, 'previous-exact-trip');
+        const previousMatch = matchTrip(previousIndex, oldDescriptor);
+        assert.equal(previousMatch.disposition, 'previous-exact-trip');
+        const previousFeedVersionId = previousMatch.candidate!.feedVersionId;
         const fallbackDate = await pool.query<{ feed_version_id: string }>(`
           SELECT feed_version_id::text
           FROM operations.timetable_service_dates(date '2026-08-24', date '2026-08-24')
@@ -1000,19 +1002,24 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
 
         const unresolvedAt = new Date(captured.getTime() - 1_000);
         const ambiguousArrivalTime = Math.floor(Date.parse('2026-08-25T09:59:59Z') / 1000);
-        const unresolvedFeed: DecodedFeed = {
-          feedKind: 'trip_updates', headerTimestamp: ambiguousArrivalTime, entityTotal: 1, invalidEntities: [],
-          entities: [{
-            kind: 'trip_update', entityId: 'intentionally-unresolved', trip: oldDescriptor,
-            timestamp: ambiguousArrivalTime,
-            stopUpdates: [{
-              stopSequence: 1, stopId: '10STOP-A', arrivalTime: ambiguousArrivalTime,
-              arrivalDelay: 120, relationship: 'SCHEDULED',
-            }],
-          }],
-        };
-        const unresolvedBatch = normalizeFeed(unresolvedFeed, unresolvedAt, previousIndex);
-        await persistBatch(pool, makePoll(unresolvedBatch, 'intentionally-unresolved'), unresolvedBatch);
+        const unresolvedIdentity = checksum(['intentionally-unresolved', unresolvedAt.toISOString()]);
+        await pool.query(`
+          INSERT INTO ingest.stop_evidence (
+            captured_at, idempotency_key, evidence_key, evidence_checksum, feed_kind,
+            feed_version_id, source_trip_id, service_date, start_date_source,
+            stop_id, stop_sequence, station_id, renfe_arrival_time, renfe_arrival_delay,
+            trip_relationship, stop_relationship, source_timestamp,
+            matching_method, matching_version, evidence_classification
+          )
+          SELECT $1, $2, 'legacy:ambiguous-date', $2, 'trip_updates', $3, $4, NULL, 'missing',
+            stop_time.stop_id, stop_time.stop_sequence, station_map.station_id, $5, 120,
+            'SCHEDULED', 'SCHEDULED', $5, 'previous-exact-trip', 'madrid-v1', 'reported_prediction'
+          FROM gtfs_static.stop_time AS stop_time
+          JOIN gtfs_static.stop_station_map AS station_map
+            ON station_map.feed_version_id = stop_time.feed_version_id
+           AND station_map.stop_id = stop_time.stop_id
+          WHERE stop_time.feed_version_id = $3 AND stop_time.trip_id = $4 AND stop_time.stop_sequence = 1
+        `, [unresolvedAt, unresolvedIdentity, previousFeedVersionId, oldDescriptor.tripId, ambiguousArrivalTime]);
 
         type BackfillReport = {
           report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
