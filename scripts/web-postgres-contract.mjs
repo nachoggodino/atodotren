@@ -80,12 +80,13 @@ try {
     const privileges = await web.query(`SELECT
       has_schema_privilege(current_user, 'api', 'USAGE') AS api_usage,
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
-      has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select,
-      has_table_privilege(current_user, 'core.line', 'SELECT') AS private_line_select,
-      has_table_privilege(current_user, 'ingest.live_vehicle_state', 'SELECT') AS ingest_select,
-      has_table_privilege(current_user, 'analytics.daily_line_summary', 'SELECT') AS analytics_select,
-      has_table_privilege(current_user, 'operations.ingest_health', 'SELECT') AS operations_select`);
-    assert.deepEqual(privileges.rows[0], { api_usage: true, core_usage: false, api_line_select: true, private_line_select: false, ingest_select: false, analytics_select: false, operations_select: false });
+      has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select`);
+    assert.deepEqual(privileges.rows[0], { api_usage: true, core_usage: false, api_line_select: true });
+
+    await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
+    await assert.rejects(web.query("SELECT * FROM ingest.live_vehicle_state"), /permission denied/);
+    await assert.rejects(web.query("SELECT * FROM analytics.daily_line_summary"), /permission denied/);
+    await assert.rejects(web.query("SELECT * FROM operations.ingest_health"), /permission denied/);
 
     const search = await web.query("SELECT * FROM api.catalog_search($1, $2)", ["C-1", 999]);
     assert.equal(search.rowCount, 1);
@@ -99,8 +100,6 @@ try {
     const outOfRange = new Date();
     outOfRange.setUTCDate(outOfRange.getUTCDate() - 31);
     await assert.rejects(web.query("SELECT * FROM api.recent_line_matrix('c1', $1::date, 6000)", [outOfRange.toISOString().slice(0, 10)]), /outside the 30-day detailed-data window/);
-
-    await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
 
     const started = performance.now();
     for (let index = 0; index < 25; index += 1) await web.query("SELECT * FROM api.catalog_search('C1', 12)");
