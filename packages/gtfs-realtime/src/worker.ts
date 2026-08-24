@@ -4,7 +4,7 @@ import { acquireFeed, FeedAcquisitionError, type FeedEndpoint } from './acquisit
 import { emitHeartbeat, IncidentTracker, PostgresIncidentStore, type AlertTransport } from './alerts.js';
 import { decodeFeed, FeedDecodeError } from './decoder.js';
 import { loadStaticMatchIndex } from './matcher.js';
-import { checksum, normalizeFeed } from './normalize.js';
+import { checksum, inferenceServiceDates, normalizeFeed } from './normalize.js';
 import { persistBatch, updateIngestHealth } from './persistence.js';
 import { replaySpool } from './spool.js';
 import type { OutageSpool } from './spool.js';
@@ -200,7 +200,13 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         const feed = decodeFeed(acquired.body, endpoint.kind);
         const identities = descriptorsForFeed(feed);
         try {
-          const loaded = await loadStaticIndex(options.pool, identities.descriptors, identities.routes, identities.stops);
+          const loaded = await loadStaticIndex(
+            options.pool,
+            identities.descriptors,
+            identities.routes,
+            identities.stops,
+            inferenceServiceDates(capturedAt),
+          );
           staticCache = mergeStaticMatchIndex(staticCache, loaded);
         } catch (error) {
           if (staticCache === undefined) {
@@ -256,6 +262,8 @@ export async function runIngest(options: IngestRunOptions): Promise<IngestRunRep
         feedKind: poll.feedKind, resultClass: poll.resultClass, durable: durable.durable,
         postgres: durable.postgres, matchedMadrid: poll.matchedMadridCount,
         unmatched: poll.unmatchedCount, nonMadrid: poll.nonMadridCount, invalid: poll.invalidCount,
+        unresolvedServiceDates: batch?.operations.filter((operation) =>
+          operation.kind === 'stop_evidence' && operation.serviceDate === undefined).length ?? 0,
         responseBytes: poll.responseBytes, responseDurationMs: poll.responseDurationMs,
       });
     }

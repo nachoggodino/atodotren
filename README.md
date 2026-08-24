@@ -203,6 +203,30 @@ Across retained evidence, provenance is selected independently and deterministic
 provided service dates outrank inferred dates, and exact matching outranks fallback
 matching. A stronger later observation upgrades an open journey and all stop lineage.
 
+RENFE descriptors observed during the August 2026 pilot omit both `start_date` and
+`start_time`. When the exact static trip matches, ingestion therefore evaluates only
+calendar-valid dates in a bounded six-day window and selects a unique date whose
+scheduled stop instant is within 18 hours of the absolute arrival/source timestamp.
+Ambiguous or implausible dates remain unavailable rather than being guessed. The
+inferred date is included in the evidence/state identity before changed-only
+deduplication, so recurring trips do not collide across service days.
+
+Migration `0010` also supplies a bounded, restart-safe historical recovery function.
+Each call locks and examines at most 5,000 previously unattempted rows; it uses the
+same static calendar and timestamp constraints, durably records why an examined row
+remained unresolved, and reports scanned, updated, unresolved, remaining-eligible,
+and total-remaining counts. Permanently unresolved rows therefore cannot block later
+recoverable evidence:
+
+```sql
+SELECT operations.backfill_realtime_service_dates(5000);
+```
+
+The migration corrects timetable version selection as well: for a requested service
+date, an active/superseded archive is ranked only if its calendar actually provides
+service that day. This permits the immediate predecessor to cover the day before a
+new daily RENFE archive begins.
+
 Run a bounded pass, rebuild open data for a disposable/test date, close eligible
 journeys with a two-hour grace, or explicitly repair closed data:
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { matchTrip, resolveStop } from './matcher.js';
+import { inferCandidateServiceDate, type ServiceDateAnchor } from './service-date.js';
 import type {
   AlertTargetOperation,
   DecodedAlert,
@@ -23,6 +24,20 @@ import type {
 export const MATCHING_VERSION = 'madrid-v1';
 export const FILTERED_PAYLOAD_CODEC = 'madrid-json-gzip-v1';
 
+interface ServiceDateResolution {
+  readonly value?: string | undefined;
+  readonly source: 'provided' | 'inferred' | 'missing';
+}
+
+export function inferenceServiceDates(capturedAt: Date): readonly string[] {
+  if (Number.isNaN(capturedAt.getTime())) throw new RangeError('capturedAt must be valid');
+  const utcDay = Date.UTC(capturedAt.getUTCFullYear(), capturedAt.getUTCMonth(), capturedAt.getUTCDate());
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(utcDay + (index - 4) * 86_400_000);
+    return date.toISOString().slice(0, 10);
+  });
+}
+
 function canonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -40,6 +55,18 @@ function serviceDate(descriptor: TripDescriptor): string | undefined {
   return value !== undefined && /^\d{8}$/u.test(value)
     ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
     : undefined;
+}
+
+function resolveServiceDate(
+  candidate: StaticTripCandidate,
+  descriptor: TripDescriptor,
+  anchors: readonly ServiceDateAnchor[],
+  capturedAt: string,
+): ServiceDateResolution {
+  const provided = serviceDate(descriptor);
+  if (provided !== undefined) return { value: provided, source: 'provided' };
+  const inferred = inferCandidateServiceDate(candidate, anchors, Math.floor(new Date(capturedAt).getTime() / 1000));
+  return inferred === undefined ? { source: 'missing' } : { value: inferred.date, source: 'inferred' };
 }
 
 function quarantine(
@@ -75,8 +102,9 @@ function matchMethod(match: ResolvedMatch): MatchingMethod {
 function evidenceBase(
   candidate: StaticTripCandidate,
   descriptor: TripDescriptor,
+  resolvedServiceDate: string | undefined,
 ): string {
-  return [candidate.feedVersionId, candidate.tripId, serviceDate(descriptor) ?? '-', descriptor.startTime ?? '-'].join(':');
+  return [candidate.feedVersionId, candidate.tripId, resolvedServiceDate ?? '-', descriptor.startTime ?? '-'].join(':');
 }
 
 function evidenceOperation(input: Omit<StopEvidenceOperation, 'idempotencyKey' | 'evidenceChecksum'>): StopEvidenceOperation {
@@ -102,7 +130,9 @@ function normalizeTripEntity(
   capturedAt: string,
   index: StaticMatchIndex,
 ): { operations: PendingOperation[]; filtered?: unknown; disposition: string; invalid: boolean } {
-  const match = matchTrip(index, entity.trip, entity.stopUpdates);
+  const match = matchTrip(index, entity.trip, entity.stopUpdates, {
+    fallbackInstantSeconds: entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000),
+  });
   if (match.candidate === undefined) {
     if (match.disposition === 'ambiguous') {
       return {
@@ -119,16 +149,28 @@ function normalizeTripEntity(
   }
   const candidate = match.candidate;
   const matchingMethod = matchMethod(match);
-  const base = evidenceBase(candidate, entity.trip);
+  const anchors = entity.stopUpdates.flatMap((update): ServiceDateAnchor[] => {
+    if (update.arrivalTime === undefined) return [];
+    const stop = resolveStop(candidate, update).stop;
+    return stop?.arrivalSeconds === undefined ? [] : [{
+      instantSeconds: update.arrivalTime,
+      scheduledSeconds: stop.arrivalSeconds,
+    }];
+  });
+  if (anchors.length === 0 && entity.timestamp !== undefined && candidate.firstTimeSeconds !== undefined) {
+    anchors.push({ instantSeconds: entity.timestamp, scheduledSeconds: candidate.firstTimeSeconds });
+  }
+  const resolvedDate = resolveServiceDate(candidate, entity.trip, anchors, capturedAt);
+  const base = evidenceBase(candidate, entity.trip, resolvedDate.value);
   const operations: PendingOperation[] = [];
   if (entity.trip.scheduleRelationship === 'CANCELED') {
     operations.push(evidenceOperation({
       kind: 'stop_evidence', evidenceKey: `${base}:trip-cancellation`, capturedAt,
       feedKind: 'trip_updates', feedVersionId: candidate.feedVersionId,
       sourceTripId: candidate.tripId,
-      ...(serviceDate(entity.trip) === undefined ? {} : { serviceDate: serviceDate(entity.trip) }),
+      ...(resolvedDate.value === undefined ? {} : { serviceDate: resolvedDate.value }),
       ...(entity.trip.startTime === undefined ? {} : { startTime: entity.trip.startTime }),
-      startDateSource: entity.trip.startDate === undefined ? 'missing' : 'provided',
+      startDateSource: resolvedDate.source,
       tripRelationship: entity.trip.scheduleRelationship, stopRelationship: 'NOT_APPLICABLE',
       ...(entity.timestamp === undefined ? {} : { sourceTimestamp: entity.timestamp }),
       matchingMethod, matchingVersion: MATCHING_VERSION, classification: 'trip_cancellation',
@@ -158,9 +200,9 @@ function normalizeTripEntity(
     operations.push(evidenceOperation({
       kind: 'stop_evidence', evidenceKey, capturedAt, feedKind: 'trip_updates',
       feedVersionId: candidate.feedVersionId, sourceTripId: candidate.tripId,
-      ...(serviceDate(entity.trip) === undefined ? {} : { serviceDate: serviceDate(entity.trip) }),
+      ...(resolvedDate.value === undefined ? {} : { serviceDate: resolvedDate.value }),
       ...(entity.trip.startTime === undefined ? {} : { startTime: entity.trip.startTime }),
-      startDateSource: entity.trip.startDate === undefined ? 'missing' : 'provided',
+      startDateSource: resolvedDate.source,
       stopId: stop.stopId, stopSequence: stop.stopSequence, stationId: stop.stationId,
       ...(update.arrivalTime === undefined ? {} : { arrivalTime: update.arrivalTime }),
       ...(update.arrivalDelay === undefined ? {} : { arrivalDelay: update.arrivalDelay }),
@@ -185,7 +227,9 @@ function normalizeVehicleEntity(
   index: StaticMatchIndex,
 ): { operations: PendingOperation[]; filtered?: unknown; disposition: string; invalid: boolean } {
   const stopHint = { stopSequence: entity.currentStopSequence, stopId: entity.stopId };
-  const match = matchTrip(index, entity.trip, [stopHint]);
+  const match = matchTrip(index, entity.trip, [stopHint], {
+    fallbackInstantSeconds: entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000),
+  });
   if (match.candidate === undefined) {
     if (match.disposition === 'ambiguous') {
       return {
@@ -211,7 +255,12 @@ function normalizeVehicleEntity(
       })], disposition: 'ambiguous', invalid: true,
     };
   }
-  const instance = evidenceBase(candidate, entity.trip);
+  const anchors: ServiceDateAnchor[] = [];
+  const instantSeconds = entity.timestamp ?? Math.floor(new Date(capturedAt).getTime() / 1000);
+  const scheduledSeconds = resolved.stop?.arrivalSeconds ?? candidate.firstTimeSeconds;
+  if (scheduledSeconds !== undefined) anchors.push({ instantSeconds, scheduledSeconds });
+  const resolvedDate = resolveServiceDate(candidate, entity.trip, anchors, capturedAt);
+  const instance = evidenceBase(candidate, entity.trip, resolvedDate.value);
   const stateKey = `${instance}:vehicle:${entity.vehicleId ?? entity.entityId}`;
   const projectionInput = entity.latitude !== undefined ? 'raw_position'
     : entity.currentStopSequence !== undefined ? 'stop_sequence'
@@ -227,7 +276,7 @@ function normalizeVehicleEntity(
   const state: VehicleStateOperation = {
     kind: 'vehicle_state', idempotencyKey: checksum([stateSemantic, capturedAt]), stateKey, capturedAt,
     feedVersionId: candidate.feedVersionId, sourceTripId: candidate.tripId,
-    ...(serviceDate(entity.trip) === undefined ? {} : { serviceDate: serviceDate(entity.trip) }),
+    ...(resolvedDate.value === undefined ? {} : { serviceDate: resolvedDate.value }),
     ...(entity.trip.startTime === undefined ? {} : { startTime: entity.trip.startTime }),
     lineId: candidate.lineId, branchId: candidate.branchId, servicePatternId: candidate.servicePatternId,
     ...(entity.vehicleId === undefined ? {} : { vehicleId: entity.vehicleId }), entityId: entity.entityId,
@@ -255,9 +304,9 @@ function normalizeVehicleEntity(
       kind: 'stop_evidence', evidenceKey: `${instance}:stop:${stop.stopSequence}:observed-presence`,
       capturedAt, feedKind: 'vehicle_positions', feedVersionId: candidate.feedVersionId,
       sourceTripId: candidate.tripId,
-      ...(serviceDate(entity.trip) === undefined ? {} : { serviceDate: serviceDate(entity.trip) }),
+      ...(resolvedDate.value === undefined ? {} : { serviceDate: resolvedDate.value }),
       ...(entity.trip.startTime === undefined ? {} : { startTime: entity.trip.startTime }),
-      startDateSource: entity.trip.startDate === undefined ? 'missing' : 'provided',
+      startDateSource: resolvedDate.source,
       stopId: stop.stopId, stopSequence: stop.stopSequence, stationId: stop.stationId,
       tripRelationship: entity.trip.scheduleRelationship, stopRelationship: 'STOPPED_AT',
       sourceTimestamp: entity.timestamp, matchingMethod, matchingVersion: MATCHING_VERSION,

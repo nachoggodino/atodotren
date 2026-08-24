@@ -107,6 +107,33 @@ void test('matches active exact, previous exact, unique fallback, ambiguity, mis
   }).disposition, 'ambiguous');
 });
 
+void test('rollover matching chooses the archive whose calendar date fits the realtime timestamp', () => {
+  const tripId = '10ROLLOVER';
+  const activeRollover: StaticTripCandidate = {
+    ...activeTrip,
+    feedVersionId: '11',
+    versionPosition: 'active',
+    tripId,
+    serviceDates: new Set(['2026-08-18']),
+  };
+  const previousRollover: StaticTripCandidate = {
+    ...activeTrip,
+    feedVersionId: '10',
+    versionPosition: 'previous',
+    tripId,
+    serviceDates: new Set(['2026-08-17']),
+  };
+  const arrivalTime = Math.floor(Date.parse('2026-08-17T23:00:30Z') / 1000);
+  const result = matchTrip(
+    { candidates: [activeRollover, previousRollover] },
+    { tripId, scheduleRelationship: 'SCHEDULED' },
+    [{ stopSequence: 1, stopId: 'A', arrivalTime }],
+    { fallbackInstantSeconds: arrivalTime },
+  );
+  assert.equal(result.disposition, 'previous-exact-trip');
+  assert.equal(result.candidate?.feedVersionId, '10');
+});
+
 void test('stop_sequence disambiguates repeated stops and stop_id alone is rejected as ambiguous', () => {
   assert.equal(resolveStop(activeTrip, { stopSequence: 3, stopId: 'A' }).stop?.stopSequence, 3);
   assert.deepEqual(resolveStop(activeTrip, { stopId: 'A' }), { ambiguous: true });
@@ -146,6 +173,38 @@ void test('normalization separates cancellation, skipped, predictions and STOPPE
     assert.equal(presence.sourceTimestamp, 1_725_000_050);
     assert.equal(presence.arrivalTime, undefined);
   }
+});
+
+void test('normalization infers an omitted RENFE service date from absolute stop timestamps', () => {
+  const arrivalTime = Math.floor(Date.parse('2026-08-17T23:00:30Z') / 1000);
+  const tripFeed = decodeFeed(encode([{
+    id: 'tu-inferred', tripUpdate: {
+      trip: { tripId: '10T1' }, timestamp: arrivalTime - 60,
+      stopTimeUpdate: [{ stopSequence: 1, stopId: 'A', arrival: { time: arrivalTime, delay: 30 } }],
+    },
+  }]), 'trip_updates');
+  const tripBatch = normalizeFeed(tripFeed, new Date('2026-08-17T22:59:30Z'), index);
+  const prediction = tripBatch.operations.find((operation) => operation.kind === 'stop_evidence');
+  assert.equal(prediction?.kind, 'stop_evidence');
+  if (prediction?.kind === 'stop_evidence') {
+    assert.equal(prediction.serviceDate, '2026-08-17');
+    assert.equal(prediction.startDateSource, 'inferred');
+    assert.match(prediction.evidenceKey, /:2026-08-17:/u);
+  }
+
+  const vehicleFeed = decodeFeed(encode([{
+    id: 'vp-inferred', vehicle: {
+      trip: { tripId: '10T1' }, vehicle: { id: 'vehicle-inferred' },
+      timestamp: arrivalTime, currentStatus: 1, currentStopSequence: 1, stopId: 'A',
+    },
+  }]), 'vehicle_positions');
+  const vehicleBatch = normalizeFeed(vehicleFeed, new Date('2026-08-17T23:00:31Z'), index);
+  const vehicle = vehicleBatch.operations.find((operation) => operation.kind === 'vehicle_state');
+  assert.equal(vehicle?.kind, 'vehicle_state');
+  if (vehicle?.kind === 'vehicle_state') assert.equal(vehicle.serviceDate, '2026-08-17');
+  const presence = vehicleBatch.operations.find((operation) => operation.kind === 'stop_evidence');
+  assert.equal(presence?.kind, 'stop_evidence');
+  if (presence?.kind === 'stop_evidence') assert.equal(presence.startDateSource, 'inferred');
 });
 
 void test('bounded acquisition does not retry 4xx and retries one transient 5xx', async () => {
