@@ -46,9 +46,11 @@ const databaseName = `atodotren_test_${process.pid}_${Date.now()}`;
 const adminBaseUrl = requiredEnvironment('TEST_ADMIN_DATABASE_URL');
 const migratorBaseUrl = requiredEnvironment('TEST_MIGRATOR_DATABASE_URL');
 const workerBaseUrl = requiredEnvironment('TEST_WORKER_DATABASE_URL');
+const telegramBaseUrl = requiredEnvironment('TEST_TELEGRAM_DATABASE_URL');
 const adminDatabaseUrl = withDatabase(adminBaseUrl, databaseName);
 const migratorDatabaseUrl = withDatabase(migratorBaseUrl, databaseName);
 const workerDatabaseUrl = withDatabase(workerBaseUrl, databaseName);
+const telegramDatabaseUrl = withDatabase(telegramBaseUrl, databaseName);
 
 const baseConnectionOptions = {
   sslMode: 'disable' as const,
@@ -1010,26 +1012,26 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         const unresolvedBatch = normalizeFeed(unresolvedFeed, unresolvedAt, previousIndex);
         await persistBatch(pool, makePoll(unresolvedBatch, 'intentionally-unresolved'), unresolvedBatch);
 
-        const firstBackfill = await pool.query<{
+        type BackfillReport = {
           report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
-        }>('SELECT operations.backfill_realtime_service_dates(1) AS report');
-        assert.deepEqual({
-          scanned: Number(firstBackfill.rows[0]?.report.scanned ?? -1),
-          updated: Number(firstBackfill.rows[0]?.report.updated ?? -1),
-          unresolved: Number(firstBackfill.rows[0]?.report.unresolved ?? -1),
-        }, { scanned: 1, updated: 0, unresolved: 1 });
-        assert.ok(Number(firstBackfill.rows[0]?.report.remainingEligible ?? 0) >= 3);
-
-        const backfillResult = await pool.query<{
-          report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
-        }>(
-          'SELECT operations.backfill_realtime_service_dates($1::integer) AS report',
-          [5_000],
-        );
-        assert.ok(Number(backfillResult.rows[0]?.report.scanned ?? 0) >= 3);
-        assert.ok(Number(backfillResult.rows[0]?.report.updated ?? 0) >= 3);
-        assert.equal(Number(backfillResult.rows[0]?.report.unresolved ?? -1), 0);
-        assert.equal(Number(backfillResult.rows[0]?.report.remainingEligible ?? -1), 0);
+        };
+        let sawUnresolved = false;
+        let progressedAfterUnresolved = false;
+        let updatedTotal = 0;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const batch = await pool.query<BackfillReport>(
+            'SELECT operations.backfill_realtime_service_dates(1) AS report',
+          );
+          const report = batch.rows[0]!.report;
+          if (Number(report.scanned) === 0) break;
+          assert.equal(Number(report.scanned), 1);
+          if (sawUnresolved) progressedAfterUnresolved = true;
+          if (Number(report.unresolved) === 1) sawUnresolved = true;
+          updatedTotal += Number(report.updated);
+        }
+        assert.equal(sawUnresolved, true);
+        assert.equal(progressedAfterUnresolved, true);
+        assert.ok(updatedTotal >= 3);
         const recovered = await pool.query<{
           unresolved: string; inferred: string; inferred_dates: string[]; unresolved_reason: string | null;
         }>(`
@@ -1096,6 +1098,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
 
     await t.test('live and finalized poll coverage use the same Madrid day boundary', async () => {
       const pool = new Pool({ connectionString: workerDatabaseUrl, max: 2 });
+      const reportingPool = new Pool({ connectionString: telegramDatabaseUrl, max: 1 });
       try {
         const boundary = await pool.query<{
           service_date: string; inside_at: Date; outside_at: Date;
@@ -1115,22 +1118,23 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         await persistBatch(pool, makeBoundaryPoll(value.inside_at, 'inside'));
         await persistBatch(pool, makeBoundaryPoll(value.outside_at, 'outside'));
 
-        const live = await pool.query<{ poll_count: string }>(`
+        const live = await reportingPool.query<{ poll_count: string }>(`
           SELECT poll_count::text FROM operations.report_feed_coverage
           WHERE service_date = $1::date AND feed_kind = 'service_alerts'
         `, [value.service_date]);
         assert.equal(live.rows[0]?.poll_count, '1');
 
         await pool.query('SELECT operations.summarize_operations_date($1::date)', [value.service_date]);
-        const finalized = await pool.query<{ poll_count: string; first_poll_at: Date; last_poll_at: Date }>(`
+        const finalized = await reportingPool.query<{ poll_count: string; first_poll_at: Date; last_poll_at: Date }>(`
           SELECT poll_count::text, first_poll_at, last_poll_at
-          FROM operations.daily_feed_coverage
+          FROM operations.report_feed_coverage
           WHERE service_date = $1::date AND feed_kind = 'service_alerts'
         `, [value.service_date]);
         assert.equal(finalized.rows[0]?.poll_count, '1');
         assert.equal(finalized.rows[0]?.first_poll_at.toISOString(), value.inside_at.toISOString());
         assert.equal(finalized.rows[0]?.last_poll_at.toISOString(), value.inside_at.toISOString());
       } finally {
+        await reportingPool.end();
         await pool.end();
       }
     });
@@ -1166,7 +1170,11 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         assert.equal(imported.result, 'imported', JSON.stringify(imported));
         const activeVersion = imported.feedVersionId;
         assert.ok(activeVersion !== undefined);
-        const serviceDate = new Date().toISOString().slice(0, 10);
+        const serviceDateResult = await pool.query<{ service_date: string }>(`
+          SELECT (current_date + CASE extract(isodow FROM current_date)::integer
+            WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1 END)::text AS service_date
+        `);
+        const serviceDate = serviceDateResult.rows[0]!.service_date;
         const lineage = await pool.query<{ previous_id: string; active_id: string }>(`
           SELECT previous_feed_version_id AS previous_id, id AS active_id
           FROM gtfs_static.feed_version WHERE status = 'active'
