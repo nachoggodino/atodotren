@@ -106,10 +106,34 @@ jobs:
             exit 1
           fi
 
+  lockfile-contract:
+    name: npm lockfile contract
+    runs-on: ubuntu-latest
+    needs: repository-contract
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Regenerate lockfile deterministically
+        run: npm install --package-lock-only --ignore-scripts
+      - name: Upload generated lockfile for diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-package-lock
+          path: package-lock.json
+          retention-days: 1
+      - name: Require committed lockfile to be current
+        run: git diff --exit-code -- package-lock.json
+
   verify:
     name: Worker typecheck, lint and unit tests
     runs-on: ubuntu-latest
-    needs: repository-contract
+    needs:
+      - repository-contract
+      - lockfile-contract
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -124,7 +148,9 @@ jobs:
   web-verify:
     name: Web typecheck, lint, unit and production build
     runs-on: ubuntu-latest
-    needs: repository-contract
+    needs:
+      - repository-contract
+      - lockfile-contract
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
