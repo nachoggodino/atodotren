@@ -10,5 +10,5 @@ import { getMessages } from "@/lib/i18n";
 export function AppShell({ lang, children }: { readonly lang: Lang; readonly children: ReactNode }) {
   const pathname = usePathname();
   const messages = getMessages(lang);
-  return <div lang={lang}><AppHeader lang={lang} messages={messages} pathname={pathname} /><main>{children}</main><OfflineStatus lang={lang} messages={messages} /></div>;
+  return <div lang={lang}><AppHeader lang={lang} messages={messages} pathname={pathname} /><main>{children}</main><OfflineStatus messages={messages} /></div>;
 }

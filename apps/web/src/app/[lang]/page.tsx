@@ -24,10 +24,10 @@ export default async function LandingPage({ params }: { readonly params: Promise
     <section className="mt-14 grid gap-8 border-t border-border pt-8 lg:grid-cols-[1.2fr_.8fr] lg:gap-16">
       <EntitySearch lang={lang} messages={messages} />
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/live`}><Radio className="size-5 text-success" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryLive}</span><span className="mt-1 block text-sm text-muted">{lang === "es" ? "Estado, cobertura y trenes" : "Status, coverage and trains"}</span></Link>
-        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/history`}><BarChart3 className="size-5 text-primary" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryHistory}</span><span className="mt-1 block text-sm text-muted">{lang === "es" ? "Patrones que permanecen" : "Patterns that remain"}</span></Link>
+        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/live`}><Radio className="size-5 text-success" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryLive}</span><span className="mt-1 block text-sm text-muted">{messages.landing.liveSummaryDetail}</span></Link>
+        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/history`}><BarChart3 className="size-5 text-primary" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryHistory}</span><span className="mt-1 block text-sm text-muted">{messages.landing.historySummaryDetail}</span></Link>
       </div>
     </section>
-    <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6 text-sm text-muted"><span>{BRAND.name} · {lang === "es" ? "proyecto independiente de rendición de cuentas" : "independent public-accountability project"}</span><Link className="flex items-center gap-1 font-bold text-foreground" href={`/${lang}/methodology`}>{messages.landing.methodology}<ArrowUpRight className="size-4" /></Link></footer>
+    <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6 text-sm text-muted"><span>{BRAND.name} · {messages.landing.footerDescription}</span><Link className="flex items-center gap-1 font-bold text-foreground" href={`/${lang}/methodology`}>{messages.landing.methodology}<ArrowUpRight className="size-4" /></Link></footer>
   </div>;
 }

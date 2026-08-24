@@ -10,6 +10,7 @@ export default defineConfig(
       '**/*.d.ts',
       '**/*.tsbuildinfo',
       'coverage/**',
+      'apps/web/**',
     ],
   },
   js.configs.recommended,
