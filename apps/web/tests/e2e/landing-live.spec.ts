@@ -22,7 +22,7 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.screenshot({ path: filename, fullPage: true });
 });
 
-test("@webkit search keyboard selection and header dialog restore focus", async ({ page }) => {
+test("@webkit search keyboard selection and header menu restore focus", async ({ page }) => {
   await page.goto("/es");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
@@ -57,13 +57,13 @@ test.describe("search network failure", () => {
 test("global refresh pause persists and live train detail is keyboard operable", async ({ page }) => {
   await page.goto("/es/live/line/c1");
   await openMenu(page);
-  const refresh = page.getByRole("button", { name: /Activa|Pausada/ });
-  await expect(refresh).toHaveAttribute("aria-pressed", "true");
+  const refresh = page.getByRole("switch", { name: "Actualización automática" });
+  await expect(refresh).toHaveAttribute("aria-checked", "true");
   await refresh.click();
-  await expect(refresh).toHaveAttribute("aria-pressed", "false");
+  await expect(refresh).toHaveAttribute("aria-checked", "false");
   await page.reload();
   await openMenu(page);
-  await expect(page.getByRole("button", { name: /Activa|Pausada/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByRole("switch", { name: "Actualización automática" })).toHaveAttribute("aria-checked", "false");
   await page.keyboard.press("Escape");
   const train = page.locator('[data-testid="schematic-map"] [role="button"]').first();
   await train.focus();
