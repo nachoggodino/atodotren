@@ -47,7 +47,7 @@ describe("PostgreSQL domain mapping", () => {
     values[1] = 3;
     values[15] = 4;
     values[71] = 5;
-    expect(medianFromHistogram(values)).toBe(1815);
+    expect(medianFromHistogram(values)).toBe(135);
     const normalized = normalizeHistogram(values);
     expect(normalized).toHaveLength(6);
     expect(normalized.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(14);

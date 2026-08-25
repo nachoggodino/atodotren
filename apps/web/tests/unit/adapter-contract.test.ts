@@ -235,12 +235,12 @@ function postgresHarness(): AdapterHarness {
           }
           if (text.includes("api.recent_line_matrix")) return matrixRows(date);
           if (text.includes("GROUP BY history.line_slug")) return [{ line_slug: "c1", public_code: "C1", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
-          if (text.includes("sum(valid_delay_observations)::bigint AS valid_delay_observations") && (text.includes("api.history_line_hour") || text.includes("api.history_station_hour"))) {
+          if (text.includes("WITH filtered")) return [aggregateRow(date, scenario)];
+          if (text.includes("SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations") && (text.includes("api.history_line_hour") || text.includes("api.history_station_hour"))) {
             return [{ valid_delay_observations: 40, punctual_count: 30, signed_delay_sum: 2400 }];
           }
-          if (text.includes("WITH filtered")) return [aggregateRow(date, scenario)];
           if (text.includes("api.history_network_day")) return [aggregateRow(date, scenario)];
-          if (text.includes("api.history_line_day")) return [aggregateRow(date, scenario)];
+          if (text.includes("api.history_line_day")) return [{ line_slug: "c1", ...aggregateRow(date, scenario) }];
           if (text.includes("api.history_station_hour")) return [aggregateRow(date, scenario)];
           if (text.includes("api.line_catalog")) {
             const slug = typeof values[1] === "string" ? values[1] : null;
