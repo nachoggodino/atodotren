@@ -1,9 +1,9 @@
-import type { MatrixResult, SearchResult, TrainPosition } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResult, SearchResult, SummaryStats, TrainPosition } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
 import { fixtureLines, fixtureStationAliases, fixtureStations } from "./catalog";
-import { baseStats, c1Patterns, comparison, FIXTURE_TODAY, fixtureTrains, historyResponse, isFixtureScenario, linePerformance, lineStats, liveMeta, matrixResponse, type FixtureScenario } from "./builders";
+import { baseStats, c1Patterns, comparison, FIXTURE_NOW, FIXTURE_TODAY, fixtureTrains, historyResponse, isFixtureScenario, linePerformance, lineStats, liveMeta, matrixResponse, type FixtureScenario } from "./builders";
 
 function containsStation(position: TrainPosition, stationId: string): boolean {
   switch (position.kind) {
@@ -18,6 +18,31 @@ function containsStation(position: TrainPosition, stationId: string): boolean {
 
 function failSource(scenario: FixtureScenario): void {
   if (scenario === "source-error") throw new Error("Deterministic fixture data-source failure");
+}
+
+function networkStats(scenario: FixtureScenario): SummaryStats {
+  if (scenario === "partial") return { ...baseStats, observed: 1390, missing: 1450 };
+  if (scenario === "outage") return { ...baseStats, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, missing: baseStats.scheduled };
+  return baseStats;
+}
+
+function fixtureLandingOverview(scenario: FixtureScenario): LandingOverviewResponse {
+  const stats = networkStats(scenario);
+  const lines = linePerformance(scenario);
+  const activeTrains = lines.reduce((sum, line) => sum + line.activeTrains, 0);
+  const activeDelaySeconds = scenario === "outage" || scenario === "overnight" ? 0 : activeTrains * 247;
+  const dayDelaySeconds = Math.max(0, (stats.meanDelaySeconds ?? 0) * stats.observed);
+  const startsAt = Date.parse(`${FIXTURE_TODAY}T03:00:00.000Z`);
+  const now = Date.parse(FIXTURE_NOW);
+  const lastObservedIndex = Math.max(1, Math.min(42, Math.floor((now - startsAt) / (30 * 60_000))));
+  const trend = Array.from({ length: 43 }, (_, index) => {
+    const at = startsAt + index * 30 * 60_000;
+    return {
+      at: new Date(at).toISOString(),
+      totalDelaySeconds: at > now ? null : Math.round(dayDelaySeconds * Math.pow(index / lastObservedIndex, 1.18)),
+    };
+  });
+  return { meta: liveMeta(scenario, stats, activeTrains), activeTrains, activeDelaySeconds, dayDelaySeconds, trend };
 }
 
 export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
@@ -41,9 +66,13 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
       if (scenario === "ambiguous-search" && normalizedNeedle.includes("aeropuerto")) return results.filter((result) => result.id.startsWith("aeropuerto"));
       return results.slice(0, SEARCH_RESULT_LIMIT);
     },
+    async landingOverview() {
+      failSource(scenario);
+      return fixtureLandingOverview(scenario);
+    },
     async liveNetwork() {
       failSource(scenario);
-      const stats = scenario === "partial" ? { ...baseStats, observed: 1390, missing: 1450 } : scenario === "outage" ? { ...baseStats, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, missing: baseStats.scheduled } : baseStats;
+      const stats = networkStats(scenario);
       const lines = linePerformance(scenario);
       const active = lines.reduce((sum, line) => sum + line.activeTrains, 0);
       return { meta: liveMeta(scenario, stats, active), stats, lines };

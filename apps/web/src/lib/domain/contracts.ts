@@ -92,6 +92,15 @@ export interface Comparison { readonly punctuality: number | null; readonly mean
 export interface LiveNetworkResponse { readonly meta: ResponseMeta; readonly stats: SummaryStats; readonly lines: readonly LinePerformance[] }
 export interface LiveContextResponse { readonly meta: ResponseMeta; readonly context: LineRef | StationRef; readonly stats: SummaryStats; readonly comparison: Capability<Comparison>; readonly patterns: readonly SchematicPattern[]; readonly trains: readonly TrainDetail[] }
 
+export interface LandingDelayPoint { readonly at: string; readonly totalDelaySeconds: number | null }
+export interface LandingOverviewResponse {
+  readonly meta: ResponseMeta;
+  readonly activeTrains: number;
+  readonly activeDelaySeconds: number;
+  readonly dayDelaySeconds: number;
+  readonly trend: readonly LandingDelayPoint[];
+}
+
 export interface HistoryFilters { readonly from: string; readonly to: string; readonly weekdays: readonly number[]; readonly hour: number | null; readonly direction: DirectionId | null }
 export interface HistoryPoint { readonly date: string; readonly scheduled: number; readonly observed: number; readonly punctuality: number | null; readonly meanDelaySeconds: number | null; readonly coverage: number | null }
 export interface RankingItem { readonly id: string; readonly label: string; readonly sample: number; readonly meanDelaySeconds: number | null; readonly punctuality: number | null }

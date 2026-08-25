@@ -1,46 +1,61 @@
 import type { Metadata } from "next";
-import { ArrowUpRight, BarChart3, Radio } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BarChart3, Radio } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LandingDelayTrend } from "@/components/charts/landing-delay-trend";
 import { EntitySearch } from "@/components/search/entity-search";
-import { BrandSymbol } from "@/components/shell/brand-mark";
 import { BRAND } from "@/lib/brand/config";
+import { formatDuration } from "@/lib/domain/format";
 import { getMessages, isLang } from "@/lib/i18n";
 import { publicBaseUrl } from "@/lib/seo";
+import { getLandingOverview } from "@/lib/server/services";
+
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
   const { lang } = await params;
   if (!isLang(lang) || publicBaseUrl() === null) return {};
-  return {
-    alternates: {
-      canonical: `/${lang}`,
-      languages: { es: "/es", en: "/en", "x-default": "/es" },
-    },
-  };
+  return { alternates: { canonical: `/${lang}`, languages: { es: "/es", en: "/en", "x-default": "/es" } } };
 }
 
-export default async function LandingPage({ params }: { readonly params: Promise<{ lang: string }> }) {
-  const { lang } = await params;
+export default async function LandingPage({ params, searchParams }: { readonly params: Promise<{ lang: string }>; readonly searchParams: Promise<{ scenario?: string }> }) {
+  const [{ lang }, query] = await Promise.all([params, searchParams]);
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);
-  return <div className="page-shell pb-20 pt-14 sm:pt-20">
-    <section className="grid items-end gap-10 lg:grid-cols-[1.2fr_.8fr] lg:gap-16">
-      <div>
-        <p className="eyebrow">{messages.landing.eyebrow}</p>
-        <h1 className="mt-4 max-w-4xl text-5xl font-black leading-[.94] tracking-[-.065em] sm:text-7xl">{messages.landing.title}</h1>
-        <p className="mt-6 max-w-2xl text-lg leading-8 text-muted sm:text-xl">{messages.landing.body}</p>
-      </div>
-      <div aria-hidden="true" className="relative mx-auto aspect-[4/3] w-full max-w-sm text-primary">
-        <svg className="h-full w-full" viewBox="0 0 420 315"><path d="M38 258C103 248 121 194 169 186s71 23 108-3 40-78 109-89" fill="none" stroke="currentColor" strokeWidth="11" strokeLinecap="round" opacity=".2" /><circle cx="81" cy="235" r="9" fill="var(--accent)" /><circle cx="181" cy="186" r="9" fill="var(--accent)" /><circle cx="307" cy="156" r="9" fill="var(--accent)" /><g transform="translate(190 68) scale(2.7)"><BrandSymbol className="size-10" /></g></svg>
+  const data = await getLandingOverview(query.scenario);
+  const number = new Intl.NumberFormat(lang === "es" ? "es-ES" : "en-GB");
+
+  return <div className="page-shell pb-16 pt-9 sm:pt-14">
+    <section className="max-w-5xl">
+      <p className="eyebrow">{messages.landing.eyebrow}</p>
+      <h1 className="mt-3 max-w-5xl text-[2.65rem] font-black leading-[.94] tracking-[-.06em] sm:text-6xl lg:text-7xl">{messages.landing.title}</h1>
+      <p className="mt-5 max-w-3xl text-lg leading-8 text-muted sm:text-xl">{messages.landing.body}</p>
+    </section>
+
+    <section className="mt-9 overflow-hidden rounded-2xl border border-border bg-surface-strong" data-testid="landing-live-metrics">
+      <div className="grid grid-cols-3 divide-x divide-border">
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.activeTrains}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{number.format(data.activeTrains)}</p></div>
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.activeDelay}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.todayDelay}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
       </div>
     </section>
-    <section className="mt-14 grid gap-8 border-t border-border pt-8 lg:grid-cols-[1.2fr_.8fr] lg:gap-16">
+
+    <section className="mt-7 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end">
       <EntitySearch lang={lang} messages={messages} />
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/live`}><Radio className="size-5 text-success" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryLive}</span><span className="mt-1 block text-sm text-muted">{messages.landing.liveSummaryDetail}</span></Link>
-        <Link className="bg-surface-strong p-5 hover:bg-muted-soft" href={`/${lang}/history`}><BarChart3 className="size-5 text-primary" /><span className="mt-8 block text-2xl font-black tracking-tight">{messages.landing.summaryHistory}</span><span className="mt-1 block text-sm text-muted">{messages.landing.historySummaryDetail}</span></Link>
+      <div className="grid grid-cols-2 gap-3">
+        <Link className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 font-black transition hover:-translate-y-0.5 hover:shadow-sm" href={`/${lang}/live`}><Radio className="size-5 shrink-0 text-success" /><span className="flex-1">{messages.landing.summaryLive}</span><ArrowRight className="size-4 text-muted transition group-hover:translate-x-0.5" /></Link>
+        <Link className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 font-black transition hover:-translate-y-0.5 hover:shadow-sm" href={`/${lang}/history`}><BarChart3 className="size-5 shrink-0 text-primary" /><span className="flex-1">{messages.landing.summaryHistory}</span><ArrowRight className="size-4 text-muted transition group-hover:translate-x-0.5" /></Link>
       </div>
     </section>
-    <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6 text-sm text-muted"><span>{BRAND.name} · {messages.landing.footerDescription}</span><Link className="flex items-center gap-1 font-bold text-foreground" href={`/${lang}/methodology`}>{messages.landing.methodology}<ArrowUpRight className="size-4" /></Link></footer>
+
+    <section className="mt-8 rounded-2xl border border-border bg-surface-strong p-4 sm:p-6" data-testid="landing-delay-trend">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <div><p className="eyebrow">{messages.landing.delayTrend}</p><h2 className="mt-1 text-2xl font-black tracking-tight">{formatDuration(data.dayDelaySeconds, lang)}</h2></div>
+        <span className="text-xs font-bold text-muted">{messages.landing.delayTrendWindow}</span>
+      </div>
+      <LandingDelayTrend points={data.trend} lang={lang} messages={messages} />
+    </section>
+
+    <footer className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6 text-sm text-muted"><span>{BRAND.name} · {messages.landing.footerDescription}</span><Link className="flex items-center gap-1 font-bold text-foreground" href={`/${lang}/methodology`}>{messages.landing.methodology}<ArrowUpRight className="size-4" /></Link></footer>
   </div>;
 }

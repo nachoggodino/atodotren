@@ -9,6 +9,8 @@ async function openMenu(page: import("@playwright/test").Page) {
 
 test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {
   await page.goto("/es");
+  await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
+  await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
   await page.getByRole("combobox", { name: "Busca una línea o estación", exact: true }).fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
@@ -87,7 +89,7 @@ test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
 test("English routes, theme persistence, mobile drawer and reduced motion remain usable", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/en");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Delays should not disappear");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("A wizard is never late");
   await openMenu(page);
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);

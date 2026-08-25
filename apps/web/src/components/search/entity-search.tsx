@@ -55,9 +55,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
       setLoading(true);
       setFailed(false);
       try {
-        const response = await fetch(`/api/v1/catalog/search?q=${encodeURIComponent(trimmed)}`, {
-          signal: controller.signal,
-        });
+        const response = await fetch(`/api/v1/catalog/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
         const payload = await response.json() as SearchResponse;
         setResults(payload.results);
@@ -78,62 +76,28 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
   }, [query]);
 
   return (
-    <Ariakit.ComboboxProvider
-      value={query}
-      setValue={onQueryChange}
-      selectedValue={selected ? selectionValue(selected) : ""}
-      setSelectedValue={onSelectedValueChange}
-      open={open}
-      setOpen={setOpen}
-    >
+    <Ariakit.ComboboxProvider value={query} setValue={onQueryChange} selectedValue={selected ? selectionValue(selected) : ""} setSelectedValue={onSelectedValueChange} open={open} setOpen={setOpen}>
       <div className="relative">
-        <Ariakit.ComboboxLabel className="mb-2 block text-sm font-bold" htmlFor={inputId}>
-          {messages.landing.searchLabel}
-        </Ariakit.ComboboxLabel>
-        <div className="flex min-h-14 items-center gap-3 border-b-2 border-foreground bg-transparent px-1">
-          <Search aria-hidden="true" className="size-5 text-muted" />
-          <Ariakit.Combobox
-            id={inputId}
-            autoComplete="off"
-            autoSelect="always"
-            className="min-w-0 flex-1 bg-transparent py-3 text-lg outline-none placeholder:text-muted/70"
-            placeholder={messages.landing.searchPlaceholder}
-          />
-          {loading ? <span aria-label={messages.common.loading} className="size-4 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
+        <Ariakit.ComboboxLabel className="mb-3 block text-sm font-bold" htmlFor={inputId}>{messages.landing.searchLabel}</Ariakit.ComboboxLabel>
+        <div className="flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/15">
+          <Search aria-hidden="true" className="size-5 shrink-0 text-muted" />
+          <Ariakit.Combobox id={inputId} autoComplete="off" autoSelect="always" className="min-w-0 flex-1 bg-transparent py-4 text-base outline-none placeholder:text-muted/65 focus:outline-none focus-visible:outline-none sm:text-lg" placeholder={messages.landing.searchPlaceholder} />
+          {loading ? <span aria-label={messages.common.loading} className="size-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
         </div>
-        <Ariakit.ComboboxPopover
-          gutter={8}
-          sameWidth
-          className="z-[80] overflow-hidden rounded-xl border border-border bg-surface-strong shadow-[var(--shadow-float)]"
-        >
+        <Ariakit.ComboboxPopover gutter={6} sameWidth className="z-[80] overflow-hidden rounded-2xl border border-border bg-surface-strong shadow-[var(--shadow-float)]">
           {failed ? <p className="px-4 py-4 text-sm text-danger" role="status">{messages.landing.searchError}</p> : null}
           {!failed && results.length === 0 && !loading ? <p className="px-4 py-4 text-sm text-muted" role="status">{messages.landing.emptySearch}</p> : null}
-          {!failed && results.length > 0 ? <Ariakit.ComboboxList>
-            {results.map((result) => (
-              <Ariakit.ComboboxItem
-                key={`${result.kind}-${result.id}`}
-                value={selectionValue(result)}
-                setValueOnClick={false}
-                resetValueOnSelect={false}
-                className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted-soft data-[active-item]:bg-muted-soft"
-              >
-                {result.kind === "line" ? <TrainFront className="size-5" /> : <Radio className="size-5" />}
-                <span className="min-w-0 flex-1">
-                  <strong className="block">{result.code ? `${result.code} · ` : ""}{result.name[lang]}</strong>
-                  <span className="text-xs text-muted">{result.kind === "line" ? messages.common.line : messages.common.station}</span>
-                </span>
-                <ArrowRight className="size-4 text-muted" />
-              </Ariakit.ComboboxItem>
-            ))}
-          </Ariakit.ComboboxList> : null}
+          {!failed && results.length > 0 ? <Ariakit.ComboboxList>{results.map((result) => (
+            <Ariakit.ComboboxItem key={`${result.kind}-${result.id}`} value={selectionValue(result)} setValueOnClick={false} resetValueOnSelect={false} className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted-soft data-[active-item]:bg-muted-soft">
+              {result.kind === "line" ? <TrainFront className="size-5" /> : <Radio className="size-5" />}
+              <span className="min-w-0 flex-1"><strong className="block">{result.code ? `${result.code} · ` : ""}{result.name[lang]}</strong><span className="text-xs text-muted">{result.kind === "line" ? messages.common.line : messages.common.station}</span></span>
+              <ArrowRight className="size-4 text-muted" />
+            </Ariakit.ComboboxItem>
+          ))}</Ariakit.ComboboxList> : null}
         </Ariakit.ComboboxPopover>
-        {selected ? <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-3 font-bold text-background" href={routeFor(selected, lang, "live")}>
-            <Radio className="size-4" />{messages.landing.liveAction}
-          </Link>
-          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border px-3 font-bold hover:bg-muted-soft" href={routeFor(selected, lang, "history")}>
-            <History className="size-4" />{messages.landing.historyAction}
-          </Link>
+        {selected ? <div className="mt-3 grid grid-cols-2 gap-2">
+          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 font-bold text-background" href={routeFor(selected, lang, "live")}><Radio className="size-4" />{messages.landing.liveAction}</Link>
+          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface-strong px-3 font-bold hover:bg-muted-soft" href={routeFor(selected, lang, "history")}><History className="size-4" />{messages.landing.historyAction}</Link>
         </div> : null}
       </div>
     </Ariakit.ComboboxProvider>

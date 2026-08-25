@@ -6,6 +6,7 @@ import { createPostgresClient, type PostgresClient } from "./client";
 import { createCatalogRepository } from "./catalog-repository";
 import { createHistoryRepository } from "./history-repository";
 import { createJourneyRepository } from "./journey-repository";
+import { createLandingRepository } from "./landing-repository";
 import { createLiveRepository } from "./live-repository";
 import { createMatrixRepository } from "./matrix-repository";
 import { createMetadataRepository } from "./metadata-repository";
@@ -17,12 +18,14 @@ export function createPostgresAdapter(config: WebServerConfig, clientOverride?: 
   const metadata = createMetadataRepository(client);
   const topology = createTopologyRepository(client);
   const live = createLiveRepository(client, catalog, metadata, topology);
+  const landing = createLandingRepository(client, live);
   const history = createHistoryRepository(client, catalog, metadata, topology);
   const journey = createJourneyRepository(client, catalog);
   const matrix = createMatrixRepository(client, catalog, metadata);
 
   return {
     search: (query) => catalog.search(query),
+    landingOverview: () => landing.overview(),
     liveNetwork: () => live.network(),
     liveLine: (slug) => live.line(slug),
     liveStation: (slug) => live.station(slug),
