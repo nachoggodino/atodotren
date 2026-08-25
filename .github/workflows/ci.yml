@@ -120,7 +120,7 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts
       - name: Upload generated lockfile for diagnosis
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: generated-package-lock
           path: package-lock.json
@@ -228,7 +228,7 @@ jobs:
         run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
       - name: Upload ${{ matrix.label }} inspection artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-browser-${{ matrix.artifact }}
           if-no-files-found: warn
