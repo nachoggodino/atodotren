@@ -49,5 +49,5 @@ export function BrandSymbol({ className = "size-8" }: { readonly className?: str
 }
 
 export function BrandWordmark() {
-  return <span className="text-[1.05rem] font-black tracking-[-0.055em]">{BRAND.wordmark}</span>;
+  return <span className="text-[1.2rem] font-black tracking-[-0.055em]">{BRAND.wordmark}</span>;
 }
