@@ -12,10 +12,18 @@ export default defineConfig({
     url: "http://127.0.0.1:3100/es",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
-    env: { ...process.env, NODE_ENV: "production", WEB_DATA_MODE: "fixture", WEB_ALLOW_FIXTURE_PRODUCTION: "true", WEB_FIXTURE_SCENARIO: "healthy" },
+    env: {
+      ...process.env,
+      NODE_ENV: "production",
+      WEB_DATA_MODE: "fixture",
+      WEB_ALLOW_FIXTURE_PRODUCTION: "true",
+      WEB_ENABLE_FIXTURE_SCENARIOS: "true",
+      WEB_FIXTURE_SCENARIO: "healthy",
+    },
   },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    { name: "webkit-acceptance", grep: /@webkit/, use: { ...devices["Desktop Safari"] } },
   ],
 });

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/shell/app-shell";
@@ -6,26 +7,68 @@ import { AutoRefreshProvider } from "@/components/shell/auto-refresh-provider";
 import { ServiceWorkerRegister } from "@/components/shell/service-worker-register";
 import { ThemeProvider } from "@/components/shell/theme-provider";
 import { BRAND } from "@/lib/brand/config";
+import { OFFLINE_BOOTSTRAP } from "@/lib/offline/bootstrap";
 import { isLang, LANGUAGES } from "@/lib/i18n";
 import "../globals.css";
 
-const OFFLINE_BOOTSTRAP = `(function(){var root=document.documentElement;var key="atodotren:offline";function apply(offline){if(offline){root.setAttribute("data-atodotren-offline","true");try{sessionStorage.setItem(key,"1");}catch{}}else{root.removeAttribute("data-atodotren-offline");try{sessionStorage.removeItem(key);}catch{}}}async function verifyOnline(){try{var response=await fetch("/manifest.webmanifest?atodotren-connectivity="+Date.now(),{cache:"no-store",credentials:"same-origin"});if(response.ok)apply(false);}catch{}}var remembered=false;try{remembered=sessionStorage.getItem(key)==="1";}catch{}if(remembered){apply(true);if(navigator.onLine)void verifyOnline();}else{apply(!navigator.onLine);}window.addEventListener("offline",function(){apply(true);});window.addEventListener("online",function(){void verifyOnline();});})();`;
-
-export const metadata: Metadata = {
-  title: { default: BRAND.name, template: `%s · ${BRAND.name}` },
-  description: BRAND.descriptionEs,
-  manifest: "/manifest.webmanifest",
-  icons: {
-    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-  },
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: BRAND.themeColorLight },
+    { media: "(prefers-color-scheme: dark)", color: BRAND.themeColorDark },
+  ],
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: [{ media: "(prefers-color-scheme: light)", color: BRAND.themeColorLight }, { media: "(prefers-color-scheme: dark)", color: BRAND.themeColorDark }] };
+export function generateStaticParams() {
+  return LANGUAGES.map((lang) => ({ lang }));
+}
 
-export function generateStaticParams() { return LANGUAGES.map((lang) => ({ lang })); }
+function publicBaseUrl(): URL | null {
+  const raw = process.env.WEB_PUBLIC_BASE_URL?.trim();
+  if (!raw) return null;
+  try {
+    const value = new URL(raw);
+    return value.protocol === "https:" || value.protocol === "http:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const { lang } = await params;
+  if (!isLang(lang)) return {};
+  const base = publicBaseUrl();
+  return {
+    title: { default: BRAND.name, template: `%s · ${BRAND.name}` },
+    description: lang === "en" ? BRAND.descriptionEn : BRAND.descriptionEs,
+    manifest: "/manifest.webmanifest",
+    icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
+    ...(base === null ? {} : {
+      metadataBase: base,
+      alternates: {
+        canonical: `/${lang}`,
+        languages: { es: "/es", en: "/en", "x-default": "/es" },
+      },
+    }),
+  };
+}
 
 export default async function LangLayout({ children, params }: { readonly children: ReactNode; readonly params: Promise<{ lang: string }> }) {
-  const { lang } = await params;
+  const [{ lang }, requestHeaders] = await Promise.all([params, headers()]);
   if (!isLang(lang)) notFound();
-  return <html lang={lang} suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: OFFLINE_BOOTSTRAP }} /></head><body><ThemeProvider><AutoRefreshProvider><AppShell lang={lang}>{children}</AppShell><ServiceWorkerRegister /></AutoRefreshProvider></ThemeProvider></body></html>;
+  const nonce = requestHeaders.get("x-nonce") ?? undefined;
+  return (
+    <html lang={lang} suppressHydrationWarning>
+      <head><script nonce={nonce} dangerouslySetInnerHTML={{ __html: OFFLINE_BOOTSTRAP }} /></head>
+      <body>
+        <ThemeProvider nonce={nonce}>
+          <AutoRefreshProvider>
+            <AppShell lang={lang}>{children}</AppShell>
+            <ServiceWorkerRegister />
+          </AutoRefreshProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  );
 }
