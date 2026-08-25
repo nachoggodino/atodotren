@@ -56,9 +56,8 @@ function directionValue(value: unknown, context: string, field = "direction"): D
   return parsed;
 }
 
-function nullableDirectionField(row: RawPostgresRow, field: string, context: string): DirectionId | null {
-  const value = row[field];
-  return value === null || value === undefined ? null : directionValue(value, context, field);
+function directionField(row: RawPostgresRow, field: string, context: string): DirectionId {
+  return directionValue(row[field], context, field);
 }
 
 function evidenceValue(value: unknown, context: string, field = "evidence_status"): EvidenceState {
@@ -224,7 +223,7 @@ export function parseTopologyRow(row: RawPostgresRow): TopologyRow {
     ...parseStationCatalogRow(row, context),
     patternId: stringField(row, "pattern_id", context),
     branchSlug: stringField(row, "branch_slug", context),
-    direction: directionValue(row.direction, context),
+    direction: directionField(row, "direction", context),
     stopOrder: integerValue(row.stop_order, context, "stop_order"),
   };
 }
@@ -275,7 +274,7 @@ export function parseJourneyRow(row: RawPostgresRow): JourneyRow {
     sourceTripId: stringField(row, "source_trip_id", context),
     lineSlug: stringField(row, "line_slug", context),
     publicCode: stringField(row, "public_code", context),
-    direction: directionValue(row.direction, context),
+    direction: directionField(row, "direction", context),
     stationId: stringField(row, "station_id", context),
     stationNameEs: stringField(row, "station_name_es", context),
     stationNameEn: stringField(row, "station_name_en", context),
@@ -311,7 +310,7 @@ export function parseMatrixRow(row: RawPostgresRow): MatrixRow {
     serviceDate: dateField(row, "service_date", context),
     journeyId: String(integerValue(row.journey_id, context, "journey_id")),
     sourceTripId: stringField(row, "source_trip_id", context),
-    direction: directionValue(row.direction, context),
+    direction: directionField(row, "direction", context),
     stopSequence: integerValue(row.stop_sequence, context, "stop_sequence"),
     station: parseStationCatalogRow(row, context),
     scheduledArrivalAt,

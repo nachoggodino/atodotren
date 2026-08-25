@@ -7,8 +7,11 @@ export function formatDelay(seconds: number | null, lang: Lang): string {
   const absolute = Math.abs(seconds);
   const minutes = Math.floor(absolute / 60);
   const remainder = absolute % 60;
-  if (minutes === 0) return `${sign}${remainder} s`;
-  return `${sign}${minutes} min ${String(remainder).padStart(2, "0")} s`;
+  const locale = lang === "es" ? "es-ES" : "en-GB";
+  const number = new Intl.NumberFormat(locale, { useGrouping: false });
+  if (minutes === 0) return `${sign}${number.format(remainder)} s`;
+  const secondsPart = new Intl.NumberFormat(locale, { minimumIntegerDigits: 2, useGrouping: false }).format(remainder);
+  return `${sign}${number.format(minutes)} min ${secondsPart} s`;
 }
 
 export function formatPercent(value: number | null): string {

@@ -239,7 +239,7 @@ export function historyResponse(filters: HistoryFilters, kind: "network" | "line
       : { status: "available" as const, value: ranked };
   return {
     meta: historyMeta(scenario, stats, filters),
-    context: { kind, label, id },
+    context: { kind, label, id: kind === "network" ? MADRID_NETWORK.slug : id },
     filters,
     stats,
     trend,
