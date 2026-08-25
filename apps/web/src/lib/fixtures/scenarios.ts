@@ -1,6 +1,6 @@
-import type { EvidenceState, HistoryFilters, HistoryPoint, HistoryResponse, LinePerformance, LineRef, LiveContextResponse, LiveNetworkResponse, MatrixCell, MatrixJourney, MatrixResponse, ResponseMeta, SearchResult, StationRef, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import type { EvidenceState, HistoryFilters, HistoryPoint, HistoryResponse, LinePerformance, LineRef, MatrixCell, MatrixJourney, MatrixResponse, ResponseMeta, SearchResult, StationRef, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
 import { FALLBACK_LINE_COLORS } from "@/lib/design/tokens";
-import { normalizeSearch, normalizedLineAlias } from "@/lib/domain/search";
+import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
 
 export type FixtureScenario = "healthy" | "partial" | "stale" | "outage" | "overnight" | "cancellations" | "missing" | "incomplete" | "finalized" | "ambiguous-search" | "empty-search" | "offline-cached";
@@ -72,8 +72,8 @@ function performance(scenario: FixtureScenario): readonly LinePerformance[] {
   return lines.map((line, index) => ({ ...line, stats: lineStats(index, scenario), activeTrains: scenario === "overnight" || scenario === "outage" ? 0 : Math.max(1, 12 - index) }));
 }
 
-function c1Stops(): readonly { station: StationRef; order: number; x: number; y: number }[] {
-  return stations.slice(0, 6).map((station, index) => ({ station, order: index, x: 80 + index * 120, y: index % 2 === 0 ? 106 : 138 }));
+function c1Stops(): readonly { station: StationRef; order: number }[] {
+  return stations.slice(0, 6).map((station, index) => ({ station, order: index }));
 }
 
 function train(id: string, stopIndex: number, delaySeconds: number | null, state: EvidenceState, inferred: boolean): TrainDetail {
@@ -164,14 +164,14 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
         if (haystack.some((value) => value.includes(normalizeSearch(query)))) results.push({ kind: "station", id: station.id, slug: station.slug, code: null, name: station.name });
       }
       if (scenario === "ambiguous-search" && normalizeSearch(query).includes("aeropuerto")) return results.filter((result) => result.id.startsWith("aeropuerto"));
-      return results.slice(0, 12);
+      return results.slice(0, SEARCH_RESULT_LIMIT);
     },
     async liveNetwork() { return { meta: scenarioMeta(scenario), stats: scenario === "outage" ? { ...baseStats, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null } : baseStats, lines: performance(scenario) }; },
     async liveLine(slug) {
       const line = lines.find((candidate) => normalizedLineAlias(candidate.slug) === normalizedLineAlias(slug));
       if (line === undefined) return null;
       const index = lines.indexOf(line);
-      return { meta: scenarioMeta(scenario), context: line, stats: lineStats(index, scenario), comparison: { label: "same-weekday-hour", punctuality: .81 - index * .02, meanDelaySeconds: 146 + index * 18 }, stops: line.slug === "c1" ? c1Stops() : c1Stops().map((stop) => ({ ...stop, x: stop.x, y: stop.y + index * 2 })), trains: line.slug === "c1" ? trains(scenario) : [] };
+      return { meta: scenarioMeta(scenario), context: line, stats: lineStats(index, scenario), comparison: { label: "same-weekday-hour", punctuality: .81 - index * .02, meanDelaySeconds: 146 + index * 18 }, stops: c1Stops(), trains: line.slug === "c1" ? trains(scenario) : [] };
     },
     async liveStation(slug) {
       const station = stations.find((candidate) => candidate.slug.es === slug || candidate.slug.en === slug || candidate.id === slug);

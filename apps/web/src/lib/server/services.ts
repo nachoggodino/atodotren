@@ -1,20 +1,15 @@
 import "server-only";
 
-import type { HistoryFilters, HistoryResponse, MatrixResponse, ResponseMeta } from "@/lib/domain/contracts";
-import { CATALOG_CACHE_SECONDS, CURRENT_HISTORY_CACHE_SECONDS, FINAL_HISTORY_CACHE_SECONDS } from "@/lib/design/tokens";
+import type { HistoryFilters, HistoryResponse, MatrixResponse } from "@/lib/domain/contracts";
 import { boundedDateRange } from "@/lib/domain/filters";
 import { getDataAdapter } from "./adapter";
 import { withTtlCache } from "./cache";
+import { cacheSecondsForDate, cacheSecondsForHistory } from "./history-request";
 
 const LIVE_TTL = 30;
+const CATALOG_CACHE_SECONDS = 86_400;
 
 function scenarioKey(scenario: string | undefined): string { return scenario ?? "default"; }
-function madridDate(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
-function historyTtl(filters: HistoryFilters): number { return filters.to < madridDate() ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS; }
-function normalizeHistoricalMeta<T extends { readonly meta: ResponseMeta }>(value: T): T {
-  if (value.meta.sourceAt !== null || value.meta.status !== "outage") return value;
-  return { ...value, meta: { ...value.meta, status: "live", stale: false } };
-}
 
 export async function searchCatalog(query: string, scenario?: string) {
   const normalized = query.trim().slice(0, 100);
@@ -46,32 +41,22 @@ export async function getJourney(serviceDate: string, journeyId: string, scenari
 export async function getHistoryNetwork(filters: HistoryFilters, scenario?: string): Promise<HistoryResponse> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  return withTtlCache(`history:network:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => normalizeHistoricalMeta(await adapter.historyNetwork(safe)));
+  return withTtlCache(`history:network:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, cacheSecondsForHistory(safe), () => adapter.historyNetwork(safe));
 }
 
 export async function getHistoryLine(slug: string, filters: HistoryFilters, scenario?: string): Promise<HistoryResponse | null> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  return withTtlCache(`history:line:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => {
-    const value = await adapter.historyLine(slug, safe);
-    return value === null ? null : normalizeHistoricalMeta(value);
-  });
+  return withTtlCache(`history:line:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, cacheSecondsForHistory(safe), () => adapter.historyLine(slug, safe));
 }
 
 export async function getHistoryStation(slug: string, filters: HistoryFilters, scenario?: string): Promise<HistoryResponse | null> {
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
-  return withTtlCache(`history:station:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, historyTtl(safe), async () => {
-    const value = await adapter.historyStation(slug, safe);
-    return value === null ? null : normalizeHistoricalMeta(value);
-  });
+  return withTtlCache(`history:station:${slug}:${scenarioKey(scenario)}:${JSON.stringify(safe)}`, cacheSecondsForHistory(safe), () => adapter.historyStation(slug, safe));
 }
 
 export async function getMatrix(lineSlug: string, serviceDate: string, scenario?: string): Promise<MatrixResponse | null> {
   const adapter = await getDataAdapter(scenario);
-  const ttl = serviceDate < madridDate() ? FINAL_HISTORY_CACHE_SECONDS : CURRENT_HISTORY_CACHE_SECONDS;
-  return withTtlCache(`matrix:${lineSlug}:${serviceDate}:${scenarioKey(scenario)}`, ttl, async () => {
-    const value = await adapter.matrix(lineSlug, serviceDate);
-    return value === null ? null : normalizeHistoricalMeta(value);
-  });
+  return withTtlCache(`matrix:${lineSlug}:${serviceDate}:${scenarioKey(scenario)}`, cacheSecondsForDate(serviceDate), () => adapter.matrix(lineSlug, serviceDate));
 }

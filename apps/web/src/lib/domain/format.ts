@@ -1,5 +1,7 @@
 import type { DataStatus, EvidenceState } from "./contracts";
 
+export const PUNCTUALITY_THRESHOLD_SECONDS = 120;
+
 export function formatDelay(seconds: number | null, lang: "es" | "en"): string {
   if (seconds === null) return lang === "es" ? "Sin dato" : "No data";
   const sign = seconds < 0 ? "−" : seconds > 0 ? "+" : "";
@@ -16,7 +18,7 @@ export function formatPercent(value: number | null): string {
 
 export function delayBand(seconds: number | null): "unknown" | "punctual" | "mild" | "delayed" | "severe" {
   if (seconds === null) return "unknown";
-  if (seconds <= 120) return "punctual";
+  if (seconds <= PUNCTUALITY_THRESHOLD_SECONDS) return "punctual";
   if (seconds <= 300) return "mild";
   if (seconds <= 600) return "delayed";
   return "severe";
