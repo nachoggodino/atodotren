@@ -43,7 +43,7 @@ describe("fixture contract scenarios", () => {
     expect(history.trend).toHaveLength(365);
     expect(history.trend[0]?.date).toBe(filters.from);
     expect(history.trend.at(-1)?.date).toBe(filters.to);
-    expect(new Set(history.trend.map((point) => point.date))).toHaveLength(365);
+    expect(new Set(history.trend.map((point) => point.date)).size).toBe(365);
   });
 
   it("represents unsupported capabilities and mixed provenance explicitly", async () => {
