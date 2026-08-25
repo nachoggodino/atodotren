@@ -7,7 +7,7 @@ import { withTtlCache } from "./cache";
 import { cacheSecondsForDate, cacheSecondsForHistory } from "./history-request";
 
 const LIVE_TTL = 30;
-const CATALOG_CACHE_SECONDS = 86_400;
+export const CATALOG_CACHE_SECONDS = 86_400;
 
 function scenarioKey(scenario: string | undefined): string { return scenario ?? "default"; }
 
