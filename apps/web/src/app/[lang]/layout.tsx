@@ -7,8 +7,9 @@ import { AutoRefreshProvider } from "@/components/shell/auto-refresh-provider";
 import { ServiceWorkerRegister } from "@/components/shell/service-worker-register";
 import { ThemeProvider } from "@/components/shell/theme-provider";
 import { BRAND } from "@/lib/brand/config";
-import { OFFLINE_BOOTSTRAP } from "@/lib/offline/bootstrap";
 import { isLang, LANGUAGES } from "@/lib/i18n";
+import { OFFLINE_BOOTSTRAP } from "@/lib/offline/bootstrap";
+import { publicBaseUrl } from "@/lib/seo";
 import "../globals.css";
 
 export const viewport: Viewport = {
@@ -24,17 +25,6 @@ export function generateStaticParams() {
   return LANGUAGES.map((lang) => ({ lang }));
 }
 
-function publicBaseUrl(): URL | null {
-  const raw = process.env.WEB_PUBLIC_BASE_URL?.trim();
-  if (!raw) return null;
-  try {
-    const value = new URL(raw);
-    return value.protocol === "https:" || value.protocol === "http:" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
   const { lang } = await params;
   if (!isLang(lang)) return {};
@@ -44,13 +34,7 @@ export async function generateMetadata({ params }: { readonly params: Promise<{ 
     description: lang === "en" ? BRAND.descriptionEn : BRAND.descriptionEs,
     manifest: "/manifest.webmanifest",
     icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
-    ...(base === null ? {} : {
-      metadataBase: base,
-      alternates: {
-        canonical: `/${lang}`,
-        languages: { es: "/es", en: "/en", "x-default": "/es" },
-      },
-    }),
+    ...(base === null ? {} : { metadataBase: base }),
   };
 }
 

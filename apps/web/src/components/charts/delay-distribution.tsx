@@ -5,15 +5,17 @@ import type { DelayBucket } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
 import { CHART_LAYOUT } from "./config";
 
+function boundaryMinutes(seconds: number): number {
+  return Math.floor(seconds / 60);
+}
+
 function bucketLabel(bucket: DelayBucket, messages: Messages): string {
-  switch (bucket.id) {
-    case "early": return messages.charts.early;
-    case "punctual": return messages.charts.punctual;
-    case "delay-2-5": return "2–5m";
-    case "delay-5-10": return "5–10m";
-    case "delay-10-15": return "10–15m";
-    case "delay-15-plus": return ">15m";
-  }
+  if (bucket.id === "early") return messages.charts.early;
+  if (bucket.id === "punctual") return messages.charts.punctual;
+  if (bucket.minSeconds === null) return messages.common.noData;
+  const lower = boundaryMinutes(Math.max(0, bucket.minSeconds - 1));
+  if (bucket.maxSeconds === null) return `>${lower}m`;
+  return `${lower}–${boundaryMinutes(bucket.maxSeconds)}m`;
 }
 
 export function DelayDistribution({ values, messages }: { readonly values: readonly DelayBucket[]; readonly messages: Messages }) {

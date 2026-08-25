@@ -1,10 +1,23 @@
+import type { Metadata } from "next";
 import { ArrowUpRight, BarChart3, Radio } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BrandSymbol } from "@/components/shell/brand-mark";
 import { EntitySearch } from "@/components/search/entity-search";
+import { BrandSymbol } from "@/components/shell/brand-mark";
 import { BRAND } from "@/lib/brand/config";
 import { getMessages, isLang } from "@/lib/i18n";
+import { publicBaseUrl } from "@/lib/seo";
+
+export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const { lang } = await params;
+  if (!isLang(lang) || publicBaseUrl() === null) return {};
+  return {
+    alternates: {
+      canonical: `/${lang}`,
+      languages: { es: "/es", en: "/en", "x-default": "/es" },
+    },
+  };
+}
 
 export default async function LandingPage({ params }: { readonly params: Promise<{ lang: string }> }) {
   const { lang } = await params;
