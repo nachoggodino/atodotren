@@ -3,12 +3,15 @@ import { OFFLINE_BOOTSTRAP, OFFLINE_SESSION_KEY } from "@/lib/offline/bootstrap"
 import { createContentSecurityPolicy, SECURITY_HEADERS } from "@/lib/security/policy";
 
 describe("frontend security and offline infrastructure", () => {
-  it("builds a nonce-based CSP without opening script-src to unsafe-inline", () => {
-    const policy = createContentSecurityPolicy("abc123");
-    expect(policy).toContain("script-src 'self' 'nonce-abc123' 'strict-dynamic'");
-    expect(policy).toContain("frame-ancestors 'none'");
-    expect(policy).toContain("object-src 'none'");
-    expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
+  it("keeps production CSP nonce-based while allowing dev-only evaluation tooling", () => {
+    const production = createContentSecurityPolicy("abc123", false);
+    const development = createContentSecurityPolicy("abc123", true);
+    expect(production).toContain("script-src 'self' 'nonce-abc123' 'strict-dynamic'");
+    expect(production).toContain("frame-ancestors 'none'");
+    expect(production).toContain("object-src 'none'");
+    expect(production).not.toContain("'unsafe-eval'");
+    expect(production).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(development).toContain("script-src 'self' 'nonce-abc123' 'strict-dynamic' 'unsafe-eval'");
     expect(SECURITY_HEADERS["X-Content-Type-Options"]).toBe("nosniff");
   });
 

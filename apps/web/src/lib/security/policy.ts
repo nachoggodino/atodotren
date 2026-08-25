@@ -4,10 +4,11 @@ export const SECURITY_HEADERS = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 } as const;
 
-export function createContentSecurityPolicy(nonce: string): string {
+export function createContentSecurityPolicy(nonce: string, development = process.env.NODE_ENV === "development"): string {
+  const scriptSource = `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`;
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    scriptSource,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
