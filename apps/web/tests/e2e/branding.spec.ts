@@ -41,8 +41,9 @@ function expectPalette(actual: Awaited<ReturnType<typeof palette>>, expected: ty
 test("andén infinito brand and exact palette follow the selected theme", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/en");
+  const headerBrand = page.getByLabel("Home").getByTestId("brand-symbol");
   await expect(page.getByText("andén infinito", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("brand-symbol")).toHaveCSS("color", "rgb(122, 59, 74)");
+  await expect(headerBrand).toHaveCSS("color", "rgb(122, 59, 74)");
   expectPalette(await palette(page), LIGHT);
 
   const manifestResponse = await page.request.get("/manifest.webmanifest");
@@ -62,5 +63,5 @@ test("andén infinito brand and exact palette follow the selected theme", async 
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   expectPalette(await palette(page), DARK);
-  await expect(page.getByTestId("brand-symbol")).toHaveCSS("color", "rgb(201, 138, 152)");
+  await expect(headerBrand).toHaveCSS("color", "rgb(201, 138, 152)");
 });
