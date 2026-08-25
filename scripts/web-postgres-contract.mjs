@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0016_web_search_normalization.sql");
+  assert.equal(migration.applied.at(-1), "0017_landing_live_metrics.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -80,8 +80,9 @@ try {
     const privileges = await web.query(`SELECT
       has_schema_privilege(current_user, 'api', 'USAGE') AS api_usage,
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
-      has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select`);
-    assert.deepEqual(privileges.rows[0], { api_usage: true, core_usage: false, api_line_select: true });
+      has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select,
+      has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute`);
+    assert.deepEqual(privileges.rows[0], { api_usage: true, core_usage: false, api_line_select: true, landing_timeline_execute: true });
 
     await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
     await assert.rejects(web.query("SELECT * FROM ingest.live_vehicle_state"), /permission denied/);
@@ -96,6 +97,12 @@ try {
 
     const station = await web.query("SELECT * FROM api.catalog_search($1, 12)", ["Atocha"]);
     assert.equal(station.rows.some((row) => row.entity_kind === "station" && row.stable_id === "atocha"), true);
+
+    const landingTimeline = await web.query("SELECT * FROM api.landing_delay_timeline('madrid', '2026-08-25T12:00:00Z'::timestamptz)");
+    assert.equal(landingTimeline.rowCount, 43);
+    assert.equal(landingTimeline.rows[0].accumulated_delay_seconds, "0");
+    assert.equal(landingTimeline.rows.every((row) => row.current_total_delay_seconds === "0"), true);
+    assert.equal(landingTimeline.rows.at(-1).accumulated_delay_seconds, null);
 
     const outOfRange = new Date();
     outOfRange.setUTCDate(outOfRange.getUTCDate() - 31);
