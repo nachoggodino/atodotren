@@ -1,9 +1,11 @@
 const CACHE_POLICY = Object.freeze({
-  version: "web-production-readiness-v1",
+  version: "web-production-readiness-v2",
   keepNetworkSummary: true,
+  staticEntries: 128,
 });
 
 const SHELL_CACHE = `atodotren-shell-${CACHE_POLICY.version}`;
+const STATIC_CACHE = `atodotren-static-${CACHE_POLICY.version}`;
 const LIVE_CACHE = `atodotren-live-${CACHE_POLICY.version}`;
 const DAILY_CACHE = `atodotren-daily-${CACHE_POLICY.version}`;
 const PAGE_CACHE = `atodotren-page-${CACHE_POLICY.version}`;
@@ -18,7 +20,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    const activeCaches = [SHELL_CACHE, LIVE_CACHE, DAILY_CACHE, PAGE_CACHE];
+    const activeCaches = [SHELL_CACHE, STATIC_CACHE, LIVE_CACHE, DAILY_CACHE, PAGE_CACHE];
     await Promise.all(names.filter((name) => name.startsWith(OWNED_PREFIX) && !activeCaches.includes(name)).map((name) => caches.delete(name)));
     await self.clients.claim();
   })());
@@ -35,6 +37,14 @@ async function offlineResponse(response) {
   const headers = new Headers(response.headers);
   headers.set("X-Atodotren-Cache", "offline");
   return new Response(await response.clone().arrayBuffer(), { status: response.status, statusText: response.statusText, headers });
+}
+
+async function putBounded(cacheName, request, response, maxEntries) {
+  const cache = await caches.open(cacheName);
+  await cache.put(request, response);
+  const keys = await cache.keys();
+  const overflow = keys.length - maxEntries;
+  if (overflow > 0) await Promise.all(keys.slice(0, overflow).map((key) => cache.delete(key)));
 }
 
 async function replaceBounded(cacheName, request, response, preserve = () => false) {
@@ -73,13 +83,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isNextStatic(url)) {
     event.respondWith((async () => {
-      const cached = await caches.match(event.request);
+      const cache = await caches.open(STATIC_CACHE);
+      const cached = await cache.match(event.request);
       if (cached) return cached;
       const response = await fetch(event.request);
-      if (response.ok) {
-        const cache = await caches.open(SHELL_CACHE);
-        await cache.put(event.request, response.clone());
-      }
+      if (response.ok) await putBounded(STATIC_CACHE, event.request, response.clone(), CACHE_POLICY.staticEntries);
       return response;
     })());
     return;
