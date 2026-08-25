@@ -95,6 +95,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
           <Ariakit.Combobox
             id={inputId}
             autoComplete="off"
+            autoSelect="always"
             className="min-w-0 flex-1 bg-transparent py-3 text-lg outline-none placeholder:text-muted/70"
             placeholder={messages.landing.searchPlaceholder}
           />

@@ -22,14 +22,14 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.screenshot({ path: filename, fullPage: true });
 });
 
-test("@webkit search keyboard navigation and header dialog restore focus", async ({ page }) => {
+test("@webkit search keyboard selection and header dialog restore focus", async ({ page }) => {
   await page.goto("/es");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
-  await expect(page.getByRole("option").filter({ hasText: "C1" }).first()).toBeVisible();
+  const option = page.getByRole("option").filter({ hasText: "C1" }).first();
+  await expect(option).toBeVisible();
   await expect(search).toHaveAttribute("aria-expanded", "true");
-  await search.press("ArrowDown");
-  await expect(search).toHaveAttribute("aria-activedescendant", /.+/);
+  await expect(page.locator('[role="option"][data-active-item]').filter({ hasText: "C1" }).first()).toBeVisible();
   await search.press("Enter");
   await expect(page.getByRole("link", { name: "Ver hoy" })).toBeVisible();
 
