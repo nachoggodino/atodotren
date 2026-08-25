@@ -1,9 +1,8 @@
-import type { DataStatus, EvidenceState } from "./contracts";
+import type { Lang } from "./contracts";
+export { delayBand } from "./delay-policy";
 
-export const PUNCTUALITY_THRESHOLD_SECONDS = 120;
-
-export function formatDelay(seconds: number | null, lang: "es" | "en"): string {
-  if (seconds === null) return lang === "es" ? "Sin dato" : "No data";
+export function formatDelay(seconds: number | null, lang: Lang): string {
+  if (seconds === null) return "—";
   const sign = seconds < 0 ? "−" : seconds > 0 ? "+" : "";
   const absolute = Math.abs(seconds);
   const minutes = Math.floor(absolute / 60);
@@ -16,34 +15,22 @@ export function formatPercent(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 100)}%`;
 }
 
-export function delayBand(seconds: number | null): "unknown" | "punctual" | "mild" | "delayed" | "severe" {
-  if (seconds === null) return "unknown";
-  if (seconds <= PUNCTUALITY_THRESHOLD_SECONDS) return "punctual";
-  if (seconds <= 300) return "mild";
-  if (seconds <= 600) return "delayed";
-  return "severe";
+export function formatMadridTime(value: string | null, lang: Lang, includeSeconds = false): string {
+  if (value === null) return "—";
+  return new Intl.DateTimeFormat(lang === "es" ? "es-ES" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(includeSeconds ? { second: "2-digit" } : {}),
+    timeZone: "Europe/Madrid",
+  }).format(new Date(value));
 }
 
-export function evidenceLabel(state: EvidenceState, lang: "es" | "en"): string {
-  const labels: Record<EvidenceState, readonly [string, string]> = {
-    reported_only: ["Reportado por Renfe", "Renfe reported"],
-    observed_presence: ["Presencia observada", "Observed presence"],
-    skipped: ["Parada omitida", "Skipped stop"],
-    canceled: ["Cancelado", "Canceled"],
-    missing_evidence: ["Sin evidencia", "Missing evidence"],
-    pending: ["Pendiente", "Pending"],
-  };
-  return labels[state][lang === "es" ? 0 : 1];
-}
-
-export function statusLabel(status: DataStatus, lang: "es" | "en"): string {
-  const labels: Record<DataStatus, readonly [string, string]> = {
-    live: ["En directo", "Live"],
-    paused: ["Actualización pausada", "Refresh paused"],
-    stale: ["Datos desactualizados", "Stale data"],
-    outage: ["Fuente no disponible", "Source unavailable"],
-    cached: ["Copia sin conexión", "Offline cache"],
-    overnight: ["Sin trenes activos", "No active trains"],
-  };
-  return labels[status][lang === "es" ? 0 : 1];
+export function formatHistoryDate(value: string, lang: Lang, includeYear: boolean): string {
+  const date = new Date(`${value}T12:00:00Z`);
+  return new Intl.DateTimeFormat(lang === "es" ? "es-ES" : "en-GB", {
+    day: "2-digit",
+    month: "short",
+    ...(includeYear ? { year: "2-digit" } : {}),
+    timeZone: "UTC",
+  }).format(date);
 }
