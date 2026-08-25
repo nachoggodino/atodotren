@@ -44,9 +44,9 @@ export default async function LangLayout({ children, params }: { readonly childr
   const nonce = requestHeaders.get("x-nonce") ?? undefined;
   return (
     <html lang={lang} suppressHydrationWarning>
-      <head><script nonce={nonce} dangerouslySetInnerHTML={{ __html: OFFLINE_BOOTSTRAP }} /></head>
+      <head><script {...(nonce === undefined ? {} : { nonce })} dangerouslySetInnerHTML={{ __html: OFFLINE_BOOTSTRAP }} /></head>
       <body>
-        <ThemeProvider nonce={nonce}>
+        <ThemeProvider {...(nonce === undefined ? {} : { nonce })}>
           <AutoRefreshProvider>
             <AppShell lang={lang}>{children}</AppShell>
             <ServiceWorkerRegister />
