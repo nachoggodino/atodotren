@@ -1,10 +1,18 @@
 import "server-only";
 
 import { Pool, type QueryResultRow } from "pg";
-import type { HistoryFilters, HistoryPoint, HistoryResponse, LinePerformance, LineRef, LiveContextResponse, LiveNetworkResponse, MatrixCell, MatrixJourney, MatrixResponse, ResponseMeta, SearchResult, StationRef, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
-import { FALLBACK_LINE_COLORS, LIVE_STALE_AFTER_MS, MIN_LINE_RANKING_SAMPLE } from "@/lib/design/tokens";
+import type { HistoryFilters, HistoryPoint, HistoryResponse, LinePerformance, LineRef, MatrixCell, MatrixJourney, ResponseMeta, SearchResult, StationRef, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import { FALLBACK_LINE_COLORS } from "@/lib/design/tokens";
+import { SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "./data-adapter";
 import type { WebServerConfig } from "./config";
+import { madridDate } from "./history-request";
+
+const LIVE_STALE_AFTER_MS = 120_000;
+const MIN_LINE_RANKING_SAMPLE = 100;
+const MATRIX_MAX_ROWS = 6_000;
+const NETWORK_VEHICLE_LIMIT = 240;
+const STATION_VEHICLE_LIMIT = 60;
 
 function numberValue(value: unknown): number { const parsed = Number(value ?? 0); return Number.isFinite(parsed) ? parsed : 0; }
 function nullableNumber(value: unknown): number | null { if (value === null || value === undefined) return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
@@ -62,12 +70,18 @@ function stationFromRow(row: QueryResultRow): StationRef {
   return { id, slug: { es: stringValue(row.station_slug_es ?? row.current_station_slug_es ?? id), en: stringValue(row.station_slug_en ?? row.current_station_slug_en ?? id) }, name: { es: stringValue(row.station_name_es ?? row.current_station_name_es ?? row.name_es ?? id), en: stringValue(row.station_name_en ?? row.current_station_name_en ?? row.name_en ?? id) } };
 }
 
-function madridDate(): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+function coverage(stats: SummaryStats): ResponseMeta["coverage"] {
+  return { scheduled: stats.scheduled, observed: stats.observed, ratio: stats.scheduled === 0 ? null : stats.observed / stats.scheduled };
+}
 
-function metaFrom(stats: SummaryStats, sourceAt: string | null, finalized: boolean, algorithmVersion: string | null, precision: ResponseMeta["precision"] = "aggregate"): ResponseMeta {
+function liveMetaFrom(stats: SummaryStats, sourceAt: string | null, finalized: boolean, algorithmVersion: string | null, precision: ResponseMeta["precision"] = "aggregate"): ResponseMeta {
   const stale = sourceAt !== null && Date.now() - Date.parse(sourceAt) > LIVE_STALE_AFTER_MS;
   const status = sourceAt === null ? "outage" : stale ? "stale" : "live";
-  return { generatedAt: new Date().toISOString(), sourceAt, status, stale, coverage: { scheduled: stats.scheduled, observed: stats.observed, ratio: stats.scheduled === 0 ? null : stats.observed / stats.scheduled }, finalized, algorithmVersion, precision, exact: precision === "reported", cache: "origin", serviceDate: madridDate() };
+  return { generatedAt: new Date().toISOString(), sourceAt, status, stale, coverage: coverage(stats), finalized, algorithmVersion, precision, exact: precision === "reported", cache: "origin", serviceDate: madridDate() };
+}
+
+function historicalMetaFrom(stats: SummaryStats, finalized: boolean, algorithmVersion: string | null, precision: ResponseMeta["precision"] = "aggregate", serviceDate: string = madridDate()): ResponseMeta {
+  return { generatedAt: new Date().toISOString(), sourceAt: null, status: "live", stale: false, coverage: coverage(stats), finalized, algorithmVersion, precision, exact: precision === "reported", cache: "origin", serviceDate };
 }
 
 function historyPoint(date: string, rows: readonly QueryResultRow[]): HistoryPoint {
@@ -87,7 +101,7 @@ function historyFromRows(kind: "network" | "line" | "station", label: string, id
   const trend = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, values]) => historyPoint(date, values));
   const stats = mergeRows(filtered);
   const finalized = filters.to < madridDate();
-  return { meta: metaFrom(stats, null, finalized, stringValue(filtered[0]?.aggregate_algorithm_version) || null), context: { kind, label, id }, filters, stats, trend, rankings };
+  return { meta: historicalMetaFrom(stats, finalized, stringValue(filtered[0]?.aggregate_algorithm_version) || null, "aggregate", filters.to), context: { kind, label, id }, filters, stats, trend, rankings };
 }
 
 export function createPostgresAdapter(config: WebServerConfig): PublicDataAdapter {
@@ -98,7 +112,8 @@ export function createPostgresAdapter(config: WebServerConfig): PublicDataAdapte
   async function lineCatalog(slug?: string): Promise<readonly QueryResultRow[]> { return query(`SELECT * FROM api.line_catalog WHERE network_slug = 'madrid' ${slug === undefined ? "" : "AND slug = $1"} ORDER BY display_order, public_code LIMIT 32`, slug === undefined ? [] : [slug]); }
   async function stationCatalog(slug: string): Promise<QueryResultRow | undefined> { return (await query("SELECT * FROM api.station_catalog WHERE network_slug = 'madrid' AND (slug_es = $1 OR slug_en = $1 OR public_id = $1) LIMIT 1", [slug]))[0]; }
   async function topology(lineSlug: string): Promise<readonly QueryResultRow[]> { return query("SELECT DISTINCT ON (stop_order) * FROM api.schematic_pattern_stop WHERE network_slug = 'madrid' AND line_slug = $1 ORDER BY stop_order, pattern_id LIMIT 120", [lineSlug]); }
-  async function vehicleRows(lineSlug?: string): Promise<readonly QueryResultRow[]> { return query(`SELECT * FROM api.live_vehicle WHERE network_slug = 'madrid' ${lineSlug === undefined ? "" : "AND line_slug = $1"} ORDER BY captured_at DESC LIMIT 240`, lineSlug === undefined ? [] : [lineSlug]); }
+  async function vehicleRows(lineSlug?: string): Promise<readonly QueryResultRow[]> { return query(`SELECT * FROM api.live_vehicle WHERE network_slug = 'madrid' ${lineSlug === undefined ? "" : "AND line_slug = $1"} ORDER BY captured_at DESC LIMIT ${NETWORK_VEHICLE_LIMIT}`, lineSlug === undefined ? [] : [lineSlug]); }
+  async function stationVehicleRows(stationId: string): Promise<readonly QueryResultRow[]> { return query(`SELECT * FROM api.live_vehicle WHERE network_slug = 'madrid' AND current_station_id = $1 ORDER BY captured_at DESC LIMIT ${STATION_VEHICLE_LIMIT}`, [stationId]); }
 
   async function trainsForLine(line: LineRef, rows: readonly QueryResultRow[], stops: readonly StationRef[]): Promise<readonly TrainDetail[]> {
     const stopIndex = new Map(stops.map((stop, index) => [stop.id, index]));
@@ -120,30 +135,30 @@ export function createPostgresAdapter(config: WebServerConfig): PublicDataAdapte
   }
 
   return {
-    async search(searchTerm) { const rows = await query("SELECT * FROM api.catalog_search($1, $2)", [searchTerm, 12]); return rows.map<SearchResult>((row) => ({ kind: stringValue(row.entity_kind) === "line" ? "line" : "station", id: stringValue(row.stable_id), slug: { es: stringValue(row.slug_es), en: stringValue(row.slug_en) }, code: row.public_code === null ? null : stringValue(row.public_code), name: { es: stringValue(row.name_es), en: stringValue(row.name_en) } })); },
+    async search(searchTerm) { const rows = await query("SELECT * FROM api.catalog_search($1, $2)", [searchTerm, SEARCH_RESULT_LIMIT]); return rows.map<SearchResult>((row) => ({ kind: stringValue(row.entity_kind) === "line" ? "line" : "station", id: stringValue(row.stable_id), slug: { es: stringValue(row.slug_es), en: stringValue(row.slug_en) }, code: row.public_code === null ? null : stringValue(row.public_code), name: { es: stringValue(row.name_es), en: stringValue(row.name_en) } })); },
     async liveNetwork() {
       const [catalog, vehicles, sourceAt, summaryRows] = await Promise.all([lineCatalog(), vehicleRows(), health(), query("SELECT * FROM api.history_network_day WHERE network_slug = 'madrid' AND service_date = $1 LIMIT 1", [madridDate()])]);
       const stats = summaryFromRow(summaryRows[0]);
       const counts = new Map<string, number>(); for (const row of vehicles) counts.set(stringValue(row.line_slug), (counts.get(stringValue(row.line_slug)) ?? 0) + 1);
       const lines: LinePerformance[] = catalog.map((row) => ({ ...lineFromRow(row), stats: summaryFromRow(undefined), activeTrains: counts.get(stringValue(row.slug)) ?? 0 }));
-      const meta = metaFrom(stats, sourceAt, false, stringValue(summaryRows[0]?.aggregate_algorithm_version) || null, "mixed");
+      const meta = liveMetaFrom(stats, sourceAt, false, stringValue(summaryRows[0]?.aggregate_algorithm_version) || null, "mixed");
       return { meta: vehicles.length === 0 && meta.status === "live" ? { ...meta, status: "overnight" } : meta, stats, lines };
     },
     async liveLine(slug) {
       const catalog = await lineCatalog(slug); const lineRow = catalog[0]; if (lineRow === undefined) return null; const line = lineFromRow(lineRow);
       const [vehicles, sourceAt, summaryRows, topologyRows] = await Promise.all([vehicleRows(slug), health(), query("SELECT * FROM api.history_line_day WHERE network_slug = 'madrid' AND line_slug = $1 AND service_date = $2 LIMIT 1", [slug, madridDate()]), topology(slug)]);
       const rawStops = topologyRows.map(stationFromRow); const stops = rawStops.filter((stop, index) => rawStops.findIndex((candidate) => candidate.id === stop.id) === index);
-      const schematicStops = stops.map((station, index) => ({ station, order: index, x: 70 + index * 105, y: index % 3 === 1 ? 130 : 108 }));
+      const schematicStops = stops.map((station, index) => ({ station, order: index }));
       const stats = summaryFromRow(summaryRows[0]); const trainModels = await trainsForLine(line, vehicles, stops);
-      const meta = metaFrom(stats, sourceAt, false, stringValue(summaryRows[0]?.aggregate_algorithm_version) || null, "mixed");
+      const meta = liveMetaFrom(stats, sourceAt, false, stringValue(summaryRows[0]?.aggregate_algorithm_version) || null, "mixed");
       return { meta: trainModels.length === 0 && meta.status === "live" ? { ...meta, status: "overnight" } : meta, context: line, stats, comparison: { label: "same-weekday-hour", punctuality: null, meanDelaySeconds: null }, stops: schematicStops, trains: trainModels };
     },
     async liveStation(slug) {
       const stationRow = await stationCatalog(slug); if (stationRow === undefined) return null; const station = stationFromRow(stationRow);
-      const [rows, sourceAt] = await Promise.all([query("SELECT * FROM api.history_station_hour WHERE network_slug = 'madrid' AND station_id = $1 AND service_date = $2", [station.id, madridDate()]), health()]);
-      const stats = mergeRows(rows); const vehicles = (await vehicleRows()).filter((row) => stringValue(row.current_station_id) === station.id).slice(0, 60);
+      const [rows, sourceAt, vehicles] = await Promise.all([query("SELECT * FROM api.history_station_hour WHERE network_slug = 'madrid' AND station_id = $1 AND service_date = $2", [station.id, madridDate()]), health(), stationVehicleRows(station.id)]);
+      const stats = mergeRows(rows);
       const trainModels: TrainDetail[] = vehicles.map((row) => { const line = lineFromRow(row); const delay = nullableNumber(row.latest_stop_delay); return { id: stringValue(row.vehicle_id || row.state_key), journeyId: stringValue(row.journey_id ?? row.source_trip_id), serviceDate: stringValue(row.service_date).slice(0, 10), line, destination: null, position: { kind: "unknown", stationId: station.id, fromStationId: null, toStationId: null, progress: null, basis: "feed-inferred", confidence: "low" }, scheduledArrivalAt: null, probableArrivalAt: null, renfeReportedArrivalAt: null, observedPresenceAt: iso(row.vehicle_timestamp), delaySeconds: delay, state: delay === null ? "pending" : "reported_only", sourceAt: iso(row.vehicle_timestamp ?? row.captured_at) }; });
-      return { meta: metaFrom(stats, sourceAt, false, stringValue(rows[0]?.aggregate_algorithm_version) || null, "mixed"), context: station, stats, comparison: { label: "same-weekday-hour", punctuality: null, meanDelaySeconds: null }, stops: [], trains: trainModels };
+      return { meta: liveMetaFrom(stats, sourceAt, false, stringValue(rows[0]?.aggregate_algorithm_version) || null, "mixed"), context: station, stats, comparison: { label: "same-weekday-hour", punctuality: null, meanDelaySeconds: null }, stops: [], trains: trainModels };
     },
     async journey(serviceDate, journeyId) {
       if (!/^\d+$/.test(journeyId)) return null; const rows = await query("SELECT * FROM api.recent_journey($1::date, $2::bigint)", [serviceDate, journeyId]); const first = rows[0]; if (first === undefined) return null;
@@ -166,11 +181,11 @@ export function createPostgresAdapter(config: WebServerConfig): PublicDataAdapte
       const rows = await query(`SELECT * FROM api.history_station_hour WHERE ${clauses.join(" AND ")} ORDER BY service_date LIMIT 7000`, values); return historyFromRows("station", stringValue(station.name_es), id, filters, rows, []);
     },
     async matrix(lineSlug, serviceDate) {
-      const catalog = await lineCatalog(lineSlug); if (catalog[0] === undefined) return null; const rows = await query("SELECT * FROM api.recent_line_matrix($1, $2::date, 6000)", [lineSlug, serviceDate]);
+      const catalog = await lineCatalog(lineSlug); if (catalog[0] === undefined) return null; const rows = await query("SELECT * FROM api.recent_line_matrix($1, $2::date, $3::integer)", [lineSlug, serviceDate, MATRIX_MAX_ROWS]);
       const stationMap = new Map<string, StationRef>(); const journeyMap = new Map<string, MatrixJourney>(); const cells: MatrixCell[] = [];
       for (const row of rows) { const station = stationFromRow(row); stationMap.set(station.id, station); const journeyId = stringValue(row.journey_id); journeyMap.set(journeyId, { id: journeyId, label: stringValue(row.source_trip_id), direction: row.direction === null ? null : Number(row.direction) === 1 ? 1 : 0 }); cells.push({ journeyId, stationId: station.id, scheduledAt: iso(row.scheduled_arrival_at) ?? "", reportedAt: iso(row.renfe_arrival_at), delaySeconds: nullableNumber(row.selected_delay_seconds), state: (stringValue(row.evidence_status) || "pending") as MatrixCell["state"] }); }
       const stats: SummaryStats = { scheduled: cells.length, observed: cells.filter((cell) => cell.delaySeconds !== null).length, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, canceled: cells.filter((cell) => cell.state === "canceled").length, missing: cells.filter((cell) => cell.state === "missing_evidence").length, distribution: [] };
-      return { meta: metaFrom(stats, null, serviceDate < madridDate(), stringValue(rows[0]?.canonical_algorithm_version) || null), line: lineFromRow(catalog[0]), date: serviceDate, stations: [...stationMap.values()], journeys: [...journeyMap.values()], cells };
+      return { meta: historicalMetaFrom(stats, serviceDate < madridDate(), stringValue(rows[0]?.canonical_algorithm_version) || null, "aggregate", serviceDate), line: lineFromRow(catalog[0]), date: serviceDate, stations: [...stationMap.values()], journeys: [...journeyMap.values()], cells };
     },
     async close() { await pool.end(); },
   };

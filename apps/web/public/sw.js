@@ -1,11 +1,11 @@
-const VERSION = "frontend-alpha-v2";
+const VERSION = "anden-infinito-brand-v1";
 const SHELL_CACHE = `atodotren-shell-${VERSION}`;
 const LIVE_CACHE = `atodotren-live-${VERSION}`;
 const DAILY_CACHE = `atodotren-daily-${VERSION}`;
 const PAGE_CACHE = `atodotren-page-${VERSION}`;
 const OWNED_PREFIX = "atodotren-";
 
-const SHELL_URLS = ["/es", "/en", "/offline.html", "/icon.svg", "/maskable.svg", "/manifest.webmanifest"];
+const SHELL_URLS = ["/es", "/en", "/offline.html", "/favicon.svg", "/icon.svg", "/maskable.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)));

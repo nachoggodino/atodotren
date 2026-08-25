@@ -2,6 +2,7 @@
 
 import { Languages, Moon, Pause, Play, Sun } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/domain/contracts";
@@ -21,7 +22,8 @@ function routeContext(pathname: string, messages: Messages): string {
   return messages.nav.home;
 }
 
-export function AppHeader({ lang, messages, pathname }: { readonly lang: Lang; readonly messages: Messages; readonly pathname: string }) {
+export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
+  const pathname = usePathname();
   const [openPathname, setOpenPathname] = useState<string | null>(null);
   const open = openPathname === pathname;
   const [hidden, setHidden] = useState(false);

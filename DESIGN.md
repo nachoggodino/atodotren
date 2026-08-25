@@ -1,10 +1,10 @@
-# Atodotren frontend design system
+# andén infinito frontend design system
 
-Status: frontend alpha implementation reference. This document defines visual intent, not final brand acceptance.
+Status: frontend alpha implementation reference with the accepted product brand, mark, and palette.
 
 ## Principles
 
-Atodotren combines three modes without becoming three products: **Civic Flow** on the landing/overview, **Transit Canvas** for live schematic state, and **Evidence Ledger** for historical analysis. The interface is editorial and flat. Hierarchy comes from type, spacing, rules and semantic color before elevation. Cards are reserved for independently actionable, selectable, stateful or portable blocks.
+andén infinito combines three modes without becoming three products: **Civic Flow** on the landing/overview, **Transit Canvas** for live schematic state, and **Evidence Ledger** for historical analysis. The interface is editorial and flat. Hierarchy comes from type, spacing, rules and semantic treatment before elevation. Cards are reserved for independently actionable, selectable, stateful or portable blocks.
 
 The voice is factual and incisive: show the evidence, expose missing evidence, and never turn inferred feed state into false precision. Landing surfaces may be energetic; analytical surfaces are calmer. Every data view keeps freshness, coverage, finalization and precision visible.
 
@@ -19,26 +19,23 @@ The voice is factual and incisive: show the evidence, expose missing evidence, a
 
 ## Color
 
-Semantic tokens live in `apps/web/src/app/globals.css`; chart/line constants live in `lib/design/tokens.ts`. Light and dark themes share meaning rather than literal colors.
+The final product palette is intentionally narrow and is centralized in `apps/web/src/app/globals.css`.
 
-Delay states:
+Light:
+- background: `#F6E4E2`;
+- surface/cards: `#FFFFFF`;
+- text: `#3A1B22`;
+- primary accent: `#7A3B4A`.
 
-- early/on-time: <= 120s, green semantic state;
-- mild: 121-300s, yellow/amber;
-- delayed: 301-600s, orange;
-- severe: >600s, red;
-- canceled/skipped/missing/pending: separate patterns/text labels, never encoded by hue alone.
+Dark:
+- background: `#221016`;
+- surface/cards: `#2E161C`;
+- text: `#F6E4E2`;
+- primary accent: `#C98A98`.
 
-Coverage/freshness:
+All interface accents, charts, focus treatment, icons, freshness markers and delay-state emphasis are derived from those colors. Delay and evidence states are differentiated through intensity, symbols, labels and patterns rather than introducing unrelated green/amber/red/blue accent hues.
 
-- healthy: fresh feed and normal coverage;
-- partial: usable but incomplete coverage;
-- stale: source timestamp beyond the live freshness threshold;
-- outage: no usable current source;
-- cached/offline: last successful important response, always timestamped;
-- overnight: no active trains is a valid state, not an outage.
-
-Cercanías colors use source line colors when available; fixture fallback colors are centralized. Text never depends on a line color for legibility.
+Cercanías line colors are the deliberate exception: they remain source transport-identity data on line badges and schematic route strokes. They are not part of the andén infinito interface palette, and surrounding UI never reuses them as generic accents.
 
 ## Charts and matrices
 
@@ -56,9 +53,9 @@ Default transitions are 140-240ms. The floating navigation drawer animates measu
 
 The floating sticky shell adapts the interaction quality of Termómetro de Madrid without copying its product structure: measured-height expansion, inert hidden menu content, focus restoration, mobile hide-on-scroll/reveal, route context, language/theme controls and a global auto-refresh switch.
 
-## Brand replacement boundary
+## Brand assets
 
-Working name, wordmark, symbol label, PWA colors and placeholder train mark are centralized under `lib/brand`. Product strings are not scattered through components. The placeholder geometric train symbol is deliberately simple and replaceable.
+The supplied final andén infinito SVG is the canonical geometry. The in-app mark uses `currentColor`, so it resolves to `#7A3B4A` in light mode and `#C98A98` in dark mode. The favicon uses the tightly cropped mark in the light primary accent. PWA icons use the same cropped mark in `#7A3B4A` on `#F6E4E2`, with a separate maskable-safe variant.
 
 ## Accessibility
 

@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useTransition } from "react";
-import { LIVE_REFRESH_MS } from "@/lib/design/tokens";
 import { useAutoRefresh } from "@/components/shell/auto-refresh-provider";
 import type { Messages } from "@/messages/types";
+
+const LIVE_REFRESH_MS = 30_000;
 
 export function LiveRefresh({ messages }: { readonly messages: Messages }) {
   const router = useRouter();

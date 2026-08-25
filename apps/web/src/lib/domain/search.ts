@@ -1,3 +1,5 @@
+export const SEARCH_RESULT_LIMIT = 12;
+
 export function normalizeSearch(value: string): string {
   return value
     .normalize("NFD")

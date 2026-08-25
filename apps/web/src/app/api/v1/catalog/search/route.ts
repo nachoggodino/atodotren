@@ -1,6 +1,5 @@
 import { apiError, apiJson, scenarioFromRequest } from "@/lib/server/api";
-import { searchCatalog } from "@/lib/server/services";
-import { CATALOG_CACHE_SECONDS } from "@/lib/design/tokens";
+import { CATALOG_CACHE_SECONDS, searchCatalog } from "@/lib/server/services";
 import type { SearchResponse } from "@/lib/domain/contracts";
 
 export const dynamic = "force-dynamic";

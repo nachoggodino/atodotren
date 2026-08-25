@@ -102,8 +102,6 @@ export interface TrainDetail {
 export interface SchematicStop {
   readonly station: StationRef;
   readonly order: number;
-  readonly x: number;
-  readonly y: number;
 }
 
 export interface LiveNetworkResponse {

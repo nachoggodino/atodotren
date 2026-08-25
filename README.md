@@ -182,7 +182,7 @@ The PWA includes a manifest, replaceable placeholder icons and a small versioned
 - the last important successful live selection;
 - one useful daily summary.
 
-It does **not** cache the complete historical dataset or timetable matrices. Cached content is explicitly labelled with its cache timestamp; when no approved cached answer exists, the user gets a clear offline/no-cache state. Service-worker updates use versioned caches rather than silently mixing incompatible data.
+It does **not** cache the complete historical dataset or timetable matrices. Cached content is explicitly labelled as cached/offline; when no approved cached answer exists, the user gets a clear offline/no-cache state. Service-worker updates use versioned caches rather than silently mixing incompatible data.
 
 ## Verification
 
