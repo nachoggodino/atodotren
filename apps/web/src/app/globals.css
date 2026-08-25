@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+:root {
+  --background: oklch(0.975 0.008 84);
+  --foreground: oklch(0.20 0.025 165);
+  --surface: oklch(0.995 0.004 84 / 0.88);
+  --surface-strong: oklch(1 0 0);
+  --muted: oklch(0.50 0.025 165);
+  --muted-soft: oklch(0.93 0.012 84);
+  --border: oklch(0.84 0.016 90);
+  --primary: oklch(0.40 0.12 160);
+  --primary-strong: oklch(0.32 0.13 160);
+  --accent: oklch(0.78 0.15 74);
+  --accent-contrast: oklch(0.20 0.035 75);
+  --success: oklch(0.55 0.13 152);
+  --warning: #8a5a00;
+  --danger: oklch(0.58 0.19 28);
+  --unknown: oklch(0.62 0.025 250);
+  --focus: oklch(0.55 0.17 248);
+  --shadow-float: 0 18px 55px oklch(0.18 0.02 165 / 0.14);
+  --drawer-duration: 220ms;
+  color-scheme: light;
+}
+
+.dark {
+  --background: oklch(0.16 0.018 165);
+  --foreground: oklch(0.94 0.012 90);
+  --surface: oklch(0.205 0.02 165 / 0.92);
+  --surface-strong: oklch(0.225 0.022 165);
+  --muted: oklch(0.72 0.02 130);
+  --muted-soft: oklch(0.25 0.022 165);
+  --border: oklch(0.34 0.025 165);
+  --primary: oklch(0.70 0.13 158);
+  --primary-strong: oklch(0.79 0.13 158);
+  --accent: oklch(0.76 0.14 72);
+  --accent-contrast: oklch(0.18 0.03 72);
+  --success: oklch(0.72 0.13 151);
+  --warning: oklch(0.78 0.14 79);
+  --danger: oklch(0.72 0.16 28);
+  --unknown: oklch(0.72 0.025 250);
+  --focus: oklch(0.72 0.14 244);
+  --shadow-float: 0 20px 65px oklch(0.02 0.01 165 / 0.48);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-muted: var(--muted);
+  --color-muted-soft: var(--muted-soft);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-unknown: var(--unknown);
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--background); scroll-behavior: smooth; }
+body { margin: 0; min-height: 100vh; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+::selection { background: color-mix(in oklab, var(--accent) 42%, transparent); }
+
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+.page-shell { width: min(100% - 2rem, 72rem); margin-inline: auto; }
+.section-rule { border-top: 1px solid var(--border); }
+.metric-value { font-variant-numeric: tabular-nums; letter-spacing: -0.035em; }
+.eyebrow { font-size: .72rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.data-status { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; font-weight: 700; }
+.data-status::before { content: ""; width: .55rem; height: .55rem; border-radius: 999px; background: var(--unknown); }
+.data-status[data-status="live"]::before { background: var(--success); }
+.data-status[data-status="stale"], .data-status[data-status="paused"] { color: var(--warning); }
+.data-status[data-status="stale"]::before, .data-status[data-status="paused"]::before { background: var(--warning); }
+.data-status[data-status="outage"] { color: var(--danger); }
+.data-status[data-status="outage"]::before { background: var(--danger); }
+
+.offline-status { display: none; }
+html[data-atodotren-offline="true"] .offline-status { display: flex; }
+
+.delay-cell { position: relative; min-width: 5.2rem; }
+.delay-cell[data-band="punctual"] { background: color-mix(in oklab, var(--success) 17%, transparent); }
+.delay-cell[data-band="mild"] { background: color-mix(in oklab, var(--warning) 20%, transparent); }
+.delay-cell[data-band="delayed"] { background: color-mix(in oklab, var(--accent) 24%, transparent); }
+.delay-cell[data-band="severe"] { background: color-mix(in oklab, var(--danger) 22%, transparent); }
+.delay-cell[data-state="canceled"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in oklab, var(--danger) 18%, transparent) 7px 10px); }
+.delay-cell[data-state="missing_evidence"], .delay-cell[data-state="pending"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in oklab, var(--unknown) 16%, transparent) 7px 10px); }
+
+.skeleton { background: linear-gradient(100deg, var(--muted-soft) 20%, color-mix(in oklab, var(--muted-soft) 55%, var(--surface-strong)) 45%, var(--muted-soft) 70%); background-size: 220% 100%; animation: skeleton 1.5s ease-in-out infinite; }
+@keyframes skeleton { to { background-position-x: -220%; } }
+@keyframes refresh-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.refresh-progress { transform-origin: left; animation: refresh-progress 30s linear infinite; }
+
+@media (max-width: 639px) {
+  .page-shell { width: min(100% - 1.25rem, 72rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.001ms !important; }
+}
