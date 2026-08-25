@@ -1,8 +1,6 @@
 const CACHE_POLICY = Object.freeze({
   version: "web-production-readiness-v1",
-  live: Object.freeze({ keepNetworkSummary: true, detailEntries: 1 }),
-  dailySummaryEntries: 1,
-  livePageEntries: 1,
+  keepNetworkSummary: true,
 });
 
 const SHELL_CACHE = `atodotren-shell-${CACHE_POLICY.version}`;
@@ -97,7 +95,7 @@ self.addEventListener("fetch", (event) => {
             LIVE_CACHE,
             event.request,
             response.clone(),
-            (key) => !network && CACHE_POLICY.live.keepNetworkSummary && new URL(key.url).pathname.endsWith("/network"),
+            (key) => !network && CACHE_POLICY.keepNetworkSummary && new URL(key.url).pathname.endsWith("/network"),
           );
         }
         return response;

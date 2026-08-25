@@ -36,6 +36,16 @@ describe("fixture contract scenarios", () => {
     expect(weekdays.trend.length).toBeLessThan(baseline.trend.length);
   });
 
+  it("keeps a full 365-day history without fixture-side truncation", async () => {
+    const filters = { from: "2025-08-25", to: "2026-08-24", weekdays: [], hour: null, direction: null } as const;
+    const history = await createFixtureAdapter("large-history").historyNetwork(filters);
+    expect(history.filters).toEqual(filters);
+    expect(history.trend).toHaveLength(365);
+    expect(history.trend[0]?.date).toBe(filters.from);
+    expect(history.trend.at(-1)?.date).toBe(filters.to);
+    expect(new Set(history.trend.map((point) => point.date))).toHaveLength(365);
+  });
+
   it("represents unsupported capabilities and mixed provenance explicitly", async () => {
     const unsupported = await createFixtureAdapter("unsupported-capabilities").historyLine("c1", baseFilters);
     const mixed = await createFixtureAdapter("mixed-versions").historyNetwork(baseFilters);
