@@ -26,17 +26,19 @@ export default async function LandingPage({ params, searchParams }: { readonly p
   const number = new Intl.NumberFormat(lang === "es" ? "es-ES" : "en-GB");
 
   return <div className="page-shell pb-16 pt-9 sm:pt-14">
-    <section className="max-w-5xl">
+    <section className="mx-auto max-w-4xl text-center">
       <p className="eyebrow">{messages.landing.eyebrow}</p>
-      <h1 className="mt-3 max-w-5xl text-[2.65rem] font-black leading-[.94] tracking-[-.06em] sm:text-6xl lg:text-7xl">{messages.landing.title}</h1>
-      <p className="mt-5 max-w-3xl text-lg leading-8 text-muted sm:text-xl">{messages.landing.body}</p>
+      <blockquote className="mt-3">
+        <h1 className="mx-auto max-w-4xl text-[2rem] font-bold leading-[1.04] tracking-[-.035em] sm:text-4xl lg:text-5xl">“{messages.landing.title}”</h1>
+      </blockquote>
+      <p className="mx-auto mt-4 max-w-2xl text-[.95rem] leading-7 text-muted sm:text-base">{messages.landing.body}</p>
     </section>
 
     <section className="mt-9 overflow-hidden rounded-2xl border border-border bg-surface-strong" data-testid="landing-live-metrics">
       <div className="grid grid-cols-3 divide-x divide-border">
-        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.activeTrains}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{number.format(data.activeTrains)}</p></div>
-        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.activeDelay}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
-        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.68rem] font-bold uppercase tracking-[.08em] text-muted sm:text-xs">{messages.landing.todayDelay}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeTrains}</p><p className="metric-value mt-1 text-xl font-black sm:text-2xl">{number.format(data.activeTrains)}</p></div>
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeDelay}</p><p className="metric-value mt-1 text-[.94rem] font-black sm:text-[1.18rem]">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
+        <div className="min-w-0 px-3 py-4 sm:px-5"><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.todayDelay}</p><p className="metric-value mt-1 text-[.94rem] font-black sm:text-[1.18rem]">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
       </div>
     </section>
 
@@ -48,7 +50,7 @@ export default async function LandingPage({ params, searchParams }: { readonly p
       </div>
     </section>
 
-    <section className="mt-8 rounded-2xl border border-border bg-surface-strong p-4 sm:p-6" data-testid="landing-delay-trend">
+    <section className="mt-10" data-testid="landing-delay-trend">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
         <div><p className="eyebrow">{messages.landing.delayTrend}</p><h2 className="mt-1 text-2xl font-black tracking-tight">{formatDuration(data.dayDelaySeconds, lang)}</h2></div>
         <span className="text-xs font-bold text-muted">{messages.landing.delayTrendWindow}</span>
