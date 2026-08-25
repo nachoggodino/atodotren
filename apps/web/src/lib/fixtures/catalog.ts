@@ -9,7 +9,7 @@ export const fixtureLines: readonly LineRef[] = ["c1", "c2", "c3", "c4", "c5", "
   color: fallbackLineColor(slug),
 }));
 
-export const fixtureStations: readonly StationRef[] = [
+const STATION_FIXTURES: readonly (readonly [id: string, slugEs: string, slugEn: string, nameEs: string, nameEn: string])[] = [
   ["chamartin", "chamartin-clara-campoamor", "chamartin-clara-campoamor", "Chamartín Clara Campoamor", "Chamartín Clara Campoamor"],
   ["nuevos-ministerios", "nuevos-ministerios", "nuevos-ministerios", "Nuevos Ministerios", "Nuevos Ministerios"],
   ["recoletos", "recoletos", "recoletos", "Recoletos", "Recoletos"],
@@ -19,7 +19,13 @@ export const fixtureStations: readonly StationRef[] = [
   ["aeropuerto-t4", "aeropuerto-t4", "airport-t4", "Aeropuerto T4", "Airport T4"],
   ["aeropuerto-t123", "aeropuerto-t1-t2-t3", "airport-t1-t2-t3", "Aeropuerto T1-T2-T3", "Airport T1-T2-T3"],
   ["san-fernando-largo", "san-fernando-de-henares-estacion-central", "san-fernando-de-henares-central-station", "San Fernando de Henares Estación Central", "San Fernando de Henares Central Station"],
-].map(([id, slugEs, slugEn, nameEs, nameEn]) => ({ id, slug: { es: slugEs, en: slugEn }, name: { es: nameEs, en: nameEn } }));
+];
+
+export const fixtureStations: readonly StationRef[] = STATION_FIXTURES.map(([id, slugEs, slugEn, nameEs, nameEn]) => ({
+  id,
+  slug: { es: slugEs, en: slugEn },
+  name: { es: nameEs, en: nameEn },
+}));
 
 export const fixtureStationAliases: Readonly<Record<string, readonly string[]>> = {
   atocha: ["madrid puerta de atocha", "atocha cercanias", "atocha cercanías"],
