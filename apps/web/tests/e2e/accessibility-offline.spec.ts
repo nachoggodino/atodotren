@@ -21,6 +21,26 @@ test("security headers use a nonce-based CSP", async ({ page }) => {
   expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
 });
 
+test("live API cache keeps the network summary and only the latest detail", async ({ page }) => {
+  await page.goto("/es");
+  await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
+  await page.reload();
+  for (const path of ["/api/v1/live/network", "/api/v1/live/lines/c1", "/api/v1/live/stations/atocha"]) {
+    await page.evaluate(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`fixture API failed: ${response.status}`);
+    }, path);
+  }
+  const entries = await page.evaluate(async () => {
+    const names = await caches.keys();
+    const liveName = names.find((name) => name.startsWith("atodotren-live-"));
+    if (!liveName) return [];
+    const cache = await caches.open(liveName);
+    return (await cache.keys()).map((request) => new URL(request.url).pathname).sort();
+  });
+  expect(entries).toEqual(["/api/v1/live/network", "/api/v1/live/stations/atocha"]);
+});
+
 test("a cached live page remains explicit when the browser goes offline", async ({ page, context }) => {
   await page.goto("/es/live/line/c1");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);

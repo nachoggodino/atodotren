@@ -45,7 +45,7 @@ test("current-day cancellation and missing-evidence fixtures remain distinct", a
   await expect(page.locator('[data-state="missing_evidence"]').first()).toBeVisible();
 });
 
-test("@webkit large matrix stays complete, scrollable and sticky", async ({ page }, testInfo) => {
+test("@webkit large matrix stays complete, responsive, scrollable and sticky", async ({ page }, testInfo) => {
   const started = Date.now();
   await page.goto("/es/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=large-matrix");
   const matrix = page.getByTestId("timetable-matrix");
@@ -61,9 +61,18 @@ test("@webkit large matrix stays complete, scrollable and sticky", async ({ page
   });
   expect(scroll.top).toBeGreaterThan(0);
   expect(scroll.left).toBeGreaterThan(0);
+
+  const interactionStarted = Date.now();
+  const visibleCell = matrix.getByRole("button").nth(1000);
+  await visibleCell.scrollIntoViewIfNeeded();
+  await visibleCell.click();
+  await expect(page.getByTestId("matrix-detail")).toBeVisible();
+  const interactionMs = Date.now() - interactionStarted;
+
   expect(renderedMs).toBeLessThan(30_000);
+  expect(interactionMs).toBeLessThan(5_000);
   await testInfo.attach("large-matrix-profile.json", {
-    body: Buffer.from(JSON.stringify({ project: testInfo.project.name, renderedMs, ...scroll }, null, 2)),
+    body: Buffer.from(JSON.stringify({ project: testInfo.project.name, renderedMs, interactionMs, ...scroll }, null, 2)),
     contentType: "application/json",
   });
 });

@@ -1,8 +1,14 @@
-const VERSION = "anden-infinito-brand-v1";
-const SHELL_CACHE = `atodotren-shell-${VERSION}`;
-const LIVE_CACHE = `atodotren-live-${VERSION}`;
-const DAILY_CACHE = `atodotren-daily-${VERSION}`;
-const PAGE_CACHE = `atodotren-page-${VERSION}`;
+const CACHE_POLICY = Object.freeze({
+  version: "web-production-readiness-v1",
+  live: Object.freeze({ keepNetworkSummary: true, detailEntries: 1 }),
+  dailySummaryEntries: 1,
+  livePageEntries: 1,
+});
+
+const SHELL_CACHE = `atodotren-shell-${CACHE_POLICY.version}`;
+const LIVE_CACHE = `atodotren-live-${CACHE_POLICY.version}`;
+const DAILY_CACHE = `atodotren-daily-${CACHE_POLICY.version}`;
+const PAGE_CACHE = `atodotren-page-${CACHE_POLICY.version}`;
 const OWNED_PREFIX = "atodotren-";
 
 const SHELL_URLS = ["/es", "/en", "/offline.html", "/favicon.svg", "/icon.svg", "/maskable.svg", "/manifest.webmanifest"];
@@ -14,7 +20,8 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(names.filter((name) => name.startsWith(OWNED_PREFIX) && ![SHELL_CACHE, LIVE_CACHE, DAILY_CACHE, PAGE_CACHE].includes(name)).map((name) => caches.delete(name)));
+    const activeCaches = [SHELL_CACHE, LIVE_CACHE, DAILY_CACHE, PAGE_CACHE];
+    await Promise.all(names.filter((name) => name.startsWith(OWNED_PREFIX) && !activeCaches.includes(name)).map((name) => caches.delete(name)));
     await self.clients.claim();
   })());
 });
@@ -32,7 +39,7 @@ async function offlineResponse(response) {
   return new Response(await response.clone().arrayBuffer(), { status: response.status, statusText: response.statusText, headers });
 }
 
-async function storeSingle(cacheName, request, response, preserve = () => false) {
+async function replaceBounded(cacheName, request, response, preserve = () => false) {
   const cache = await caches.open(cacheName);
   const keys = await cache.keys();
   await Promise.all(keys.filter((key) => !preserve(key)).map((key) => cache.delete(key)));
@@ -41,6 +48,10 @@ async function storeSingle(cacheName, request, response, preserve = () => false)
 
 function isLiveApi(url) {
   return url.origin === self.location.origin && /^\/api\/v1\/live\/(network|lines\/[^/]+|stations\/[^/]+)$/.test(url.pathname);
+}
+
+function isNetworkLiveApi(url) {
+  return url.pathname.endsWith("/network");
 }
 
 function isDailySummary(url) {
@@ -81,8 +92,13 @@ self.addEventListener("fetch", (event) => {
       try {
         const response = await fetch(event.request);
         if (response.ok) {
-          const isNetwork = url.pathname.endsWith("/network");
-          await storeSingle(LIVE_CACHE, event.request, response.clone(), (key) => isNetwork ? false : new URL(key.url).pathname.endsWith("/network"));
+          const network = isNetworkLiveApi(url);
+          await replaceBounded(
+            LIVE_CACHE,
+            event.request,
+            response.clone(),
+            (key) => !network && CACHE_POLICY.live.keepNetworkSummary && new URL(key.url).pathname.endsWith("/network"),
+          );
         }
         return response;
       } catch {
@@ -96,7 +112,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       try {
         const response = await fetch(event.request);
-        if (response.ok) await storeSingle(DAILY_CACHE, event.request, response.clone());
+        if (response.ok) await replaceBounded(DAILY_CACHE, event.request, response.clone());
         return response;
       } catch {
         return (await offlineResponse(await caches.match(event.request))) ?? new Response(JSON.stringify({ error: "offline-no-cache" }), { status: 503, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -109,7 +125,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       try {
         const response = await fetch(event.request);
-        if (response.ok && isLivePage(url)) await storeSingle(PAGE_CACHE, event.request, response.clone());
+        if (response.ok && isLivePage(url)) await replaceBounded(PAGE_CACHE, event.request, response.clone());
         return response;
       } catch {
         const exact = await caches.match(event.request);
