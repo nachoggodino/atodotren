@@ -105,7 +105,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
             <Ariakit.Dialog
               ref={panelRef}
               portal={false}
-              backdrop={<div className="fixed inset-0 -z-10 bg-foreground/10 backdrop-blur-[2px]" />}
+              backdrop={false}
               aria-label={messages.nav.menu}
               className="m-0 w-full max-w-none border-0 bg-transparent p-0 text-foreground outline-none"
             >

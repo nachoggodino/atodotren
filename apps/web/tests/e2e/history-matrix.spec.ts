@@ -64,7 +64,7 @@ test("@webkit large matrix stays complete, responsive, scrollable and sticky", a
 
   const interactionStarted = Date.now();
   const visibleCell = matrix.getByRole("button").nth(1000);
-  await visibleCell.scrollIntoViewIfNeeded();
+  await visibleCell.evaluate((element) => element.scrollIntoView({ block: "center", inline: "center" }));
   await visibleCell.click();
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
   const interactionMs = Date.now() - interactionStarted;

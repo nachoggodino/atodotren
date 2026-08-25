@@ -14,6 +14,10 @@ function routeFor(result: SearchResult, lang: Lang, mode: "live" | "history"): s
   return `/${lang}/${mode}/${result.kind}/${slug}`;
 }
 
+function selectionValue(result: SearchResult): string {
+  return `${result.kind}:${result.id}`;
+}
+
 export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
   const inputId = useId();
   const [query, setQuery] = useState("");
@@ -36,6 +40,13 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
     setOpen(true);
   };
 
+  const onSelectedValueChange = (value: string | string[]) => {
+    if (Array.isArray(value)) return;
+    const result = results.find((candidate) => selectionValue(candidate) === value) ?? null;
+    setSelected(result);
+    if (result) setOpen(false);
+  };
+
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed === "") return;
@@ -50,7 +61,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
         if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
         const payload = await response.json() as SearchResponse;
         setResults(payload.results);
-        setSelected((current) => payload.results.find((result) => result.id === current?.id) ?? null);
+        setSelected((current) => payload.results.find((result) => result.id === current?.id && result.kind === current.kind) ?? null);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setResults([]);
@@ -67,7 +78,14 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
   }, [query]);
 
   return (
-    <Ariakit.ComboboxProvider value={query} setValue={onQueryChange} open={open} setOpen={setOpen}>
+    <Ariakit.ComboboxProvider
+      value={query}
+      setValue={onQueryChange}
+      selectedValue={selected ? selectionValue(selected) : ""}
+      setSelectedValue={onSelectedValueChange}
+      open={open}
+      setOpen={setOpen}
+    >
       <div className="relative">
         <Ariakit.ComboboxLabel className="mb-2 block text-sm font-bold" htmlFor={inputId}>
           {messages.landing.searchLabel}
@@ -93,13 +111,10 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
             {results.map((result) => (
               <Ariakit.ComboboxItem
                 key={`${result.kind}-${result.id}`}
-                value={result.name[lang]}
-                selectValueOnClick={false}
+                value={selectionValue(result)}
+                setValueOnClick={false}
+                resetValueOnSelect={false}
                 className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted-soft data-[active-item]:bg-muted-soft"
-                onClick={() => {
-                  setSelected(result);
-                  setOpen(false);
-                }}
               >
                 {result.kind === "line" ? <TrainFront className="size-5" /> : <Radio className="size-5" />}
                 <span className="min-w-0 flex-1">

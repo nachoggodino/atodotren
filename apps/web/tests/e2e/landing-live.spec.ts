@@ -9,7 +9,7 @@ async function openMenu(page: import("@playwright/test").Page) {
 
 test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {
   await page.goto("/es");
-  await page.getByLabel("Busca una línea o estación").fill("C-1");
+  await page.getByRole("combobox", { name: "Busca una línea o estación", exact: true }).fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
   await option.click();
@@ -24,7 +24,7 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
 
 test("@webkit search keyboard navigation and header dialog restore focus", async ({ page }) => {
   await page.goto("/es");
-  const search = page.getByRole("combobox", { name: "Busca una línea o estación" });
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
   await expect(page.getByRole("option").filter({ hasText: "C1" }).first()).toBeVisible();
   await search.press("ArrowDown");
@@ -38,14 +38,18 @@ test("@webkit search keyboard navigation and header dialog restore focus", async
   await expect(toggle).toBeFocused();
 });
 
-test("search distinguishes API failure from empty results", async ({ page }) => {
-  await page.route("**/api/v1/catalog/search?*", async (route) => {
-    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "temporarily-unavailable" } }) });
+test.describe("search network failure", () => {
+  test.use({ serviceWorkers: "block" });
+
+  test("search distinguishes API failure from empty results", async ({ page }) => {
+    await page.route("**/api/v1/catalog/search?*", async (route) => {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "temporarily-unavailable" } }) });
+    });
+    await page.goto("/en");
+    await page.getByRole("combobox", { name: "Search a line or station", exact: true }).fill("Atocha");
+    await expect(page.getByText("Search is temporarily unavailable. Try again.")).toBeVisible();
+    await expect(page.getByText("No matching line or station.")).toHaveCount(0);
   });
-  await page.goto("/en");
-  await page.getByRole("combobox", { name: "Search a line or station" }).fill("Atocha");
-  await expect(page.getByText("Search is temporarily unavailable. Try again.")).toBeVisible();
-  await expect(page.getByText("No matching line or station.")).toHaveCount(0);
 });
 
 test("global refresh pause persists and live train detail is keyboard operable", async ({ page }) => {

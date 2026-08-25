@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 async function switchToEnglish(page: import("@playwright/test").Page) {
   await page.getByTestId("menu-toggle").click();
-  await page.getByRole("link", { name: "EN" }).click();
+  await page.getByRole("link", { name: "EN", exact: true }).click();
 }
 
 test("@webkit localized station slugs canonicalize when changing language", async ({ page }) => {

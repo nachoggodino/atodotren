@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const webkitOnly = /@webkit/;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   outputDir: "./test-results",
@@ -22,8 +24,8 @@ export default defineConfig({
     },
   },
   projects: [
-    { name: "desktop-chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
-    { name: "webkit-acceptance", grep: /@webkit/, use: { ...devices["Desktop Safari"] } },
+    { name: "desktop-chromium", grepInvert: webkitOnly, use: { ...devices["Desktop Chrome"] } },
+    { name: "mobile-chromium", grepInvert: webkitOnly, use: { ...devices["Pixel 7"] } },
+    { name: "webkit-acceptance", grep: webkitOnly, use: { ...devices["Desktop Safari"] } },
   ],
 });
