@@ -76,6 +76,7 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 ::selection { background: color-mix(in srgb, var(--primary) 42%, transparent); }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.landing-search-input:focus-visible { outline: none; outline-offset: 0; }
 
 .page-shell { width: min(100% - 2rem, 72rem); margin-inline: auto; }
 .section-rule { border-top: 1px solid var(--border); }
