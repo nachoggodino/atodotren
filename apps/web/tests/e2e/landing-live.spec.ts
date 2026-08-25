@@ -11,7 +11,12 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.goto("/es");
   await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
-  await page.getByRole("combobox", { name: "Busca una línea o estación", exact: true }).fill("C-1");
+  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Ni pronto.");
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
+  await search.focus();
+  await expect(search).toHaveCSS("outline-style", "none");
+  await expect(search).toHaveCSS("border-top-width", "0px");
+  await search.fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
   await option.click();
@@ -90,6 +95,7 @@ test("English routes, theme persistence, mobile drawer and reduced motion remain
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/en");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("A wizard is never late");
+  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Nor is he early.");
   await openMenu(page);
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);

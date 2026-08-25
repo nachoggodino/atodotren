@@ -20,7 +20,7 @@ export function LandingDelayTrend({ points, lang, messages }: { readonly points:
           <XAxis dataKey="time" ticks={ticks} axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
           <YAxis axisLine={false} tickLine={false} width={42} tick={{ fill: "var(--muted)", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 3600)}h`} />
           <Tooltip contentStyle={{ background: "var(--surface-strong)", border: "1px solid var(--border)", borderRadius: 12, color: "var(--foreground)" }} formatter={(value) => [formatDuration(Number(value ?? 0), lang), messages.landing.todayDelay]} />
-          <Area type="monotone" dataKey="delay" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+          <Area type="monotone" dataKey="delay" stroke="var(--landing-delay)" fill="var(--landing-delay)" fillOpacity={0.14} strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
