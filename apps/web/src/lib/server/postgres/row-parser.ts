@@ -27,6 +27,19 @@ function integerValue(value: unknown, context: string, field: string, allowNegat
   return parsed;
 }
 
+function integerIdentifier(value: unknown, context: string, field: string): string {
+  if (typeof value === "bigint") {
+    if (value < 0n) return fail(context, field, value);
+    return value.toString();
+  }
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 0) return fail(context, field, value);
+    return String(value);
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) return value;
+  return fail(context, field, value);
+}
+
 function nullableIntegerField(row: RawPostgresRow, field: string, context: string, allowNegative = false): number | null {
   const value = row[field];
   return value === null || value === undefined ? null : integerValue(value, context, field, allowNegative);
@@ -206,7 +219,7 @@ export function parseLiveVehicleRow(row: RawPostgresRow): LiveVehicleRow {
     currentStatus: stringField(row, "current_status", context),
     latestStopDelay: nullableIntegerField(row, "latest_stop_delay", context, true),
     vehicleTimestamp: nullableTimestampField(row, "vehicle_timestamp", context),
-    journeyId: row.journey_id === null || row.journey_id === undefined ? null : String(integerValue(row.journey_id, context, "journey_id")),
+    journeyId: row.journey_id === null || row.journey_id === undefined ? null : integerIdentifier(row.journey_id, context, "journey_id"),
   };
 }
 
@@ -270,7 +283,7 @@ export function parseJourneyRow(row: RawPostgresRow): JourneyRow {
   const context = "api.recent_journey";
   return {
     serviceDate: dateField(row, "service_date", context),
-    journeyId: String(integerValue(row.journey_id, context, "journey_id")),
+    journeyId: integerIdentifier(row.journey_id, context, "journey_id"),
     sourceTripId: stringField(row, "source_trip_id", context),
     lineSlug: stringField(row, "line_slug", context),
     publicCode: stringField(row, "public_code", context),
@@ -308,7 +321,7 @@ export function parseMatrixRow(row: RawPostgresRow): MatrixRow {
   if (scheduledArrivalAt === null) return fail(context, "scheduled_arrival_at", row.scheduled_arrival_at);
   return {
     serviceDate: dateField(row, "service_date", context),
-    journeyId: String(integerValue(row.journey_id, context, "journey_id")),
+    journeyId: integerIdentifier(row.journey_id, context, "journey_id"),
     sourceTripId: stringField(row, "source_trip_id", context),
     direction: directionField(row, "direction", context),
     stopSequence: integerValue(row.stop_sequence, context, "stop_sequence"),

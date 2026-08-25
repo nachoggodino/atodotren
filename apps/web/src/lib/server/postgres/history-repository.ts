@@ -1,4 +1,4 @@
-import type { Capability, DirectionDescriptor, HistoryFilters, HistoryResponse, RankingItem } from "@/lib/domain/contracts";
+import type { Capability, DirectionDescriptor, HistoryFilters, HistoryResponse, LocalizedSlug, RankingItem } from "@/lib/domain/contracts";
 import { algorithmProvenance, historicalResponseMeta } from "@/lib/domain/data-policy";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import type { PostgresClient, RawPostgresRow } from "./client";
@@ -94,17 +94,21 @@ function scopeFor(kind: "network" | "line" | "station", id: string | null, filte
     hasCanceledAndMissing: needsHour,
     hasVersionMax: needsHour,
   };
-  if (kind === "line") return {
-    view: needsHour ? "history_line_hour" : "history_line_day",
-    contextClause: { sql: "line_slug = ?", value: id! },
-    supportsDirection: needsHour,
-    supportsHour: needsHour,
-    hasCanceledAndMissing: !needsHour,
-    hasVersionMax: needsHour,
-  };
+  if (kind === "line") {
+    if (id === null) throw new Error("Line history requires a line slug");
+    return {
+      view: needsHour ? "history_line_hour" : "history_line_day",
+      contextClause: { sql: "line_slug = ?", value: id },
+      supportsDirection: needsHour,
+      supportsHour: needsHour,
+      hasCanceledAndMissing: !needsHour,
+      hasVersionMax: needsHour,
+    };
+  }
+  if (id === null) throw new Error("Station history requires a station id");
   return {
     view: "history_station_hour",
-    contextClause: { sql: "station_id = ?", value: id! },
+    contextClause: { sql: "station_id = ?", value: id },
     supportsDirection: true,
     supportsHour: true,
     hasCanceledAndMissing: true,
@@ -178,13 +182,15 @@ export function createHistoryRepository(client: PostgresClient, catalog: Catalog
     readonly kind: "network" | "line" | "station";
     readonly label: string;
     readonly id: string;
+    readonly slug: LocalizedSlug | null;
     readonly queryId: string | null;
     readonly filters: HistoryFilters;
     readonly rankings: Capability<readonly RankingItem[]>;
     readonly directions: readonly DirectionDescriptor[];
   }): Promise<HistoryResponse> {
-    const query = aggregateQuery(scopeFor(input.kind, input.queryId, input.filters), input.filters);
-    const rows = (await client.query(query.sql, query.values)).map((row) => parseAggregateRow(row, `api.${scopeFor(input.kind, input.queryId, input.filters).view}`));
+    const scope = scopeFor(input.kind, input.queryId, input.filters);
+    const query = aggregateQuery(scope, input.filters);
+    const rows = (await client.query(query.sql, query.values)).map((row) => parseAggregateRow(row, `api.${scope.view}`));
     const stats = summaryFromAggregateRows(rows);
     const serviceDates = rows.map((row) => row.serviceDate);
     const dayMetadata = await metadata.forDates(serviceDates);
@@ -196,7 +202,7 @@ export function createHistoryRepository(client: PostgresClient, catalog: Catalog
         finalization: dayMetadata.finalization,
         provenance,
       }),
-      context: { kind: input.kind, label: input.label, id: input.id },
+      context: { kind: input.kind, label: input.label, id: input.id, slug: input.slug },
       filters: input.filters,
       stats,
       trend: rows.map((row) => historyPointFromRows(row.serviceDate, [row])),
@@ -214,6 +220,7 @@ export function createHistoryRepository(client: PostgresClient, catalog: Catalog
         kind: "network",
         label: MADRID_NETWORK.name.es,
         id: MADRID_NETWORK.slug,
+        slug: null,
         queryId: null,
         filters,
         rankings: items.length === 0 ? { status: "insufficient-sample" } : { status: "available", value: items },
@@ -228,6 +235,7 @@ export function createHistoryRepository(client: PostgresClient, catalog: Catalog
         kind: "line",
         label: line.code,
         id: line.id,
+        slug: { es: line.slug, en: line.slug },
         queryId: slug,
         filters,
         rankings: { status: "unavailable", reason: "not-supported" },
@@ -241,6 +249,7 @@ export function createHistoryRepository(client: PostgresClient, catalog: Catalog
         kind: "station",
         label: station.name.es,
         id: station.id,
+        slug: station.slug,
         queryId: station.id,
         filters,
         rankings: { status: "unavailable", reason: "not-supported" },

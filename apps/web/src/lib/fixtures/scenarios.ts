@@ -71,17 +71,17 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
     },
     async historyNetwork(filters) {
       failSource(scenario);
-      return historyResponse(filters, "network", MADRID_NETWORK.name.es, MADRID_NETWORK.slug, 1, scenario);
+      return historyResponse(filters, "network", MADRID_NETWORK.name.es, MADRID_NETWORK.slug, null, 1, scenario);
     },
     async historyLine(slug, filters) {
       failSource(scenario);
       const line = fixtureLines.find((candidate) => candidate.slug === normalizedLineAlias(slug));
-      return line === undefined ? null : historyResponse(filters, "line", line.code, line.id, fixtureLines.indexOf(line) + 2, scenario);
+      return line === undefined ? null : historyResponse(filters, "line", line.code, line.id, { es: line.slug, en: line.slug }, fixtureLines.indexOf(line) + 2, scenario);
     },
     async historyStation(slug, filters) {
       failSource(scenario);
       const station = fixtureStations.find((candidate) => candidate.slug.es === slug || candidate.slug.en === slug || candidate.id === slug);
-      return station === undefined ? null : historyResponse(filters, "station", station.name.es, station.id, fixtureStations.indexOf(station) + 3, scenario);
+      return station === undefined ? null : historyResponse(filters, "station", station.name.es, station.id, station.slug, fixtureStations.indexOf(station) + 3, scenario);
     },
     async matrix(lineSlug, serviceDate): Promise<MatrixResult> {
       failSource(scenario);

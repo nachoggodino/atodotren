@@ -37,6 +37,27 @@ function aggregateRow(serviceDate = "2026-08-20"): RawPostgresRow {
   };
 }
 
+function journeyRow(journeyId: string | number): RawPostgresRow {
+  return {
+    service_date: "2026-08-20",
+    journey_id: journeyId,
+    source_trip_id: "trip",
+    line_slug: "c1",
+    public_code: "C1",
+    direction: 0,
+    station_id: "atocha",
+    station_name_es: "Atocha",
+    station_name_en: "Atocha",
+    scheduled_arrival_at: "2026-08-20T08:00:00Z",
+    renfe_arrival_at: null,
+    selected_delay_seconds: null,
+    first_stopped_presence_at: null,
+    evidence_status: "reported_only",
+    evidence_selected_captured_at: null,
+    canonical_algorithm_version: "v1",
+  };
+}
+
 function client(query: PostgresClient["query"]): PostgresClient {
   return { query, close: async () => undefined };
 }
@@ -55,12 +76,11 @@ describe("PostgreSQL domain mapping", () => {
   });
 
   it("rejects unknown evidence enum values instead of casting them", () => {
-    expect(() => parseJourneyRow({
-      service_date: "2026-08-20", journey_id: 1, source_trip_id: "trip", line_slug: "c1", public_code: "C1", direction: 0,
-      station_id: "atocha", station_name_es: "Atocha", station_name_en: "Atocha", scheduled_arrival_at: "2026-08-20T08:00:00Z",
-      renfe_arrival_at: null, selected_delay_seconds: null, first_stopped_presence_at: null, evidence_status: "invented",
-      evidence_selected_captured_at: null, canonical_algorithm_version: "v1",
-    })).toThrow(/invalid evidence_status/);
+    expect(() => parseJourneyRow({ ...journeyRow(1), evidence_status: "invented" })).toThrow(/invalid evidence_status/);
+  });
+
+  it("preserves bigint journey identifiers without Number coercion", () => {
+    expect(parseJourneyRow(journeyRow("9223372036854775807")).journeyId).toBe("9223372036854775807");
   });
 
   it("applies weekday, hour and direction in SQL and does not use a silent history LIMIT", async () => {

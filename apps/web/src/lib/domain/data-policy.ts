@@ -21,13 +21,20 @@ export function liveResponseMeta(input: {
   readonly finalization: ResponseMeta["finalization"];
   readonly provenance: AlgorithmProvenance;
   readonly precision?: PrecisionKind;
+  readonly expectedOvernight?: boolean;
   readonly now?: Date;
   readonly cache?: ResponseMeta["cache"];
 }): ResponseMeta {
   const now = input.now ?? new Date();
   const sourceMs = input.sourceAt === null ? Number.NaN : Date.parse(input.sourceAt);
   const stale = Number.isFinite(sourceMs) && now.getTime() - sourceMs > LIVE_STALE_AFTER_SECONDS * 1000;
-  const status = input.sourceAt === null ? "unavailable" : stale ? "stale" : input.activeTrains === 0 ? "overnight" : "healthy";
+  const status = input.sourceAt === null
+    ? "unavailable"
+    : stale
+      ? "stale"
+      : input.activeTrains === 0
+        ? input.expectedOvernight === true ? "overnight" : "unavailable"
+        : "healthy";
   const freshness = input.sourceAt === null
     ? { state: "unknown" as const, sourceAt: null, staleAfterSeconds: LIVE_STALE_AFTER_SECONDS }
     : { state: stale ? "stale" as const : "fresh" as const, sourceAt: input.sourceAt, staleAfterSeconds: LIVE_STALE_AFTER_SECONDS };

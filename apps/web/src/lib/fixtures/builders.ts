@@ -73,6 +73,7 @@ export function liveMeta(scenario: FixtureScenario, stats: SummaryStats, activeT
     finalization: scenario === "finalized" ? { state: "finalized", finalizedAt: "2026-08-25T02:10:00.000Z" } : { state: "processing", finalizedAt: null },
     provenance: fixtureProvenance(scenario),
     precision: scenario === "overnight" ? "reported" : "mixed",
+    expectedOvernight: scenario === "overnight",
     cache: scenario === "offline-cached" ? "offline-cache" : "origin",
     now: new Date(FIXTURE_NOW),
   });
@@ -211,7 +212,7 @@ function historyPoints(filters: HistoryFilters, seed: number): readonly HistoryP
   return result;
 }
 
-export function historyResponse(filters: HistoryFilters, kind: "network" | "line" | "station", label: string, id: string, seed: number, scenario: FixtureScenario): HistoryResponse {
+export function historyResponse(filters: HistoryFilters, kind: "network" | "line" | "station", label: string, id: string, slug: HistoryResponse["context"]["slug"], seed: number, scenario: FixtureScenario): HistoryResponse {
   const trend = historyPoints(filters, seed);
   const scheduled = trend.reduce((sum, point) => sum + point.scheduled, 0);
   const observed = trend.reduce((sum, point) => sum + point.observed, 0);
@@ -239,7 +240,7 @@ export function historyResponse(filters: HistoryFilters, kind: "network" | "line
       : { status: "available" as const, value: ranked };
   return {
     meta: historyMeta(scenario, stats, filters),
-    context: { kind, label, id: kind === "network" ? MADRID_NETWORK.slug : id },
+    context: { kind, label, id: kind === "network" ? MADRID_NETWORK.slug : id, slug },
     filters,
     stats,
     trend,

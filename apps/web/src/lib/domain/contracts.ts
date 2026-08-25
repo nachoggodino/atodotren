@@ -49,9 +49,10 @@ export interface ResponseMeta {
 }
 
 export interface LocalizedName { readonly es: string; readonly en: string }
+export interface LocalizedSlug { readonly es: string; readonly en: string }
 export interface LineRef { readonly id: string; readonly slug: string; readonly code: string; readonly name: LocalizedName; readonly color: string }
-export interface StationRef { readonly id: string; readonly slug: { readonly es: string; readonly en: string }; readonly name: LocalizedName }
-export interface SearchResult { readonly kind: "line" | "station"; readonly id: string; readonly slug: { readonly es: string; readonly en: string }; readonly code: string | null; readonly name: LocalizedName }
+export interface StationRef { readonly id: string; readonly slug: LocalizedSlug; readonly name: LocalizedName }
+export interface SearchResult { readonly kind: "line" | "station"; readonly id: string; readonly slug: LocalizedSlug; readonly code: string | null; readonly name: LocalizedName }
 export interface SearchResponse { readonly meta: ResponseMeta; readonly query: string; readonly results: readonly SearchResult[] }
 
 export type DelayBucketId = "early" | "punctual" | "delay-2-5" | "delay-5-10" | "delay-10-15" | "delay-15-plus";
@@ -94,7 +95,7 @@ export interface LiveContextResponse { readonly meta: ResponseMeta; readonly con
 export interface HistoryFilters { readonly from: string; readonly to: string; readonly weekdays: readonly number[]; readonly hour: number | null; readonly direction: DirectionId | null }
 export interface HistoryPoint { readonly date: string; readonly scheduled: number; readonly observed: number; readonly punctuality: number | null; readonly meanDelaySeconds: number | null; readonly coverage: number | null }
 export interface RankingItem { readonly id: string; readonly label: string; readonly sample: number; readonly meanDelaySeconds: number | null; readonly punctuality: number | null }
-export interface HistoryResponse { readonly meta: ResponseMeta; readonly context: { readonly kind: "network" | "line" | "station"; readonly label: string; readonly id: string }; readonly filters: HistoryFilters; readonly stats: SummaryStats; readonly trend: readonly HistoryPoint[]; readonly rankings: Capability<readonly RankingItem[]>; readonly directions: readonly DirectionDescriptor[] }
+export interface HistoryResponse { readonly meta: ResponseMeta; readonly context: { readonly kind: "network" | "line" | "station"; readonly label: string; readonly id: string; readonly slug: LocalizedSlug | null }; readonly filters: HistoryFilters; readonly stats: SummaryStats; readonly trend: readonly HistoryPoint[]; readonly rankings: Capability<readonly RankingItem[]>; readonly directions: readonly DirectionDescriptor[] }
 
 export interface MatrixCell { readonly journeyId: string; readonly stationId: string; readonly scheduledAt: string; readonly reportedAt: string | null; readonly delaySeconds: number | null; readonly state: EvidenceState }
 export interface MatrixJourney { readonly id: string; readonly label: string; readonly direction: DirectionDescriptor | null }

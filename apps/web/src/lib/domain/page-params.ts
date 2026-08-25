@@ -26,3 +26,12 @@ export function tryHistoryFiltersFromPage(params: PageSearchParams): HistoryPage
     throw error;
   }
 }
+
+export function historyFiltersToSearchParams(filters: HistoryFilters, scenario?: string): URLSearchParams {
+  const params = new URLSearchParams({ from: filters.from, to: filters.to });
+  if (filters.weekdays.length > 0) params.set("weekdays", filters.weekdays.join(","));
+  if (filters.hour !== null) params.set("hour", String(filters.hour));
+  if (filters.direction !== null) params.set("direction", String(filters.direction));
+  if (scenario !== undefined && scenario !== "") params.set("scenario", scenario);
+  return params;
+}

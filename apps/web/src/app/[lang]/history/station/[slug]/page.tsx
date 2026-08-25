@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { HistoryFiltersForm } from "@/components/history/history-filters";
 import { HistoryLayout } from "@/components/history/history-layout";
 import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
-import { tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
+import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
 import { getHistoryStation } from "@/lib/server/services";
 
@@ -17,5 +17,11 @@ export default async function HistoryStationPage({ params, searchParams }: { rea
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
   const data = await getHistoryStation(slug, parsed.filters, scenario);
   if (data === null) notFound();
+
+  const canonicalSlug = data.context.slug?.[lang];
+  if (canonicalSlug !== undefined && slug !== canonicalSlug) {
+    redirect(`/${lang}/history/station/${canonicalSlug}?${historyFiltersToSearchParams(parsed.filters, scenario)}`);
+  }
+
   return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} directions={data.directions} lang={lang} messages={messages} />} />;
 }
