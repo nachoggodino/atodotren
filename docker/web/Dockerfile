@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 
 FROM dependencies AS build
 COPY apps/web apps/web
-RUN npm run build --workspace @atodotren/web
+RUN NEXT_BUILD_TARGET=standalone npm run build --workspace @atodotren/web
 
 FROM node:24.15.0-bookworm-slim AS runtime
 ENV NODE_ENV=production
