@@ -216,7 +216,14 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Install ${{ matrix.browser }} browser runtime
-        run: npx playwright install --with-deps '${{ matrix.browser }}'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="$RUNNER_TEMP/playwright-install-${{ matrix.browser }}.log"
+          if ! npx playwright install --with-deps '${{ matrix.browser }}' >"$log" 2>&1; then
+            cat "$log"
+            exit 1
+          fi
       - name: Run ${{ matrix.label }} acceptance tests
         run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
       - name: Upload ${{ matrix.label }} inspection artifacts
