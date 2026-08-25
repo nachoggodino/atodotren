@@ -9,6 +9,38 @@ for (const path of ["/es", "/en/live", "/es/history/line/c1?from=2026-08-18&to=2
   });
 }
 
+test("security headers use a nonce-based CSP", async ({ page }) => {
+  const response = await page.goto("/es");
+  expect(response).not.toBeNull();
+  const headers = response!.headers();
+  expect(headers["x-content-type-options"]).toBe("nosniff");
+  expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+  const csp = headers["content-security-policy"] ?? "";
+  expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+});
+
+test("live API cache keeps the network summary and only the latest detail", async ({ page }) => {
+  await page.goto("/es");
+  await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
+  await page.reload();
+  for (const path of ["/api/v1/live/network", "/api/v1/live/lines/c1", "/api/v1/live/stations/atocha"]) {
+    await page.evaluate(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`fixture API failed: ${response.status}`);
+    }, path);
+  }
+  const entries = await page.evaluate(async () => {
+    const names = await caches.keys();
+    const liveName = names.find((name) => name.startsWith("atodotren-live-"));
+    if (!liveName) return [];
+    const cache = await caches.open(liveName);
+    return (await cache.keys()).map((request) => new URL(request.url).pathname).sort();
+  });
+  expect(entries).toEqual(["/api/v1/live/network", "/api/v1/live/stations/atocha"]);
+});
+
 test("a cached live page remains explicit when the browser goes offline", async ({ page, context }) => {
   await page.goto("/es/live/line/c1");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
@@ -19,6 +51,14 @@ test("a cached live page remains explicit when the browser goes offline", async 
   await expect(page.getByTestId("offline-status")).toBeVisible();
   await expect(page.getByTestId("schematic-map")).toBeVisible();
   await context.setOffline(false);
+});
+
+test("@webkit offline bootstrap reflects connectivity without relying on cache navigation", async ({ page, context }) => {
+  await page.goto("/en");
+  await context.setOffline(true);
+  await expect(page.getByTestId("offline-status")).toBeVisible();
+  await context.setOffline(false);
+  await expect(page.getByTestId("offline-status")).toBeHidden();
 });
 
 test("uncached historical detail receives the explicit no-cache offline page", async ({ page, context }) => {

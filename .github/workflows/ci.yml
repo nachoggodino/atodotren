@@ -120,7 +120,7 @@ jobs:
         run: npm install --package-lock-only --ignore-scripts
       - name: Upload generated lockfile for diagnosis
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: generated-package-lock
           path: package-lock.json
@@ -189,9 +189,25 @@ jobs:
       - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}'
 
   web-browser:
-    name: Playwright fixture, responsive and accessibility smoke
+    name: Playwright / ${{ matrix.label }}
     runs-on: ubuntu-latest
     needs: web-verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Desktop Chromium
+            project: desktop-chromium
+            browser: chromium
+            artifact: desktop-chromium
+          - label: Mobile Chromium
+            project: mobile-chromium
+            browser: chromium
+            artifact: mobile-chromium
+          - label: WebKit acceptance
+            project: webkit-acceptance
+            browser: webkit
+            artifact: webkit-acceptance
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -199,13 +215,22 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run web:test:e2e
-      - name: Upload browser inspection artifacts
+      - name: Install ${{ matrix.browser }} browser runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="$RUNNER_TEMP/playwright-install-${{ matrix.browser }}.log"
+          if ! npx playwright install --with-deps '${{ matrix.browser }}' >"$log" 2>&1; then
+            cat "$log"
+            exit 1
+          fi
+      - name: Run ${{ matrix.label }} acceptance tests
+        run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
+      - name: Upload ${{ matrix.label }} inspection artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: frontend-alpha-browser-artifacts
+          name: web-browser-${{ matrix.artifact }}
           if-no-files-found: warn
           retention-days: 14
           path: |

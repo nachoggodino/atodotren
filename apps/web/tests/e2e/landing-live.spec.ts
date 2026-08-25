@@ -9,7 +9,7 @@ async function openMenu(page: import("@playwright/test").Page) {
 
 test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {
   await page.goto("/es");
-  await page.getByLabel("Busca una línea o estación").fill("C-1");
+  await page.getByRole("combobox", { name: "Busca una línea o estación", exact: true }).fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
   await option.click();
@@ -20,6 +20,38 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
     ? "test-results/screenshots/live-line-desktop-light.png"
     : "test-results/screenshots/live-line-mobile-light.png";
   await page.screenshot({ path: filename, fullPage: true });
+});
+
+test("@webkit search keyboard selection and header dialog restore focus", async ({ page }) => {
+  await page.goto("/es");
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
+  await search.fill("C-1");
+  const option = page.getByRole("option").filter({ hasText: "C1" }).first();
+  await expect(option).toBeVisible();
+  await expect(search).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[role="option"][data-active-item]').filter({ hasText: "C1" }).first()).toBeVisible();
+  await search.press("Enter");
+  await expect(page.getByRole("link", { name: "Ver hoy" })).toBeVisible();
+
+  await openMenu(page);
+  const toggle = page.getByTestId("menu-toggle");
+  await page.keyboard.press("Escape");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toBeFocused();
+});
+
+test.describe("search network failure", () => {
+  test.use({ serviceWorkers: "block" });
+
+  test("search distinguishes API failure from empty results", async ({ page }) => {
+    await page.route("**/api/v1/catalog/search?*", async (route) => {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "temporarily-unavailable" } }) });
+    });
+    await page.goto("/en");
+    await page.getByRole("combobox", { name: "Search a line or station", exact: true }).fill("Atocha");
+    await expect(page.getByText("Search is temporarily unavailable. Try again.")).toBeVisible();
+    await expect(page.getByText("No matching line or station.")).toHaveCount(0);
+  });
 });
 
 test("global refresh pause persists and live train detail is keyboard operable", async ({ page }) => {
@@ -38,6 +70,18 @@ test("global refresh pause persists and live train detail is keyboard operable",
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("train-detail")).toBeVisible();
   await expect(page.getByText(/no es GPS/i)).toBeVisible();
+});
+
+test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
+  await page.goto("/en/live/line/c1");
+  await openMenu(page);
+  await page.getByRole("button", { name: "Dark" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.keyboard.press("Escape");
+  const train = page.locator('[data-testid="schematic-map"] [role="button"]').first();
+  await train.focus();
+  await train.press("Enter");
+  await expect(page.getByTestId("train-detail")).toBeVisible();
 });
 
 test("English routes, theme persistence, mobile drawer and reduced motion remain usable", async ({ page }, testInfo) => {
