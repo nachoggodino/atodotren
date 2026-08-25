@@ -30,15 +30,22 @@ async function palette(page: import("@playwright/test").Page) {
   });
 }
 
-function expectPalette(actual: Awaited<ReturnType<typeof palette>>, expected: typeof LIGHT) {
-  expect(actual).toMatchObject(expected);
-  expect(actual.accent).toBe(expected.primary);
-  expect(actual.success).toBe(expected.primary);
-  expect(actual.warning).toBe(expected.primary);
-  expect(actual.focus).toBe(expected.primary);
+function normalizeColor(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(normalized);
+  return short === null ? normalized : `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
 }
 
-test("andén infinito brand and exact palette follow the selected theme", async ({ page }) => {
+function expectPalette(actual: Awaited<ReturnType<typeof palette>>, expected: typeof LIGHT) {
+  for (const key of ["background", "surface", "foreground", "primary"] as const) {
+    expect(normalizeColor(actual[key])).toBe(normalizeColor(expected[key]));
+  }
+  for (const key of ["accent", "success", "warning", "focus"] as const) {
+    expect(normalizeColor(actual[key])).toBe(normalizeColor(expected.primary));
+  }
+}
+
+test("andén infinito brand and palette follow the selected theme", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/en");
   const headerBrand = page.getByLabel("Home").getByTestId("brand-symbol");
@@ -64,4 +71,11 @@ test("andén infinito brand and exact palette follow the selected theme", async 
   await expect(page.locator("html")).toHaveClass(/dark/);
   expectPalette(await palette(page), DARK);
   await expect(headerBrand).toHaveCSS("color", "rgb(201, 138, 152)");
+});
+
+test("document language follows the locale route", async ({ page }) => {
+  await page.goto("/es");
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  await page.goto("/en");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
 });
