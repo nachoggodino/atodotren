@@ -84,7 +84,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
           <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-float)] backdrop-blur-xl">
             <div className="flex min-h-16 items-center gap-3 px-4">
               <Link aria-label={messages.nav.home} className="flex items-center gap-2 text-primary" href={`/${lang}`}>
-                <BrandSymbol className="h-7" /><BrandWordmark />
+                <BrandSymbol className="h-[1.4rem]" /><BrandWordmark />
               </Link>
               <span className="hidden border-l border-border pl-3 text-xs font-semibold text-muted sm:inline">{routeContext(pathname, messages)}</span>
               <Ariakit.Disclosure
@@ -124,29 +124,14 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                   </nav>
                   <div className="grid gap-4 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">{messages.nav.language}</span>
-                      <div aria-label={messages.nav.language} className="flex rounded-md border border-border p-1" role="group">
-                        <Link
-                          aria-current={lang === "es" ? "true" : undefined}
-                          className={`min-w-12 rounded-sm px-3 py-2 text-center text-sm font-bold transition-colors ${lang === "es" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
-                          href={localizedHref(pathname, "es", search)}
-                        >
-                          ESP
-                        </Link>
-                        <Link
-                          aria-current={lang === "en" ? "true" : undefined}
-                          className={`min-w-12 rounded-sm px-3 py-2 text-center text-sm font-bold transition-colors ${lang === "en" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
-                          href={localizedHref(pathname, "en", search)}
-                        >
-                          ENG
-                        </Link>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold">{messages.nav.theme}</span>
-                      <div className="flex rounded-md border border-border p-1">
-                        <button aria-label={messages.nav.light} aria-pressed={resolvedTheme === "light"} className="grid size-9 place-items-center rounded-sm aria-pressed:bg-muted-soft" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
-                        <button aria-label={messages.nav.dark} aria-pressed={resolvedTheme === "dark"} className="grid size-9 place-items-center rounded-sm aria-pressed:bg-muted-soft" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
+                      <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] rounded-full border border-border bg-muted-soft" role="group">
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none absolute left-1 top-1 size-7 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${resolvedTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
+                        />
+                        <button aria-label={messages.nav.light} aria-pressed={resolvedTheme === "light"} className="relative z-10 grid flex-1 place-items-center rounded-full" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
+                        <button aria-label={messages.nav.dark} aria-pressed={resolvedTheme === "dark"} className="relative z-10 grid flex-1 place-items-center rounded-full" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -159,8 +144,27 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                         role="switch"
                         type="button"
                       >
-                        <span aria-hidden="true" className={`absolute left-1 top-1 size-5 rounded-full bg-surface shadow-sm transition-transform ${refresh.enabled ? "translate-x-5" : "translate-x-0"}`} />
+                        <span aria-hidden="true" className={`absolute left-[3px] top-1/2 size-5 -translate-y-1/2 rounded-full bg-surface shadow-sm transition-transform ${refresh.enabled ? "translate-x-5" : "translate-x-0"}`} />
                       </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">{messages.nav.language}</span>
+                      <div aria-label={messages.nav.language} className="flex rounded-md border border-border p-0.5" role="group">
+                        <Link
+                          aria-current={lang === "es" ? "true" : undefined}
+                          className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-colors ${lang === "es" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
+                          href={localizedHref(pathname, "es", search)}
+                        >
+                          ESP
+                        </Link>
+                        <Link
+                          aria-current={lang === "en" ? "true" : undefined}
+                          className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-colors ${lang === "en" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
+                          href={localizedHref(pathname, "en", search)}
+                        >
+                          ENG
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 </div>
