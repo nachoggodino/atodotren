@@ -27,7 +27,9 @@ test("@webkit search keyboard navigation and header dialog restore focus", async
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
   await expect(page.getByRole("option").filter({ hasText: "C1" }).first()).toBeVisible();
+  await expect(search).toHaveAttribute("aria-expanded", "true");
   await search.press("ArrowDown");
+  await expect(search).toHaveAttribute("aria-activedescendant", /.+/);
   await search.press("Enter");
   await expect(page.getByRole("link", { name: "Ver hoy" })).toBeVisible();
 
