@@ -189,9 +189,25 @@ jobs:
       - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}'
 
   web-browser:
-    name: Playwright Chromium and WebKit production-readiness smoke
+    name: Playwright / ${{ matrix.label }}
     runs-on: ubuntu-latest
     needs: web-verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Desktop Chromium
+            project: desktop-chromium
+            browser: chromium
+            artifact: desktop-chromium
+          - label: Mobile Chromium
+            project: mobile-chromium
+            browser: chromium
+            artifact: mobile-chromium
+          - label: WebKit acceptance
+            project: webkit-acceptance
+            browser: webkit
+            artifact: webkit-acceptance
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -199,13 +215,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
-      - run: npm run web:test:e2e
-      - name: Upload browser inspection artifacts
+      - name: Install ${{ matrix.browser }} browser runtime
+        run: npx playwright install --with-deps '${{ matrix.browser }}'
+      - name: Run ${{ matrix.label }} acceptance tests
+        run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
+      - name: Upload ${{ matrix.label }} inspection artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-alpha-browser-artifacts
+          name: web-browser-${{ matrix.artifact }}
           if-no-files-found: warn
           retention-days: 14
           path: |
