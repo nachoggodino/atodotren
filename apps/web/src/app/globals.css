@@ -1,45 +1,45 @@
 @import "tailwindcss";
 
 :root {
-  --background: oklch(0.975 0.008 84);
-  --foreground: oklch(0.20 0.025 165);
-  --surface: oklch(0.995 0.004 84 / 0.88);
-  --surface-strong: oklch(1 0 0);
-  --muted: oklch(0.50 0.025 165);
-  --muted-soft: oklch(0.93 0.012 84);
-  --border: oklch(0.84 0.016 90);
-  --primary: oklch(0.40 0.12 160);
-  --primary-strong: oklch(0.32 0.13 160);
-  --accent: oklch(0.78 0.15 74);
-  --accent-contrast: oklch(0.20 0.035 75);
-  --success: oklch(0.55 0.13 152);
-  --warning: #8a5a00;
-  --danger: oklch(0.58 0.19 28);
-  --unknown: oklch(0.62 0.025 250);
-  --focus: oklch(0.55 0.17 248);
-  --shadow-float: 0 18px 55px oklch(0.18 0.02 165 / 0.14);
+  --background: #F6E4E2;
+  --foreground: #3A1B22;
+  --surface: #FFFFFF;
+  --surface-strong: #FFFFFF;
+  --muted: color-mix(in srgb, var(--foreground) 68%, var(--background));
+  --muted-soft: color-mix(in srgb, var(--background) 76%, var(--surface));
+  --border: color-mix(in srgb, var(--primary) 22%, var(--surface));
+  --primary: #7A3B4A;
+  --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
+  --accent: var(--primary);
+  --accent-contrast: var(--surface);
+  --success: var(--primary);
+  --warning: var(--primary);
+  --danger: var(--primary-strong);
+  --unknown: var(--muted);
+  --focus: var(--primary);
+  --shadow-float: 0 18px 55px color-mix(in srgb, var(--foreground) 14%, transparent);
   --drawer-duration: 220ms;
   color-scheme: light;
 }
 
 .dark {
-  --background: oklch(0.16 0.018 165);
-  --foreground: oklch(0.94 0.012 90);
-  --surface: oklch(0.205 0.02 165 / 0.92);
-  --surface-strong: oklch(0.225 0.022 165);
-  --muted: oklch(0.72 0.02 130);
-  --muted-soft: oklch(0.25 0.022 165);
-  --border: oklch(0.34 0.025 165);
-  --primary: oklch(0.70 0.13 158);
-  --primary-strong: oklch(0.79 0.13 158);
-  --accent: oklch(0.76 0.14 72);
-  --accent-contrast: oklch(0.18 0.03 72);
-  --success: oklch(0.72 0.13 151);
-  --warning: oklch(0.78 0.14 79);
-  --danger: oklch(0.72 0.16 28);
-  --unknown: oklch(0.72 0.025 250);
-  --focus: oklch(0.72 0.14 244);
-  --shadow-float: 0 20px 65px oklch(0.02 0.01 165 / 0.48);
+  --background: #221016;
+  --foreground: #F6E4E2;
+  --surface: #2E161C;
+  --surface-strong: #2E161C;
+  --muted: color-mix(in srgb, var(--foreground) 68%, var(--background));
+  --muted-soft: color-mix(in srgb, var(--surface) 82%, var(--primary));
+  --border: color-mix(in srgb, var(--primary) 25%, var(--surface));
+  --primary: #C98A98;
+  --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
+  --accent: var(--primary);
+  --accent-contrast: var(--background);
+  --success: var(--primary);
+  --warning: var(--primary);
+  --danger: var(--primary-strong);
+  --unknown: var(--muted);
+  --focus: var(--primary);
+  --shadow-float: 0 20px 65px color-mix(in srgb, var(--background) 72%, transparent);
   color-scheme: dark;
 }
 
@@ -67,7 +67,7 @@ body { margin: 0; min-height: 100vh; background: var(--background); color: var(-
 a { color: inherit; text-decoration: none; }
 button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
-::selection { background: color-mix(in oklab, var(--accent) 42%, transparent); }
+::selection { background: color-mix(in srgb, var(--primary) 42%, transparent); }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 
@@ -87,14 +87,14 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 html[data-atodotren-offline="true"] .offline-status { display: flex; }
 
 .delay-cell { position: relative; min-width: 5.2rem; }
-.delay-cell[data-band="punctual"] { background: color-mix(in oklab, var(--success) 17%, transparent); }
-.delay-cell[data-band="mild"] { background: color-mix(in oklab, var(--warning) 20%, transparent); }
-.delay-cell[data-band="delayed"] { background: color-mix(in oklab, var(--accent) 24%, transparent); }
-.delay-cell[data-band="severe"] { background: color-mix(in oklab, var(--danger) 22%, transparent); }
-.delay-cell[data-state="canceled"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in oklab, var(--danger) 18%, transparent) 7px 10px); }
-.delay-cell[data-state="missing_evidence"], .delay-cell[data-state="pending"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in oklab, var(--unknown) 16%, transparent) 7px 10px); }
+.delay-cell[data-band="punctual"] { background: color-mix(in srgb, var(--success) 12%, transparent); }
+.delay-cell[data-band="mild"] { background: color-mix(in srgb, var(--warning) 18%, transparent); }
+.delay-cell[data-band="delayed"] { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.delay-cell[data-band="severe"] { background: color-mix(in srgb, var(--danger) 32%, transparent); }
+.delay-cell[data-state="canceled"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--danger) 24%, transparent) 7px 10px); }
+.delay-cell[data-state="missing_evidence"], .delay-cell[data-state="pending"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--unknown) 20%, transparent) 7px 10px); }
 
-.skeleton { background: linear-gradient(100deg, var(--muted-soft) 20%, color-mix(in oklab, var(--muted-soft) 55%, var(--surface-strong)) 45%, var(--muted-soft) 70%); background-size: 220% 100%; animation: skeleton 1.5s ease-in-out infinite; }
+.skeleton { background: linear-gradient(100deg, var(--muted-soft) 20%, color-mix(in srgb, var(--muted-soft) 55%, var(--surface-strong)) 45%, var(--muted-soft) 70%); background-size: 220% 100%; animation: skeleton 1.5s ease-in-out infinite; }
 @keyframes skeleton { to { background-position-x: -220%; } }
 @keyframes refresh-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .refresh-progress { transform-origin: left; animation: refresh-progress 30s linear infinite; }
