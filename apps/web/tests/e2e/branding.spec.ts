@@ -45,11 +45,20 @@ function expectPalette(actual: Awaited<ReturnType<typeof palette>>, expected: ty
   }
 }
 
+async function center(locator: import("@playwright/test").Locator) {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+}
+
 test("andén infinito brand and palette follow the selected theme", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/en");
-  const headerBrand = page.getByLabel("Home").getByTestId("brand-symbol");
-  await expect(page.getByText("andén infinito", { exact: true })).toBeVisible();
+  const headerHome = page.getByLabel("Home");
+  const headerBrand = headerHome.getByTestId("brand-symbol");
+  const headerWordmark = headerHome.getByText("andén infinito", { exact: true });
+  await expect(headerWordmark).toBeVisible();
+  await expect(headerWordmark).toHaveCSS("font-size", "18.4px");
   await expect(headerBrand).toHaveCSS("color", "rgb(122, 59, 74)");
   expectPalette(await palette(page), LIGHT);
 
@@ -72,6 +81,9 @@ test("andén infinito brand and palette follow the selected theme", async ({ pag
   for (const label of ["Home", "Live", "Historical", "Methodology"]) {
     await expect(primaryNav.getByRole("link", { name: label }).locator("svg")).toBeVisible();
   }
+  await expect(primaryNav.getByRole("link", { name: "Home" }).locator("svg")).toHaveCSS("color", "rgb(122, 59, 74)");
+  const methodologyIcon = primaryNav.getByRole("link", { name: "Methodology" }).locator("svg");
+  await expect(methodologyIcon).toHaveCSS("color", "rgb(116, 87, 166)");
 
   const language = page.getByRole("group", { name: "Language" });
   await expect(language.getByRole("link", { name: "ENG" })).toHaveAttribute("aria-current", "true");
@@ -83,10 +95,22 @@ test("andén infinito brand and palette follow the selected theme", async ({ pag
   await refreshSwitch.click();
   await expect(refreshSwitch).toHaveAttribute("aria-checked", initialRefreshState === "true" ? "false" : "true");
 
+  const theme = page.getByRole("group", { name: "Theme" });
+  const thumb = theme.getByTestId("theme-thumb");
+  const lightCenter = await center(theme.getByRole("button", { name: "Light" }));
+  const lightThumbCenter = await center(thumb);
+  expect(Math.abs(lightThumbCenter.x - lightCenter.x)).toBeLessThan(1);
+  expect(Math.abs(lightThumbCenter.y - lightCenter.y)).toBeLessThan(1);
+
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
+  const darkCenter = await center(theme.getByRole("button", { name: "Dark" }));
+  const darkThumbCenter = await center(thumb);
+  expect(Math.abs(darkThumbCenter.x - darkCenter.x)).toBeLessThan(1);
+  expect(Math.abs(darkThumbCenter.y - darkCenter.y)).toBeLessThan(1);
   expectPalette(await palette(page), DARK);
   await expect(headerBrand).toHaveCSS("color", "rgb(201, 138, 152)");
+  await expect(methodologyIcon).toHaveCSS("color", "rgb(198, 167, 242)");
 });
 
 test("mobile navigation expands in place without becoming a modal", async ({ page }) => {
@@ -106,6 +130,20 @@ test("mobile navigation expands in place without becoming a modal", async ({ pag
   const after = await headerBrand.boundingBox();
   expect(after).not.toBeNull();
   expect(Math.abs(after!.y - before!.y)).toBeLessThan(1);
+});
+
+test("navigation drawer does not restore an old open state after returning", async ({ page }) => {
+  await page.goto("/es/live/line/c1");
+  const menuToggle = page.getByTestId("menu-toggle");
+  await menuToggle.click();
+  await expect(menuToggle).toHaveAttribute("aria-expanded", "true");
+  await page.getByRole("navigation", { name: "Navegación principal" }).getByRole("link", { name: "Inicio" }).click();
+  await expect(page).toHaveURL(/\/es$/);
+  await expect(menuToggle).toHaveAttribute("aria-expanded", "false");
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
+  await expect(menuToggle).toHaveAttribute("aria-expanded", "false");
 });
 
 test("document language follows the locale route", async ({ page }) => {

@@ -11,8 +11,10 @@ import type { Messages } from "@/messages/types";
 import { BrandSymbol, BrandWordmark } from "./brand-mark";
 import { useAutoRefresh } from "./auto-refresh-provider";
 
+const HOME_ICON_CLASS = "text-primary";
 const LIVE_ICON_CLASS = "text-[var(--landing-positive)]";
 const HISTORY_ICON_CLASS = "text-[var(--landing-highlight)]";
+const METHODOLOGY_ICON_CLASS = "text-[var(--nav-methodology)]";
 
 function localizedHref(pathname: string, lang: Lang, search: string): string {
   const localizedPath = pathname.replace(/^\/(es|en)(?=\/|$)/, `/${lang}`) || `/${lang}`;
@@ -22,8 +24,8 @@ function localizedHref(pathname: string, lang: Lang, search: string): string {
 function routeContext(pathname: string, messages: Messages) {
   if (pathname.includes("/history")) return { label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS };
   if (pathname.includes("/live")) return { label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS };
-  if (pathname.includes("/methodology")) return { label: messages.nav.methodology, Icon: BookOpen, iconClassName: "text-muted" };
-  return { label: messages.nav.home, Icon: House, iconClassName: "text-muted" };
+  if (pathname.includes("/methodology")) return { label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS };
+  return { label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS };
 }
 
 function scrollToTopImmediately() {
@@ -48,6 +50,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   useEffect(() => {
     scrollToTopImmediately();
     const frame = window.requestAnimationFrame(() => {
+      setOpenPathname(null);
       setHidden(false);
       scrollToTopImmediately();
       previousY.current = 0;
@@ -85,10 +88,10 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   }, [open]);
 
   const links = [
-    { href: `/${lang}`, label: messages.nav.home, Icon: House, iconClassName: "text-muted" },
+    { href: `/${lang}`, label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS },
     { href: `/${lang}/live`, label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS },
     { href: `/${lang}/history`, label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS },
-    { href: `/${lang}/methodology`, label: messages.nav.methodology, Icon: BookOpen, iconClassName: "text-muted" },
+    { href: `/${lang}/methodology`, label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS },
   ] as const;
 
   const setOpen = (next: boolean) => {
@@ -96,6 +99,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
     if (next) setHidden(false);
   };
 
+  const closeForNavigation = () => setOpenPathname(null);
   const search = searchParams.toString();
   const context = routeContext(pathname, messages);
   const ContextIcon = context.Icon;
@@ -110,6 +114,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                 aria-label={messages.nav.home}
                 className="flex items-center gap-2 rounded-md text-primary transition-[transform,opacity] duration-100 active:scale-[.96] active:opacity-70"
                 href={`/${lang}`}
+                onClick={closeForNavigation}
               >
                 <BrandSymbol className="h-[1.4rem]" /><BrandWordmark />
               </Link>
@@ -146,6 +151,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                         aria-current={pathname === href ? "page" : undefined}
                         className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.97] active:opacity-75 aria-[current=page]:bg-muted-soft aria-[current=page]:text-primary"
                         href={href}
+                        onClick={closeForNavigation}
                       >
                         <Icon aria-hidden="true" className={`size-5 shrink-0 ${iconClassName}`} />
                         {label}
@@ -155,13 +161,14 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                   <div className="grid gap-4 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm font-semibold">{messages.nav.theme}</span>
-                      <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] rounded-full border border-border bg-muted-soft" role="group">
+                      <div aria-label={messages.nav.theme} className="relative grid h-9 w-[4.5rem] grid-cols-2 rounded-full border border-border bg-muted-soft" role="group">
                         <span
                           aria-hidden="true"
-                          className={`pointer-events-none absolute left-1 top-1 size-7 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${resolvedTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
+                          className={`pointer-events-none absolute left-0.5 top-0.5 size-8 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${resolvedTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
+                          data-testid="theme-thumb"
                         />
-                        <button aria-label={messages.nav.light} aria-pressed={resolvedTheme === "light"} className="relative z-10 grid flex-1 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
-                        <button aria-label={messages.nav.dark} aria-pressed={resolvedTheme === "dark"} className="relative z-10 grid flex-1 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
+                        <button aria-label={messages.nav.light} aria-pressed={resolvedTheme === "light"} className="relative z-10 grid h-full place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
+                        <button aria-label={messages.nav.dark} aria-pressed={resolvedTheme === "dark"} className="relative z-10 grid h-full place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -184,6 +191,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                           aria-current={lang === "es" ? "true" : undefined}
                           className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-[background-color,transform,opacity] duration-100 active:scale-90 active:opacity-70 ${lang === "es" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
                           href={localizedHref(pathname, "es", search)}
+                          onClick={closeForNavigation}
                         >
                           ESP
                         </Link>
@@ -191,6 +199,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                           aria-current={lang === "en" ? "true" : undefined}
                           className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-[background-color,transform,opacity] duration-100 active:scale-90 active:opacity-70 ${lang === "en" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
                           href={localizedHref(pathname, "en", search)}
+                          onClick={closeForNavigation}
                         >
                           ENG
                         </Link>
