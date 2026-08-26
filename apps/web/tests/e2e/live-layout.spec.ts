@@ -5,6 +5,7 @@ test("live network uses the compact status hierarchy and interactive two-column 
 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Todas las líneas");
+  await expect(page.getByRole("button", { name: "Volver" })).toHaveCount(0);
   await expect(page.getByText("Estado de hoy", { exact: true })).toHaveCount(0);
   await expect(page.getByText("2026-08-24", { exact: true })).toHaveCount(0);
 
@@ -39,9 +40,11 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(lines).toHaveClass(/grid-cols-2/);
   const firstLine = lines.locator(":scope > a").first();
   const firstLineHeader = firstLine.getByTestId("live-line-header");
+  await expect(firstLineHeader).toHaveClass(/justify-between/);
   await expect(firstLineHeader).toContainText("•");
   await expect(firstLineHeader).toContainText("trenes activos");
   await expect(firstLineHeader.locator("svg")).toHaveCount(1);
+  await expect(firstLineHeader.locator("svg")).toHaveClass(/ml-3/);
   await expect(firstLine.getByTestId("live-line-metric")).toHaveCount(4);
   await expect(firstLine).not.toContainText(" min ");
   await expect(firstLine).not.toContainText("Puntualidad");
@@ -54,14 +57,20 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(page.locator(".sr-only table").filter({ hasText: "Distribución de retrasos" })).toContainText("Paradas");
 });
 
-test("live context title follows line and station selection", async ({ page }) => {
+test("live detail headers expose a working back button", async ({ page }) => {
+  await page.goto("/es/live");
   await page.goto("/es/live/line/c1");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Línea C1");
+  const lineBack = page.getByRole("button", { name: "Volver" });
+  await expect(lineBack).toBeVisible();
+  await lineBack.click();
+  await expect(page).toHaveURL(/\/es\/live$/);
 
   await page.goto("/es/live/station/atocha");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Atocha");
+  await expect(page.getByRole("button", { name: "Volver" })).toBeVisible();
 });
 
 test("live metadata coverage status follows the red-orange-green thresholds", async ({ page }) => {
