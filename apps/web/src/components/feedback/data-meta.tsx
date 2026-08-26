@@ -1,5 +1,4 @@
-import { CheckCircle2, Clock3, Database, Gauge, Radio } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { CheckCircle2, Clock3, Database, Gauge, Radio, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Lang, ResponseMeta } from "@/lib/domain/contracts";
 import { formatMadridTime, formatPercent } from "@/lib/domain/format";
@@ -37,7 +36,7 @@ export function DataMeta({ meta, lang, messages, variant = "default" }: { readon
 
   if (variant === "live") {
     return (
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs" aria-label={messages.common.dataMetadata} data-testid="live-data-meta">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs sm:grid-cols-4" aria-label={messages.common.dataMetadata} data-testid="live-data-meta">
         <LiveMetaItem icon={Radio} tone={sourceStatusLevel(meta.source.status)}>{sourceStatusLabel(meta.source.status, messages)}</LiveMetaItem>
         <LiveMetaItem icon={Clock3} tone={freshnessStatusLevel(meta.source.freshness.state)}>{messages.common.updated}: {formatMadridTime(sourceAt, lang, true)}</LiveMetaItem>
         <LiveMetaItem icon={Gauge} tone={coverageStatusLevel(meta.coverage.ratio)}>{messages.common.coverage}: {formatPercent(meta.coverage.ratio)}</LiveMetaItem>
