@@ -44,7 +44,8 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(firstLineHeader).toContainText("•");
   await expect(firstLineHeader).toContainText("trenes activos");
   await expect(firstLineHeader.locator("svg")).toHaveCount(1);
-  await expect(firstLineHeader.locator("svg")).toHaveClass(/ml-3/);
+  await expect(firstLineHeader.locator("svg")).toHaveClass(/size-4/);
+  await expect(firstLineHeader.locator("svg")).toHaveClass(/translate-x-1\.5/);
   await expect(firstLine.getByTestId("live-line-metric")).toHaveCount(4);
   await expect(firstLine).not.toContainText(" min ");
   await expect(firstLine).not.toContainText("Puntualidad");
