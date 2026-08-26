@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useTransition } from "react";
 import { useAutoRefresh } from "@/components/shell/auto-refresh-provider";
@@ -35,13 +36,12 @@ export function LiveRefresh({ messages }: { readonly messages: Messages }) {
   }, [enabled, refresh]);
 
   return (
-    <div className="mt-2 flex items-center gap-3 text-xs text-muted" aria-live="polite">
-      <span>{enabled ? messages.live.autoRefresh : messages.nav.paused}</span>
-      {pending ? <span>{messages.live.refreshing}</span> : null}
-      <span className="relative h-0.5 flex-1 overflow-hidden bg-muted-soft" aria-hidden="true">
-        {enabled ? <span key={pending ? "pending" : "idle"} className="refresh-progress absolute inset-0 bg-primary" style={{ animationDuration: `${LIVE_REFRESH_MS}ms` }} /> : null}
+    <div className="mt-3 flex items-center gap-2.5" aria-live="polite" data-testid="live-refresh-progress">
+      <RefreshCw aria-hidden="true" className={`size-3.5 shrink-0 ${pending ? "animate-spin text-primary" : "text-muted"}`} />
+      <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted-soft" aria-hidden="true">
+        {enabled ? <span key={pending ? "pending" : "idle"} className="refresh-progress absolute inset-0 rounded-full bg-primary" style={{ animationDuration: `${LIVE_REFRESH_MS}ms` }} /> : null}
       </span>
-      <span className="sr-only">{messages.live.hiddenTabPause}</span>
+      <span className="sr-only">{enabled ? messages.live.autoRefresh : messages.nav.paused}{pending ? ` · ${messages.live.refreshing}` : ""}. {messages.live.hiddenTabPause}</span>
     </div>
   );
 }

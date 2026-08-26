@@ -1,3 +1,4 @@
+import { BarChart3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { DataMeta } from "@/components/feedback/data-meta";
 import { DelayDistribution } from "@/components/charts/delay-distribution";
@@ -28,7 +29,10 @@ export function HistoryLayout({
 
   return (
     <div className="page-shell pb-20 pt-12">
-      <p className="eyebrow">{messages.history.title}</p>
+      <div className="flex items-center gap-2">
+        <BarChart3 aria-hidden="true" className="size-5 shrink-0 text-[var(--landing-highlight)]" data-testid="history-title-icon" />
+        <p className="eyebrow">{messages.history.title}</p>
+      </div>
       <h1 className="mt-3 text-4xl font-black tracking-[-.05em] sm:text-6xl">{data.context.label}</h1>
       <div className="mt-6"><DataMeta meta={data.meta} lang={lang} messages={messages} /></div>
       <section className="mt-8"><h2 className="sr-only">{messages.history.filters}</h2>{filterForm}</section>
