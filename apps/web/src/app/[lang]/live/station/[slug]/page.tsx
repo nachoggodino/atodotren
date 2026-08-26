@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { DataMeta } from "@/components/feedback/data-meta";
 import { LineBadge } from "@/components/line-badge";
+import { LiveHeader } from "@/components/live/live-header";
 import { LiveRefresh } from "@/components/live/live-refresh";
 import { StatsBand } from "@/components/live/stats-band";
 import { formatDelay } from "@/lib/domain/format";
@@ -24,11 +25,13 @@ export default async function LiveStationPage({ params, searchParams }: { readon
   }
 
   return (
-    <div className="page-shell pb-20 pt-12">
-      <p className="eyebrow">{messages.live.title} · {messages.live.stationContext}</p>
-      <h1 className="mt-3 text-4xl font-black tracking-[-.05em] sm:text-6xl">{data.context.name[lang]}</h1>
-      <div className="mt-6"><DataMeta meta={data.meta} lang={lang} messages={messages} /><LiveRefresh messages={messages} /></div>
-      <div className="mt-8"><StatsBand stats={data.stats} lang={lang} messages={messages} /></div>
+    <div className="page-shell pb-20 pt-7 sm:pt-9">
+      <LiveHeader title={messages.nav.live} subtitle={data.context.name[lang]} serviceDate={data.meta.serviceDate} />
+      <div className="mt-5">
+        <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
+        <LiveRefresh messages={messages} />
+      </div>
+      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} /></div>
       <section className="mt-12">
         <h2 className="text-2xl font-black">{messages.live.trains}</h2>
         {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.overnight}</p> : (
