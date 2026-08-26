@@ -1,13 +1,14 @@
 "use client";
 
-import { X } from "lucide-react";
+import * as Ariakit from "@ariakit/react";
+import { ArrowRight, TrainFront } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Lang, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
 import { delayBand } from "@/lib/domain/delay-policy";
 import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { layoutSchematicPatterns, pointForTrain, schematicHeight, schematicWidth } from "@/lib/domain/schematic";
 import { positionCaptionKey } from "@/lib/domain/train";
-import { confidenceLabel, directionLabel, evidenceLabel } from "@/lib/i18n/domain-labels";
+import { confidenceLabel, evidenceLabel } from "@/lib/i18n/domain-labels";
 import type { Messages } from "@/messages/types";
 
 function captionForTrain(train: TrainDetail, messages: Messages): string {
@@ -18,7 +19,8 @@ function captionForTrain(train: TrainDetail, messages: Messages): string {
   }
 }
 
-function trainFill(train: TrainDetail): string {
+function trainColor(train: TrainDetail): string {
+  if (train.position.kind === "unknown") return "var(--unknown)";
   switch (delayBand(train.delaySeconds)) {
     case "punctual": return "var(--success)";
     case "mild": return "var(--warning)";
@@ -29,38 +31,102 @@ function trainFill(train: TrainDetail): string {
 }
 
 function stationLabel(value: string): readonly [string, string | null] {
-  if (value.length <= 21) return [value, null];
-  const split = value.lastIndexOf(" ", 21);
-  if (split < 8) return [`${value.slice(0, 20)}…`, null];
+  if (value.length <= 18) return [value, null];
+  const split = value.lastIndexOf(" ", 18);
+  if (split < 7) return [`${value.slice(0, 17)}…`, null];
   const first = value.slice(0, split);
   const rest = value.slice(split + 1);
-  return [first, rest.length > 22 ? `${rest.slice(0, 21)}…` : rest];
+  return [first, rest.length > 19 ? `${rest.slice(0, 18)}…` : rest];
+}
+
+function destinationLabel(pattern: SchematicPattern, lang: Lang, messages: Messages): string {
+  const destination = pattern.destination ?? pattern.direction.to;
+  return destination === null
+    ? (pattern.direction.id === 0 ? messages.common.directionA : messages.common.directionB)
+    : `${messages.live.towards} ${destination.name[lang]}`;
 }
 
 export function SchematicMap({ patterns, trains, lineColor, lang, messages }: { readonly patterns: readonly SchematicPattern[]; readonly trains: readonly TrainDetail[]; readonly lineColor: string; readonly lang: Lang; readonly messages: Messages }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = trains.find((train) => train.id === selectedId) ?? null;
+  const [selected, setSelected] = useState<TrainDetail | null>(null);
   const plottedPatterns = useMemo(() => layoutSchematicPatterns(patterns), [patterns]);
-  const plottedTrains = useMemo(() => trains.map((train) => ({ train, point: pointForTrain(train, plottedPatterns) })), [trains, plottedPatterns]);
+  const plottedTrains = useMemo(
+    () => trains.flatMap((train) => {
+      const point = pointForTrain(train, plottedPatterns);
+      return point === null ? [] : [{ train, point }];
+    }),
+    [trains, plottedPatterns],
+  );
   const width = schematicWidth(plottedPatterns);
   const height = schematicHeight(plottedPatterns);
-  const unplaced = plottedTrains.filter((item) => item.point === null);
 
-  return <div>
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface-strong" data-testid="schematic-map"><svg aria-label={messages.live.schematic} className="min-h-[240px]" role="group" viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
-      {plottedPatterns.map(({ pattern, stops }) => <g key={pattern.id}>
-        <text x="22" y={(stops[0]?.y ?? 72) - 30} fill="var(--muted)" fontSize="10" fontWeight="700">{directionLabel(pattern.direction, lang, messages)}</text>
-        <path d={stops.map((stop, index) => `${index === 0 ? "M" : "L"}${stop.x} ${stop.y}`).join(" ")} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth="10" opacity=".86" />
-        {stops.map((stop) => { const [first, second] = stationLabel(stop.station.name[lang]); return <g key={`${pattern.id}-${stop.station.id}`}><circle cx={stop.x} cy={stop.y} r="8" fill="var(--surface-strong)" stroke={lineColor} strokeWidth="4" /><text x={stop.x} y={stop.y + 28} textAnchor="middle" fill="var(--foreground)" fontSize="11" fontWeight="700"><tspan x={stop.x}>{first}</tspan>{second === null ? null : <tspan x={stop.x} dy="13">{second}</tspan>}</text></g>; })}
-      </g>)}
-      {plottedTrains.flatMap(({ train, point }) => point === null ? [] : [<g key={train.id} role="button" tabIndex={0} aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${captionForTrain(train, messages)}`} onClick={() => setSelectedId(train.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(train.id); } }} className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-primary"><rect x={point.x - 17} y={point.y - 35} width="34" height="23" rx="7" fill={trainFill(train)} stroke="var(--surface-strong)" strokeWidth="3" /><circle cx={point.x - 8} cy={point.y - 15} r="3" fill="var(--surface-strong)" /><circle cx={point.x + 8} cy={point.y - 15} r="3" fill="var(--surface-strong)" /></g>])}
-    </svg></div>
-    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-      {trains.some((train) => positionCaptionKey(train.position) === "reported") ? <span>{messages.live.reported}</span> : null}
-      {trains.some((train) => positionCaptionKey(train.position) === "inferred") ? <span>{messages.live.inferred}</span> : null}
-      {unplaced.length > 0 ? <span>{messages.live.positionUnavailable}: {unplaced.length}</span> : null}
-    </div>
-    {unplaced.length === 0 ? null : <div className="mt-3 flex flex-wrap gap-2" aria-label={messages.live.positionUnavailable}>{unplaced.map(({ train }) => <button className="rounded-md border border-border px-3 py-2 text-xs font-bold hover:bg-muted-soft" key={train.id} onClick={() => setSelectedId(train.id)} type="button">{train.id} · {captionForTrain(train, messages)}</button>)}</div>}
-    {selected ? <aside className="mt-4 rounded-xl border border-border bg-surface-strong p-4" aria-label={`${messages.common.details}: ${selected.id}`} data-testid="train-detail"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">{selected.line.code} · {selected.id}</p><p className="mt-1 text-2xl font-black">{formatDelay(selected.delaySeconds, lang)}</p><p className="mt-1 text-xs text-muted">{captionForTrain(selected, messages)}</p></div><button className="grid size-10 place-items-center rounded-md hover:bg-muted-soft" onClick={() => setSelectedId(null)} aria-label={messages.nav.close} type="button"><X className="size-4" /></button></div><dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2"><div><dt className="text-muted">{messages.live.nextArrival}</dt><dd className="font-bold">{formatMadridTime(selected.scheduledArrivalAt, lang, true)}</dd></div><div><dt className="text-muted">{messages.live.probableArrival}</dt><dd className="font-bold">{formatMadridTime(selected.probableArrivalAt, lang, true)}</dd></div><div><dt className="text-muted">{messages.live.sourceArrival}</dt><dd className="font-bold">{formatMadridTime(selected.renfeReportedArrivalAt, lang, true)}</dd></div><div><dt className="text-muted">{messages.live.observedPresence}</dt><dd className="font-bold">{formatMadridTime(selected.observedPresenceAt, lang, true)}</dd></div><div><dt className="text-muted">{messages.common.state}</dt><dd className="font-bold">{evidenceLabel(selected.state, messages)}</dd></div><div><dt className="text-muted">{messages.common.confidence}</dt><dd className="font-bold">{confidenceLabel(selected.position.confidence, messages)}</dd></div></dl></aside> : null}
-  </div>;
+  return (
+    <Ariakit.PopoverProvider open={selected !== null} setOpen={(open) => { if (!open) setSelected(null); }} placement="top">
+      <div className="overflow-x-auto" data-testid="schematic-map">
+        <div className="relative" style={{ width, height }}>
+          <svg aria-label={messages.live.schematic} className="absolute inset-0" role="img" viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
+            {plottedPatterns.map(({ pattern, stops }) => (
+              <g key={pattern.id}>
+                <g transform={`translate(22 ${(stops[0]?.y ?? 52) - 24})`}>
+                  <ArrowRight aria-hidden="true" height="11" width="11" x="0" y="-8" />
+                  <text x="16" y="0" fill="var(--muted)" fontSize="10" fontWeight="700">{destinationLabel(pattern, lang, messages)}</text>
+                </g>
+                <path d={stops.map((stop, index) => `${index === 0 ? "M" : "L"}${stop.x} ${stop.y}`).join(" ")} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth="8" opacity=".86" />
+                {stops.map((stop) => {
+                  const [first, second] = stationLabel(stop.station.name[lang]);
+                  return (
+                    <g key={`${pattern.id}-${stop.station.id}`}>
+                      <circle cx={stop.x} cy={stop.y} r="6" fill="var(--background)" stroke={lineColor} strokeWidth="3" />
+                      <text x={stop.x} y={stop.y + 20} textAnchor="middle" fill="var(--foreground)" fontSize="9" fontWeight="700">
+                        <tspan x={stop.x}>{first}</tspan>
+                        {second === null ? null : <tspan x={stop.x} dy="11">{second}</tspan>}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            ))}
+          </svg>
+
+          {plottedTrains.map(({ train, point }) => (
+            <Ariakit.PopoverDisclosure
+              aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${captionForTrain(train, messages)}`}
+              className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[var(--background)] shadow-sm outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary"
+              key={train.id}
+              onClick={() => setSelected(train)}
+              style={{ left: point.x, top: point.y, color: trainColor(train) }}
+            >
+              <TrainFront aria-hidden="true" className="size-5" strokeWidth={2.4} />
+            </Ariakit.PopoverDisclosure>
+          ))}
+        </div>
+      </div>
+
+      <Ariakit.Popover
+        className="z-[80] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface-strong p-4 shadow-[var(--shadow-float)] outline-none"
+        gutter={8}
+        portal
+        data-testid="train-detail"
+      >
+        {selected === null ? null : (
+          <div>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="eyebrow">{selected.line.code} · {selected.id}</p>
+                <p className="mt-1 text-2xl font-black">{formatDelay(selected.delaySeconds, lang)}</p>
+                <p className="mt-1 text-xs text-muted">{captionForTrain(selected, messages)}</p>
+              </div>
+              <TrainFront aria-hidden="true" className="size-6 shrink-0" style={{ color: trainColor(selected) }} />
+            </div>
+            <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+              <div><dt className="text-muted">{messages.live.lastPositionUpdate}</dt><dd className="font-bold">{formatMadridTime(selected.sourceAt, lang, true)}</dd></div>
+              <div><dt className="text-muted">{messages.live.nextArrival}</dt><dd className="font-bold">{formatMadridTime(selected.scheduledArrivalAt, lang, true)}</dd></div>
+              <div><dt className="text-muted">{messages.live.probableArrival}</dt><dd className="font-bold">{formatMadridTime(selected.probableArrivalAt, lang, true)}</dd></div>
+              <div><dt className="text-muted">{messages.common.state}</dt><dd className="font-bold">{evidenceLabel(selected.state, messages)}</dd></div>
+              <div><dt className="text-muted">{messages.common.confidence}</dt><dd className="font-bold">{confidenceLabel(selected.position.confidence, messages)}</dd></div>
+            </dl>
+          </div>
+        )}
+      </Ariakit.Popover>
+    </Ariakit.PopoverProvider>
+  );
 }
