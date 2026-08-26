@@ -7,7 +7,7 @@ async function openMenu(page: import("@playwright/test").Page) {
   await expect(button).toHaveAccessibleName(/Cerrar menú|Close menu/);
 }
 
-test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {
+test("landing search exposes direct live and history actions", async ({ page }, testInfo) => {
   await page.goto("/es");
   await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
@@ -19,8 +19,11 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await search.fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
-  await option.click();
-  await page.getByRole("link", { name: "Ver hoy" }).click();
+  const liveAction = page.getByRole("link", { name: /^Ver hoy:/ }).first();
+  const historyAction = page.getByRole("link", { name: /^Ver histórico:/ }).first();
+  await expect(liveAction).toHaveAttribute("href", /\/es\/live\/line\/c1$/);
+  await expect(historyAction).toHaveAttribute("href", /\/es\/history\/line\/c1$/);
+  await liveAction.click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
   await expect(page.getByTestId("schematic-map")).toBeVisible();
   const filename = testInfo.project.name.startsWith("desktop")
@@ -29,7 +32,7 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.screenshot({ path: filename, fullPage: true });
 });
 
-test("@webkit search keyboard selection and header menu restore focus", async ({ page }) => {
+test("@webkit search keyboard selection opens the live result and header menu restores focus", async ({ page }) => {
   await page.goto("/es");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
@@ -38,7 +41,7 @@ test("@webkit search keyboard selection and header menu restore focus", async ({
   await expect(search).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator('[role="option"][data-active-item]').filter({ hasText: "C1" }).first()).toBeVisible();
   await search.press("Enter");
-  await expect(page.getByRole("link", { name: "Ver hoy" })).toBeVisible();
+  await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
 
   await openMenu(page);
   const toggle = page.getByTestId("menu-toggle");

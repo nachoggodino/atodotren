@@ -1,8 +1,9 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { ArrowRight, History, Radio, Search, TrainFront } from "lucide-react";
+import { History, Radio, Search, TrainFront } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import type { Lang, SearchResponse, SearchResult } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
@@ -14,15 +15,15 @@ function routeFor(result: SearchResult, lang: Lang, mode: "live" | "history"): s
   return `/${lang}/${mode}/${result.kind}/${slug}`;
 }
 
-function selectionValue(result: SearchResult): string {
-  return `${result.kind}:${result.id}`;
+function resultLabel(result: SearchResult, lang: Lang): string {
+  return result.code ? `${result.code} · ${result.name[lang]}` : result.name[lang];
 }
 
 export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
   const inputId = useId();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<readonly SearchResult[]>([]);
-  const [selected, setSelected] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -32,19 +33,11 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
     setFailed(false);
     if (value.trim() === "") {
       setResults([]);
-      setSelected(null);
       setLoading(false);
       setOpen(false);
       return;
     }
     setOpen(true);
-  };
-
-  const onSelectedValueChange = (value: string | string[]) => {
-    if (Array.isArray(value)) return;
-    const result = results.find((candidate) => selectionValue(candidate) === value) ?? null;
-    setSelected(result);
-    if (result) setOpen(false);
   };
 
   useEffect(() => {
@@ -59,11 +52,9 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
         if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
         const payload = await response.json() as SearchResponse;
         setResults(payload.results);
-        setSelected((current) => payload.results.find((result) => result.id === current?.id && result.kind === current.kind) ?? null);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setResults([]);
-        setSelected(null);
         setFailed(true);
       } finally {
         if (!controller.signal.aborted) setLoading(false);
@@ -76,7 +67,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
   }, [query]);
 
   return (
-    <Ariakit.ComboboxProvider value={query} setValue={onQueryChange} selectedValue={selected ? selectionValue(selected) : ""} setSelectedValue={onSelectedValueChange} open={open} setOpen={setOpen}>
+    <Ariakit.ComboboxProvider value={query} setValue={onQueryChange} open={open} setOpen={setOpen}>
       <div className="relative">
         <Ariakit.ComboboxLabel className="mb-3 block text-sm font-bold" htmlFor={inputId}>{messages.landing.searchLabel}</Ariakit.ComboboxLabel>
         <div className="flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15" data-testid="landing-search-field">
@@ -87,18 +78,44 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
         <Ariakit.ComboboxPopover gutter={6} sameWidth className="z-[80] overflow-hidden rounded-2xl border border-border bg-surface-strong shadow-[var(--shadow-float)]">
           {failed ? <p className="px-4 py-4 text-sm text-danger" role="status">{messages.landing.searchError}</p> : null}
           {!failed && results.length === 0 && !loading ? <p className="px-4 py-4 text-sm text-muted" role="status">{messages.landing.emptySearch}</p> : null}
-          {!failed && results.length > 0 ? <Ariakit.ComboboxList>{results.map((result) => (
-            <Ariakit.ComboboxItem key={`${result.kind}-${result.id}`} value={selectionValue(result)} setValueOnClick={false} resetValueOnSelect={false} className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted-soft data-[active-item]:bg-muted-soft">
-              {result.kind === "line" ? <TrainFront className="size-5" /> : <Radio className="size-5" />}
-              <span className="min-w-0 flex-1"><strong className="block">{result.code ? `${result.code} · ` : ""}{result.name[lang]}</strong><span className="text-xs text-muted">{result.kind === "line" ? messages.common.line : messages.common.station}</span></span>
-              <ArrowRight className="size-4 text-muted" />
-            </Ariakit.ComboboxItem>
-          ))}</Ariakit.ComboboxList> : null}
+          {!failed && results.length > 0 ? <Ariakit.ComboboxList>{results.map((result) => {
+            const label = resultLabel(result, lang);
+            return (
+              <div className="relative border-b border-border last:border-b-0" key={`${result.kind}-${result.id}`}>
+                <Ariakit.ComboboxItem
+                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 pr-[6.5rem] text-left hover:bg-muted-soft data-[active-item]:bg-muted-soft"
+                  onClick={() => router.push(routeFor(result, lang, "live"))}
+                  resetValueOnSelect={false}
+                  setValueOnClick={false}
+                  value={`${result.kind}:${result.id}`}
+                >
+                  {result.kind === "line" ? <TrainFront className="size-5 shrink-0" /> : <Radio className="size-5 shrink-0" />}
+                  <span className="min-w-0 flex-1"><strong className="block truncate">{label}</strong><span className="text-xs text-muted">{result.kind === "line" ? messages.common.line : messages.common.station}</span></span>
+                </Ariakit.ComboboxItem>
+                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+                  <Link
+                    aria-label={`${messages.landing.liveAction}: ${label}`}
+                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-positive)] transition hover:bg-[color-mix(in_srgb,var(--landing-positive)_10%,transparent)] focus-visible:outline-offset-1"
+                    href={routeFor(result, lang, "live")}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    title={messages.landing.liveAction}
+                  >
+                    <Radio className="size-4" />
+                  </Link>
+                  <Link
+                    aria-label={`${messages.landing.historyAction}: ${label}`}
+                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-highlight)] transition hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] focus-visible:outline-offset-1"
+                    href={routeFor(result, lang, "history")}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    title={messages.landing.historyAction}
+                  >
+                    <History className="size-4" />
+                  </Link>
+                </div>
+              </div>
+            );
+          })}</Ariakit.ComboboxList> : null}
         </Ariakit.ComboboxPopover>
-        {selected ? <div className="mt-3 grid grid-cols-2 gap-2">
-          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-primary px-3 font-bold text-background" href={routeFor(selected, lang, "live")}><Radio className="size-4" />{messages.landing.liveAction}</Link>
-          <Link className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface-strong px-3 font-bold hover:bg-muted-soft" href={routeFor(selected, lang, "history")}><History className="size-4" />{messages.landing.historyAction}</Link>
-        </div> : null}
       </div>
     </Ariakit.ComboboxProvider>
   );
