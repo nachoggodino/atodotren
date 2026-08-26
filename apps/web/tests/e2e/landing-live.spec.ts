@@ -111,11 +111,12 @@ test("global refresh pause persists and live train detail is keyboard operable",
   await openMenu(page);
   await expect(page.getByRole("switch", { name: "Actualización automática" })).toHaveAttribute("aria-checked", "false");
   await page.keyboard.press("Escape");
-  const train = page.locator('[data-testid="schematic-map"] [role="button"]').first();
+  const train = page.getByTestId("schematic-map").getByRole("button").first();
   await train.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("train-detail")).toBeVisible();
-  await expect(page.getByText(/no es GPS/i)).toBeVisible();
+  const detail = page.getByTestId("train-detail");
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("Última actualización de posición");
 });
 
 test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
@@ -124,7 +125,7 @@ test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.keyboard.press("Escape");
-  const train = page.locator('[data-testid="schematic-map"] [role="button"]').first();
+  const train = page.getByTestId("schematic-map").getByRole("button").first();
   await train.focus();
   await train.press("Enter");
   await expect(page.getByTestId("train-detail")).toBeVisible();

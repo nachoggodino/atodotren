@@ -10,8 +10,9 @@ test("live line detail switches between a compact schematic and the daily delay 
 
   const schematic = page.getByTestId("schematic-map");
   await expect(schematic).toBeVisible();
-  await expect(schematic.locator("svg")).toContainText("Hacia");
-  await expect(schematic.locator("svg")).not.toContainText("→");
+  const schematicImage = schematic.getByRole("img", { name: "Esquema" });
+  await expect(schematicImage).toContainText("Hacia");
+  await expect(schematicImage).not.toContainText("→");
   expect(await schematic.getByRole("button").count()).toBeGreaterThan(0);
 
   const reportedTrain = schematic.getByRole("button").first();
