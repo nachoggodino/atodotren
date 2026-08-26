@@ -13,7 +13,7 @@ export function LandingDelayTrend({ points, lang, messages }: { readonly points:
   }));
   const ticks = data.filter((_, index) => index % 8 === 0 || index === data.length - 1).map((point) => point.time);
   return <div>
-    <div className="h-48 sm:h-56" role="img" aria-label={messages.landing.delayTrend}>
+    <div aria-hidden="true" className="h-48 sm:h-56" data-testid="landing-delay-chart-visual">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" />
