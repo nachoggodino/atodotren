@@ -29,8 +29,7 @@ export default async function LandingPage({ params, searchParams }: { readonly p
 
   return <div className="page-shell overflow-x-clip pb-6 pt-9 sm:pb-8 sm:pt-14">
     <section className="mx-auto max-w-4xl text-center">
-      <p className="eyebrow">{messages.landing.eyebrow}</p>
-      <blockquote className="mt-3">
+      <blockquote>
         <h1 className="mx-auto max-w-4xl text-[2rem] font-bold leading-[1.04] tracking-[-.035em] sm:text-4xl lg:text-5xl">“{hasTitleHighlight ? <>{messages.landing.title.slice(0, titleHighlightIndex)}<strong className="font-black text-[var(--landing-highlight)]" data-testid="landing-title-highlight">{messages.landing.titleHighlight}</strong>{messages.landing.title.slice(titleHighlightIndex + messages.landing.titleHighlight.length)}</> : messages.landing.title}”</h1>
       </blockquote>
       <p className="mx-auto mt-4 max-w-2xl text-[.825rem] leading-6 text-muted sm:text-sm">{messages.landing.body}</p>
