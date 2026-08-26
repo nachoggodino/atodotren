@@ -20,6 +20,10 @@ test("landing search exposes direct live and history actions", async ({ page }, 
   const metrics = page.getByTestId("landing-live-metrics");
   await expect(metrics).toBeVisible();
   await expect(metrics.locator(":scope > div > div").nth(1)).toContainText("Trenes activos");
+  const activeTrainsValue = page.getByTestId("landing-active-trains-value");
+  expect(await activeTrainsValue.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(29);
+  await expect(page.getByTestId("landing-live-link")).toHaveClass(/active:scale/);
+  await expect(page.getByTestId("landing-history-link")).toHaveClass(/active:scale/);
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
   const chartVisual = page.getByTestId("landing-delay-chart-visual");
   await expect(chartVisual).toHaveAttribute("aria-hidden", "true");
@@ -43,11 +47,25 @@ test("landing search exposes direct live and history actions", async ({ page }, 
   await expect(historyAction).toHaveAttribute("href", /\/es\/history\/line\/c1$/);
   await liveAction.click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await expect(page.getByTestId("schematic-map")).toBeVisible();
   const filename = testInfo.project.name.startsWith("desktop")
     ? "test-results/screenshots/live-line-desktop-light.png"
     : "test-results/screenshots/live-line-mobile-light.png";
   await page.screenshot({ path: filename, fullPage: true });
+});
+
+test("live navigation always opens the destination at the top", async ({ page }) => {
+  await page.goto("/es");
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.getByTestId("landing-live-link").click();
+  await expect(page).toHaveURL(/\/es\/live$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.getByTestId("live-line-grid").locator(":scope > a").first().click();
+  await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 
 test("@webkit search keyboard selection opens the live result and header menu restores focus", async ({ page }) => {
@@ -115,8 +133,8 @@ test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
 test("English routes, theme persistence, mobile drawer and reduced motion remain usable", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/en");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("A wizard is never late");
-  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Nor is he early.");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Renfe is never late");
+  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Nor is it early.");
   await openMenu(page);
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);

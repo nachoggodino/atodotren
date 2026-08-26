@@ -6,6 +6,8 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Todas las líneas");
   await expect(page.getByRole("button", { name: "Volver" })).toHaveCount(0);
+  await expect(page.getByTestId("live-title-icon")).toBeVisible();
+  await expect(page.getByTestId("live-title-icon")).toHaveClass(/landing-positive/);
   await expect(page.getByText("Estado de hoy", { exact: true })).toHaveCount(0);
   await expect(page.getByText("2026-08-24", { exact: true })).toHaveCount(0);
 
@@ -58,15 +60,20 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(page.locator(".sr-only table").filter({ hasText: "Distribución de retrasos" })).toContainText("Paradas");
 });
 
-test("live detail headers expose a working back button", async ({ page }) => {
+test("live detail headers expose a prominent working back button", async ({ page }) => {
   await page.goto("/es/live");
   await page.goto("/es/live/line/c1");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Línea C1");
+  await expect(page.getByTestId("live-title-icon")).toHaveCount(0);
   const lineBack = page.getByRole("button", { name: "Volver" });
   await expect(lineBack).toBeVisible();
+  await expect(lineBack).toHaveClass(/size-11/);
+  await expect(lineBack).toHaveClass(/active:-translate-x-1/);
+  await expect(lineBack.locator("svg")).toHaveClass(/size-7/);
   await lineBack.click();
   await expect(page).toHaveURL(/\/es\/live$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 
   await page.goto("/es/live/station/atocha");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
