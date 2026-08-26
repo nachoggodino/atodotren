@@ -24,7 +24,7 @@ function LiveMetricCard({ label, value, tone, help, position }: { readonly label
         className="z-[90] w-[min(20rem,calc(100vw-1.5rem))] rounded-xl border border-border bg-surface-strong p-4 text-foreground shadow-[var(--shadow-float)]"
         gutter={8}
       >
-        <Ariakit.PopoverHeading className="text-sm font-black">{label}</Ariakit.PopoverHeading>
+        <Ariakit.PopoverHeading className="text-sm font-black" render={<h2 />}>{label}</Ariakit.PopoverHeading>
         <Ariakit.PopoverDescription className="mt-2 text-sm leading-6 text-muted">{help}</Ariakit.PopoverDescription>
       </Ariakit.Popover>
     </Ariakit.PopoverProvider>

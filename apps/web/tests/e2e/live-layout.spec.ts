@@ -30,7 +30,7 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await statButtons.nth(0).click();
   const punctualityHelp = page.getByText("Una parada se considera puntual cuando su retraso es de 2 minutos o menos respecto a la hora prevista.");
   await expect(punctualityHelp).toBeVisible();
-  await page.getByRole("heading", { level: 1 }).click();
+  await page.getByRole("heading", { level: 1, name: "En directo" }).click();
   await expect(punctualityHelp).toBeHidden();
 
   const lines = page.getByTestId("live-line-grid");
