@@ -1,6 +1,6 @@
 "use client";
 
-import { Grid3X3, Map, TrainFront } from "lucide-react";
+import { Grid3X3, Map as MapIcon, TrainFront } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { DirectionId, Lang, MatrixResponse, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
@@ -49,7 +49,7 @@ export function LiveLineVisualization({
           role="radio"
           type="button"
         >
-          <Map aria-hidden="true" className="size-4" />
+          <MapIcon aria-hidden="true" className="size-4" />
           {messages.live.schematic}
         </button>
         <button
