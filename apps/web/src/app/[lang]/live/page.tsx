@@ -18,7 +18,7 @@ export default async function LivePage({ params, searchParams }: { readonly para
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader title={messages.nav.live} subtitle={messages.live.networkTitle} serviceDate={data.meta.serviceDate} />
+      <LiveHeader title={messages.nav.live} subtitle={messages.live.networkTitle} />
       <div className="mt-5">
         <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
         <LiveRefresh messages={messages} />
@@ -27,13 +27,9 @@ export default async function LivePage({ params, searchParams }: { readonly para
       <section className="mt-10" aria-label={messages.live.networkTitle}>
         <LineList lines={data.lines} lang={lang} messages={messages} />
       </section>
-      <section className="mt-12 grid gap-8 border-t border-border pt-8 lg:grid-cols-[.8fr_1.2fr]">
-        <div>
-          <p className="eyebrow">{messages.history.distribution}</p>
-          <h2 className="mt-2 text-2xl font-black">{messages.live.todayDistributionTitle}</h2>
-          <p className="mt-3 text-sm leading-6 text-muted">{messages.live.todayDistributionBody}</p>
-        </div>
-        <DelayDistribution values={data.stats.distribution} messages={messages} />
+      <section className="mt-8">
+        <h2 className="text-2xl font-black tracking-tight">{messages.live.todayDistributionTitle}</h2>
+        <div className="mt-4"><DelayDistribution values={data.stats.distribution} messages={messages} /></div>
       </section>
     </div>
   );

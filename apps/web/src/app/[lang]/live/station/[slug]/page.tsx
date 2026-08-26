@@ -26,7 +26,7 @@ export default async function LiveStationPage({ params, searchParams }: { readon
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader title={messages.nav.live} subtitle={data.context.name[lang]} serviceDate={data.meta.serviceDate} />
+      <LiveHeader title={messages.nav.live} subtitle={data.context.name[lang]} />
       <div className="mt-5">
         <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
         <LiveRefresh messages={messages} />
