@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Radio } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export function LiveHeader({ title, subtitle, backLabel }: { readonly title: string; readonly subtitle: string; readonly backLabel?: string }) {
@@ -12,18 +12,27 @@ export function LiveHeader({ title, subtitle, backLabel }: { readonly title: str
     </div>
   );
 
-  if (backLabel === undefined) return <header>{heading}</header>;
-
-  return (
-    <header className="grid grid-cols-[auto_1fr] items-start gap-x-1.5 sm:gap-x-2">
+  const leading = backLabel === undefined
+    ? (
+      <span className="-ml-2 mt-0.5 grid size-11 shrink-0 place-items-center" aria-hidden="true">
+        <Radio className="size-7 text-[var(--landing-positive)]" data-testid="live-title-icon" />
+      </span>
+    )
+    : (
       <button
         aria-label={backLabel}
-        className="-ml-2 mt-0.5 grid size-9 shrink-0 place-items-center text-muted transition-[color,transform,opacity] hover:text-foreground active:scale-90 active:opacity-70"
+        className="-ml-2 mt-0.5 grid size-11 shrink-0 place-items-center text-muted transition-[color,transform,opacity] duration-100 hover:text-foreground active:-translate-x-1 active:scale-90 active:text-[var(--landing-positive)] active:opacity-65"
+        data-testid="live-back-button"
         onClick={() => router.back()}
         type="button"
       >
-        <ArrowLeft aria-hidden="true" className="size-5 sm:size-6" />
+        <ArrowLeft aria-hidden="true" className="size-7" />
       </button>
+    );
+
+  return (
+    <header className="grid grid-cols-[auto_1fr] items-start gap-x-1.5 sm:gap-x-2">
+      {leading}
       {heading}
     </header>
   );
