@@ -15,7 +15,7 @@ export function LandingDelayTrend({ points, lang, messages }: { readonly points:
   return <div>
     <div className="h-48 sm:h-56" role="img" aria-label={messages.landing.delayTrend}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+        <AreaChart accessibilityLayer={false} data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis dataKey="time" ticks={ticks} axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
           <YAxis axisLine={false} tickLine={false} width={42} tick={{ fill: "var(--muted)", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 3600)}h`} />

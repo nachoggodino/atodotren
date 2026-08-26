@@ -11,6 +11,7 @@ test("landing search exposes direct live and history actions", async ({ page }, 
   await page.goto("/es");
   await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
+  await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-surface')).not.toHaveAttribute("tabindex");
   await expect(page.getByTestId("landing-title-highlight")).toHaveText("Ni pronto.");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.focus();
@@ -19,6 +20,7 @@ test("landing search exposes direct live and history actions", async ({ page }, 
   await search.fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
+  await expect(option).not.toContainText("Línea");
   const liveAction = page.getByRole("link", { name: /^Ver hoy:/ }).first();
   const historyAction = page.getByRole("link", { name: /^Ver histórico:/ }).first();
   await expect(liveAction).toHaveAttribute("href", /\/es\/live\/line\/c1$/);

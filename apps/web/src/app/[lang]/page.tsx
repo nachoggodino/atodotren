@@ -27,20 +27,20 @@ export default async function LandingPage({ params, searchParams }: { readonly p
   const titleHighlightIndex = messages.landing.title.indexOf(messages.landing.titleHighlight);
   const hasTitleHighlight = titleHighlightIndex >= 0;
 
-  return <div className="page-shell overflow-x-clip pb-6 pt-9 sm:pb-10 sm:pt-14">
+  return <div className="page-shell overflow-x-clip pb-0 pt-9 sm:pb-2 sm:pt-14">
     <section className="mx-auto max-w-4xl text-center">
       <p className="eyebrow">{messages.landing.eyebrow}</p>
       <blockquote className="mt-3">
         <h1 className="mx-auto max-w-4xl text-[2rem] font-bold leading-[1.04] tracking-[-.035em] sm:text-4xl lg:text-5xl">“{hasTitleHighlight ? <>{messages.landing.title.slice(0, titleHighlightIndex)}<strong className="font-black text-[var(--landing-highlight)]" data-testid="landing-title-highlight">{messages.landing.titleHighlight}</strong>{messages.landing.title.slice(titleHighlightIndex + messages.landing.titleHighlight.length)}</> : messages.landing.title}”</h1>
       </blockquote>
-      <p className="mx-auto mt-4 max-w-2xl text-[.95rem] leading-7 text-muted sm:text-base">{messages.landing.body}</p>
+      <p className="mx-auto mt-4 max-w-2xl text-[.825rem] leading-6 text-muted sm:text-sm">{messages.landing.body}</p>
     </section>
 
     <section className="mt-9 overflow-hidden rounded-2xl border border-border bg-surface-strong" data-testid="landing-live-metrics">
       <div className="grid grid-cols-3 divide-x divide-border">
-        <div className="flex min-h-[7.25rem] min-w-0 flex-col px-3 py-4 sm:min-h-[7.5rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-positive) 6%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeTrains}</p><p className="metric-value mt-auto pt-3 text-[1.5rem] font-black text-[var(--landing-positive)] sm:text-[1.75rem]" data-testid="landing-active-trains-value">{number.format(data.activeTrains)}</p></div>
-        <div className="flex min-h-[7.25rem] min-w-0 flex-col px-3 py-4 sm:min-h-[7.5rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-delay) 4%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeDelay}</p><p className="metric-value mt-auto pt-3 text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
-        <div className="flex min-h-[7.25rem] min-w-0 flex-col px-3 py-4 sm:min-h-[7.5rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-delay) 6%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.todayDelay}</p><p className="metric-value mt-auto pt-3 text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
+        <div className="flex min-h-[6.5rem] min-w-0 flex-col px-3 py-3.5 sm:min-h-[6.75rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-positive) 6%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeTrains}</p><p className="metric-value mt-auto pt-2 text-[1.5rem] font-black text-[var(--landing-positive)] sm:text-[1.75rem]" data-testid="landing-active-trains-value">{number.format(data.activeTrains)}</p></div>
+        <div className="flex min-h-[6.5rem] min-w-0 flex-col px-3 py-3.5 sm:min-h-[6.75rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-delay) 4%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.activeDelay}</p><p className="metric-value mt-auto pt-2 text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
+        <div className="flex min-h-[6.5rem] min-w-0 flex-col px-3 py-3.5 sm:min-h-[6.75rem] sm:px-5" style={{ background: "color-mix(in srgb, var(--landing-delay) 6%, var(--surface-strong))" }}><p className="text-[.56rem] font-bold uppercase tracking-[.08em] text-muted sm:text-[.625rem]">{messages.landing.todayDelay}</p><p className="metric-value mt-auto pt-2 text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
       </div>
     </section>
 

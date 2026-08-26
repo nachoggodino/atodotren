@@ -1,7 +1,7 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { History, Radio, Search, TrainFront } from "lucide-react";
+import { History, MapPin, Radio, Search, TrainFront } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
@@ -83,14 +83,14 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
             return (
               <div className="relative border-b border-border last:border-b-0" key={`${result.kind}-${result.id}`}>
                 <Ariakit.ComboboxItem
-                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 pr-[6.5rem] text-left hover:bg-muted-soft data-[active-item]:bg-muted-soft"
+                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left hover:bg-muted-soft data-[active-item]:bg-muted-soft"
                   onClick={() => router.push(routeFor(result, lang, "live"))}
                   resetValueOnSelect={false}
                   setValueOnClick={false}
                   value={`${result.kind}:${result.id}`}
                 >
-                  {result.kind === "line" ? <TrainFront className="size-5 shrink-0" /> : <Radio className="size-5 shrink-0" />}
-                  <span className="min-w-0 flex-1"><strong className="block truncate">{label}</strong><span className="text-xs text-muted">{result.kind === "line" ? messages.common.line : messages.common.station}</span></span>
+                  {result.kind === "line" ? <TrainFront aria-hidden="true" className="size-5 shrink-0 text-primary" /> : <MapPin aria-hidden="true" className="size-5 shrink-0 text-primary" />}
+                  <strong className="min-w-0 flex-1 truncate">{label}</strong>
                 </Ariakit.ComboboxItem>
                 <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
                   <Link
