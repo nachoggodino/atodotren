@@ -3,7 +3,7 @@
 import * as Ariakit from "@ariakit/react";
 import { ArrowRight, TrainFront } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { Lang, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
+import type { DirectionId, Lang, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
 import { delayBand } from "@/lib/domain/delay-policy";
 import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { layoutSchematicPatterns, pointForTrain, schematicHeight, schematicWidth } from "@/lib/domain/schematic";
@@ -46,15 +46,16 @@ function destinationLabel(pattern: SchematicPattern, lang: Lang, messages: Messa
     : `${messages.live.towards} ${destination.name[lang]}`;
 }
 
-export function SchematicMap({ patterns, trains, lineColor, lang, messages }: { readonly patterns: readonly SchematicPattern[]; readonly trains: readonly TrainDetail[]; readonly lineColor: string; readonly lang: Lang; readonly messages: Messages }) {
+export function SchematicMap({ patterns, trains, directionByJourney, lineColor, lang, messages }: { readonly patterns: readonly SchematicPattern[]; readonly trains: readonly TrainDetail[]; readonly directionByJourney: ReadonlyMap<string, DirectionId>; readonly lineColor: string; readonly lang: Lang; readonly messages: Messages }) {
   const [selected, setSelected] = useState<TrainDetail | null>(null);
   const plottedPatterns = useMemo(() => layoutSchematicPatterns(patterns), [patterns]);
   const plottedTrains = useMemo(
     () => trains.flatMap((train) => {
-      const point = pointForTrain(train, plottedPatterns);
+      if (train.sourceAt === null) return [];
+      const point = pointForTrain(train, plottedPatterns, directionByJourney.get(train.journeyId) ?? null);
       return point === null ? [] : [{ train, point }];
     }),
-    [trains, plottedPatterns],
+    [directionByJourney, trains, plottedPatterns],
   );
   const width = schematicWidth(plottedPatterns);
   const height = schematicHeight(plottedPatterns);

@@ -1,4 +1,4 @@
-import type { SchematicPattern, SchematicStop, TrainDetail } from "./contracts";
+import type { DirectionId, SchematicPattern, SchematicStop, TrainDetail } from "./contracts";
 
 export interface PlottedStop extends SchematicStop {
   readonly x: number;
@@ -45,7 +45,7 @@ export function schematicHeight(patterns: readonly PlottedPattern[]): number {
   return Math.max(170, ORIGIN_Y + (patterns.length - 1) * PATTERN_SPACING + 72);
 }
 
-function patternForTrain(train: TrainDetail, patterns: readonly PlottedPattern[]): PlottedPattern | undefined {
+function patternForTrain(train: TrainDetail, patterns: readonly PlottedPattern[], directionHint: DirectionId | null): PlottedPattern | undefined {
   if (train.patternId !== null) {
     const exact = patterns.find((candidate) => candidate.pattern.id === train.patternId);
     if (exact !== undefined) return exact;
@@ -56,11 +56,16 @@ function patternForTrain(train: TrainDetail, patterns: readonly PlottedPattern[]
       ? train.position.stationHintId
       : null;
   if (stationId === null) return undefined;
+  const direction = train.direction?.id ?? directionHint;
+  if (direction !== null) {
+    const directional = patterns.find((candidate) => candidate.pattern.direction.id === direction && candidate.stopByStation.has(stationId));
+    if (directional !== undefined) return directional;
+  }
   return patterns.find((candidate) => candidate.stopByStation.has(stationId));
 }
 
-export function pointForTrain(train: TrainDetail, patterns: readonly PlottedPattern[]): TrainPoint | null {
-  const pattern = patternForTrain(train, patterns);
+export function pointForTrain(train: TrainDetail, patterns: readonly PlottedPattern[], directionHint: DirectionId | null = null): TrainPoint | null {
+  const pattern = patternForTrain(train, patterns, directionHint);
   if (pattern === undefined) return null;
   if (train.position.kind === "unknown") {
     if (train.position.stationHintId === null) return null;

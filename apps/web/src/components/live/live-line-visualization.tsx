@@ -1,8 +1,8 @@
 "use client";
 
 import { Grid3X3, Map, TrainFront } from "lucide-react";
-import { useState } from "react";
-import type { Lang, MatrixResponse, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
+import { useMemo, useState } from "react";
+import type { DirectionId, Lang, MatrixResponse, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
 import { DailyDelayMatrix } from "./daily-delay-matrix";
 import { SchematicMap } from "./schematic-map";
@@ -25,6 +25,14 @@ export function LiveLineVisualization({
   readonly messages: Messages;
 }) {
   const [mode, setMode] = useState<ViewMode>("schematic");
+  const directionByJourney = useMemo(() => {
+    const result = new Map<string, DirectionId>();
+    if (matrix === null) return result;
+    for (const journey of matrix.journeys) {
+      if (journey.direction !== null) result.set(journey.id, journey.direction.id);
+    }
+    return result;
+  }, [matrix]);
 
   return (
     <div data-testid="live-line-visualization">
@@ -60,7 +68,7 @@ export function LiveLineVisualization({
         {mode === "schematic" ? (
           patterns.length === 0
             ? <p className="border-y border-border py-6 text-sm text-muted">{messages.common.noData}</p>
-            : <SchematicMap patterns={patterns} trains={trains} lineColor={lineColor} lang={lang} messages={messages} />
+            : <SchematicMap patterns={patterns} trains={trains} directionByJourney={directionByJourney} lineColor={lineColor} lang={lang} messages={messages} />
         ) : matrix === null ? (
           <p className="border-y border-border py-6 text-sm text-muted">{messages.history.matrixNoData}</p>
         ) : (
