@@ -39,9 +39,29 @@ function cellColor(delaySeconds: number | null): string {
   return `hsl(${interpolate(lower.hue, upper.hue)} ${interpolate(lower.saturation, upper.saturation)}% ${interpolate(lower.lightness, upper.lightness)}%)`;
 }
 
-function directionLabel(direction: DirectionId, stations: readonly StationRef[], lang: Lang, messages: Messages): string {
-  const ordered = direction === 0 ? stations : [...stations].reverse();
-  const destination = ordered.at(-1);
+function stationsForDirection(matrix: MatrixResponse, direction: DirectionId): readonly StationRef[] {
+  const representative = matrix.journeys.find((journey) => journey.direction?.id === direction);
+  if (representative === undefined) return matrix.stations;
+  const stationById = new Map(matrix.stations.map((station) => [station.id, station]));
+  const ordered = matrix.cells
+    .filter((cell) => cell.journeyId === representative.id)
+    .sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt))
+    .flatMap((cell) => {
+      const station = stationById.get(cell.stationId);
+      return station === undefined ? [] : [station];
+    });
+  const seen = new Set(ordered.map((station) => station.id));
+  return [...ordered, ...matrix.stations.filter((station) => !seen.has(station.id))];
+}
+
+function directionLabel(direction: DirectionId, matrix: MatrixResponse, lang: Lang, messages: Messages): string {
+  const representative = matrix.journeys.find((journey) => journey.direction?.id === direction);
+  if (representative === undefined) return direction === 0 ? messages.common.directionA : messages.common.directionB;
+  const destinationCell = matrix.cells
+    .filter((cell) => cell.journeyId === representative.id)
+    .sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt))
+    .at(-1);
+  const destination = destinationCell === undefined ? undefined : matrix.stations.find((station) => station.id === destinationCell.stationId);
   return destination === undefined ? (direction === 0 ? messages.common.directionA : messages.common.directionB) : `${messages.live.towards} ${destination.name[lang]}`;
 }
 
@@ -49,20 +69,21 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
   const directions = useMemo(() => directionIds(matrix), [matrix]);
   const [selectedDirection, setSelectedDirection] = useState<DirectionId>(directions[0] ?? 0);
   const [selected, setSelected] = useState<SelectedCell | null>(null);
+  const firstCellByJourney = useMemo(() => {
+    const result = new Map<string, MatrixCell>();
+    for (const cell of matrix.cells) {
+      const current = result.get(cell.journeyId);
+      if (current === undefined || cell.scheduledAt < current.scheduledAt) result.set(cell.journeyId, cell);
+    }
+    return result;
+  }, [matrix.cells]);
   const journeys = useMemo(
     () => matrix.journeys
       .filter((journey) => journey.direction?.id === selectedDirection)
-      .sort((left, right) => {
-        const leftCell = matrix.cells.find((cell) => cell.journeyId === left.id);
-        const rightCell = matrix.cells.find((cell) => cell.journeyId === right.id);
-        return (leftCell?.scheduledAt ?? "").localeCompare(rightCell?.scheduledAt ?? "");
-      }),
-    [matrix.cells, matrix.journeys, selectedDirection],
+      .sort((left, right) => (firstCellByJourney.get(left.id)?.scheduledAt ?? "").localeCompare(firstCellByJourney.get(right.id)?.scheduledAt ?? "")),
+    [firstCellByJourney, matrix.journeys, selectedDirection],
   );
-  const stations = useMemo(
-    () => selectedDirection === 0 ? matrix.stations : [...matrix.stations].reverse(),
-    [matrix.stations, selectedDirection],
-  );
+  const stations = useMemo(() => stationsForDirection(matrix, selectedDirection), [matrix, selectedDirection]);
   const cells = useMemo(() => new Map(matrix.cells.map((cell) => [`${cell.journeyId}:${cell.stationId}`, cell])), [matrix.cells]);
   const stationById = useMemo(() => new Map(matrix.stations.map((station) => [station.id, station])), [matrix.stations]);
 
@@ -81,7 +102,7 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
                 type="button"
               >
                 <ArrowRight aria-hidden="true" className="size-3.5 shrink-0" />
-                <span className="truncate">{directionLabel(direction, matrix.stations, lang, messages)}</span>
+                <span className="truncate">{directionLabel(direction, matrix, lang, messages)}</span>
               </button>
             ))}
           </div>

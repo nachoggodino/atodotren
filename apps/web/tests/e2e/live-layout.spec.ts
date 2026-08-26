@@ -32,7 +32,7 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(statButtons.nth(0)).toContainText("Puntualidad");
   await expect(statButtons.nth(1)).toContainText("Cobertura");
   await expect(statButtons.nth(2)).toContainText("Media");
-  await expect(statButtons.nth(3)).toContainText("Mediana aprox.");
+  await expect(statButtons.nth(3)).toContainText("Mediana");
   await statButtons.nth(0).click();
   const punctualityHelp = page.getByText("Una parada se considera puntual cuando su retraso es de 2 minutos o menos respecto a la hora prevista.");
   await expect(punctualityHelp).toBeVisible();
@@ -55,7 +55,7 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(firstLine).not.toContainText("Puntualidad");
   await expect(firstLine).not.toContainText("Cobertura");
   await expect(firstLine).not.toContainText("Media");
-  await expect(firstLine).not.toContainText("Mediana aprox.");
+  await expect(firstLine).not.toContainText("Mediana");
 
   await expect(page.getByRole("heading", { level: 2, name: "Distribución del retraso" })).toBeVisible();
   await expect(page.getByText("La distribución usa únicamente observaciones con retraso utilizable; cobertura y ausencias se muestran por separado.")).toHaveCount(0);

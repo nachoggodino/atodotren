@@ -14,12 +14,18 @@ describe("schematic geometry", () => {
     expect(point?.x).toBeTypeOf("number");
   });
 
-  it("does not fabricate coordinates for unknown or progress-less positions", async () => {
+  it("uses a known station as the fallback position but never fabricates an unknown one", async () => {
     const line = await createFixtureAdapter("reverse-branch").liveLine("c1");
     const plotted = layoutSchematicPatterns(line!.patterns);
     const unknown = line!.trains.find((train) => train.position.kind === "unknown");
     expect(unknown).toBeDefined();
-    expect(pointForTrain(unknown!, plotted)).toBeNull();
+    expect(pointForTrain(unknown!, plotted)).not.toBeNull();
+    if (unknown?.position.kind !== "unknown") throw new Error("Expected unknown-position fixture");
+    expect(pointForTrain({ ...unknown, patternId: null, position: { ...unknown.position, stationHintId: null } }, plotted)).toBeNull();
+
+    const atStation = line!.trains.find((train) => train.position.kind === "at_station");
+    expect(atStation).toBeDefined();
+    expect(pointForTrain({ ...atStation!, patternId: null }, plotted)).not.toBeNull();
 
     const between = line!.trains.find((train) => train.position.kind === "between_stations");
     expect(between).toBeDefined();
