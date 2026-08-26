@@ -17,9 +17,16 @@ async function landingTrailingOverflow(page: import("@playwright/test").Page): P
 
 test("landing search exposes direct live and history actions", async ({ page }, testInfo) => {
   await page.goto("/es");
-  await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
+  const metrics = page.getByTestId("landing-live-metrics");
+  await expect(metrics).toBeVisible();
+  await expect(metrics.locator(":scope > div > div").nth(1)).toContainText("Trenes activos");
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
+  const chartVisual = page.getByTestId("landing-delay-chart-visual");
+  await expect(chartVisual).toHaveAttribute("aria-hidden", "true");
   await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-surface')).not.toHaveAttribute("tabindex");
+  await chartVisual.click({ position: { x: 160, y: 80 } });
+  expect(await chartVisual.evaluate((element) => element.contains(document.activeElement))).toBe(false);
+  await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-wrapper')).toHaveCSS("outline-style", "none");
   expect(await landingTrailingOverflow(page)).toBeLessThan(96);
   await expect(page.getByTestId("landing-title-highlight")).toHaveText("Ni pronto.");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
