@@ -20,6 +20,11 @@ export async function searchCatalog(query: string, scenario?: string) {
   return getCached(cacheKey(["search", scenarioKey(scenario), normalized.toLowerCase()]), CATALOG_CACHE_SECONDS, () => adapter.search(normalized));
 }
 
+export async function getLandingOverview(scenario?: string) {
+  const adapter = await getDataAdapter(scenario);
+  return getCached(cacheKey(["landing", "overview", scenarioKey(scenario)]), LIVE_CACHE_SECONDS, () => adapter.landingOverview());
+}
+
 export async function getLiveNetwork(scenario?: string) {
   const adapter = await getDataAdapter(scenario);
   return getCached(cacheKey(["live", "network", scenarioKey(scenario)]), LIVE_CACHE_SECONDS, () => adapter.liveNetwork());

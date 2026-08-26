@@ -17,6 +17,9 @@
   --danger: var(--primary-strong);
   --unknown: var(--muted);
   --focus: var(--primary);
+  --landing-positive: #2F7A59;
+  --landing-delay: #B44756;
+  --landing-highlight: #B96F2C;
   --shadow-float: 0 18px 55px color-mix(in srgb, var(--foreground) 14%, transparent);
   --drawer-duration: 220ms;
   color-scheme: light;
@@ -39,6 +42,9 @@
   --danger: var(--primary-strong);
   --unknown: var(--muted);
   --focus: var(--primary);
+  --landing-positive: #74C79C;
+  --landing-delay: #F0808E;
+  --landing-highlight: #F0B15F;
   --shadow-float: 0 20px 65px color-mix(in srgb, var(--background) 72%, transparent);
   color-scheme: dark;
 }
@@ -63,13 +69,16 @@
 
 * { box-sizing: border-box; }
 html { background: var(--background); scroll-behavior: smooth; }
-body { margin: 0; min-height: 100vh; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+body { margin: 0; min-height: 100dvh; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 a { text-decoration: none; }
 button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
 ::selection { background: color-mix(in srgb, var(--primary) 42%, transparent); }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.landing-search-input:focus-visible { outline: none; outline-offset: 0; }
+.recharts-wrapper, .recharts-wrapper *, .recharts-surface, .recharts-surface * { -webkit-tap-highlight-color: transparent; outline: none !important; }
+.recharts-wrapper:focus, .recharts-wrapper:focus-visible, .recharts-wrapper *:focus, .recharts-wrapper *:focus-visible { outline: none !important; box-shadow: none !important; }
 
 .page-shell { width: min(100% - 2rem, 72rem); margin-inline: auto; }
 .section-rule { border-top: 1px solid var(--border); }

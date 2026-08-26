@@ -7,13 +7,41 @@ async function openMenu(page: import("@playwright/test").Page) {
   await expect(button).toHaveAccessibleName(/Cerrar menú|Close menu/);
 }
 
-test("landing search accepts C-1 and routes to the selected line", async ({ page }, testInfo) => {
+async function landingTrailingOverflow(page: import("@playwright/test").Page): Promise<number> {
+  return page.evaluate(() => {
+    const footer = document.querySelector("footer");
+    const footerBottom = footer === null ? 0 : footer.getBoundingClientRect().bottom + window.scrollY;
+    return document.documentElement.scrollHeight - Math.max(footerBottom, window.innerHeight);
+  });
+}
+
+test("landing search exposes direct live and history actions", async ({ page }, testInfo) => {
   await page.goto("/es");
-  await page.getByRole("combobox", { name: "Busca una línea o estación", exact: true }).fill("C-1");
+  const metrics = page.getByTestId("landing-live-metrics");
+  await expect(metrics).toBeVisible();
+  await expect(metrics.locator(":scope > div > div").nth(1)).toContainText("Trenes activos");
+  await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
+  const chartVisual = page.getByTestId("landing-delay-chart-visual");
+  await expect(chartVisual).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-surface')).not.toHaveAttribute("tabindex");
+  await chartVisual.click({ position: { x: 160, y: 80 } });
+  expect(await chartVisual.evaluate((element) => element.contains(document.activeElement))).toBe(false);
+  await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-wrapper')).toHaveCSS("outline-style", "none");
+  expect(await landingTrailingOverflow(page)).toBeLessThan(96);
+  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Ni pronto.");
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
+  await search.focus();
+  await expect(search).toHaveCSS("outline-style", "none");
+  await expect(search).toHaveCSS("border-top-width", "0px");
+  await search.fill("C-1");
   const option = page.getByRole("option").filter({ hasText: "C1" }).first();
   await expect(option).toBeVisible();
-  await option.click();
-  await page.getByRole("link", { name: "Ver hoy" }).click();
+  await expect(option).not.toContainText("Línea");
+  const liveAction = page.getByRole("link", { name: /^Ver hoy:/ }).first();
+  const historyAction = page.getByRole("link", { name: /^Ver histórico:/ }).first();
+  await expect(liveAction).toHaveAttribute("href", /\/es\/live\/line\/c1$/);
+  await expect(historyAction).toHaveAttribute("href", /\/es\/history\/line\/c1$/);
+  await liveAction.click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
   await expect(page.getByTestId("schematic-map")).toBeVisible();
   const filename = testInfo.project.name.startsWith("desktop")
@@ -22,7 +50,7 @@ test("landing search accepts C-1 and routes to the selected line", async ({ page
   await page.screenshot({ path: filename, fullPage: true });
 });
 
-test("@webkit search keyboard selection and header menu restore focus", async ({ page }) => {
+test("@webkit search keyboard selection opens the live result and header menu restores focus", async ({ page }) => {
   await page.goto("/es");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
@@ -31,7 +59,7 @@ test("@webkit search keyboard selection and header menu restore focus", async ({
   await expect(search).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator('[role="option"][data-active-item]').filter({ hasText: "C1" }).first()).toBeVisible();
   await search.press("Enter");
-  await expect(page.getByRole("link", { name: "Ver hoy" })).toBeVisible();
+  await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
 
   await openMenu(page);
   const toggle = page.getByTestId("menu-toggle");
@@ -87,7 +115,8 @@ test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
 test("English routes, theme persistence, mobile drawer and reduced motion remain usable", async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/en");
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Delays should not disappear");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("A wizard is never late");
+  await expect(page.getByTestId("landing-title-highlight")).toHaveText("Nor is he early.");
   await openMenu(page);
   await page.getByRole("button", { name: "Dark" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);

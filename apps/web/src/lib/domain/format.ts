@@ -14,6 +14,16 @@ export function formatDelay(seconds: number | null, lang: Lang): string {
   return `${sign}${number.format(minutes)} min ${secondsPart} s`;
 }
 
+export function formatDuration(seconds: number, lang: Lang): string {
+  const totalMinutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const number = new Intl.NumberFormat(lang === "es" ? "es-ES" : "en-GB");
+  if (hours === 0) return `${number.format(totalMinutes)} min`;
+  if (minutes === 0) return `${number.format(hours)} h`;
+  return `${number.format(hours)} h ${number.format(minutes)} min`;
+}
+
 export function formatPercent(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 100)}%`;
 }
