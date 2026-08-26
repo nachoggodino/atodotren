@@ -1,7 +1,7 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { History, MapPin, Radio, Search, TrainFront } from "lucide-react";
+import { BarChart3, MapPin, Radio, Search, TrainFront } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
@@ -38,6 +38,11 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
       return;
     }
     setOpen(true);
+  };
+
+  const navigateToResult = (result: SearchResult, mode: "live" | "history") => {
+    setOpen(false);
+    router.push(routeFor(result, lang, mode), { scroll: false });
   };
 
   useEffect(() => {
@@ -83,8 +88,8 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
             return (
               <div className="relative border-b border-border last:border-b-0" key={`${result.kind}-${result.id}`}>
                 <Ariakit.ComboboxItem
-                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left hover:bg-muted-soft data-[active-item]:bg-muted-soft"
-                  onClick={() => router.push(routeFor(result, lang, "live"))}
+                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"
+                  onClick={() => navigateToResult(result, "live")}
                   resetValueOnSelect={false}
                   setValueOnClick={false}
                   value={`${result.kind}:${result.id}`}
@@ -95,8 +100,12 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
                 <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
                   <Link
                     aria-label={`${messages.landing.liveAction}: ${label}`}
-                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-positive)] transition hover:bg-[color-mix(in_srgb,var(--landing-positive)_10%,transparent)] focus-visible:outline-offset-1"
+                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-positive)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-positive)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1"
                     href={routeFor(result, lang, "live")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigateToResult(result, "live");
+                    }}
                     onPointerDown={(event) => event.stopPropagation()}
                     title={messages.landing.liveAction}
                   >
@@ -104,12 +113,16 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
                   </Link>
                   <Link
                     aria-label={`${messages.landing.historyAction}: ${label}`}
-                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-highlight)] transition hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] focus-visible:outline-offset-1"
+                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1"
                     href={routeFor(result, lang, "history")}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigateToResult(result, "history");
+                    }}
                     onPointerDown={(event) => event.stopPropagation()}
                     title={messages.landing.historyAction}
                   >
-                    <History className="size-4" />
+                    <BarChart3 className="size-4" />
                   </Link>
                 </div>
               </div>
