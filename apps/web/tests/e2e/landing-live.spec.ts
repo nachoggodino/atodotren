@@ -7,23 +7,11 @@ async function openMenu(page: import("@playwright/test").Page) {
   await expect(button).toHaveAccessibleName(/Cerrar menú|Close menu/);
 }
 
-async function landingScrollDiagnostics(page: import("@playwright/test").Page) {
+async function landingTrailingOverflow(page: import("@playwright/test").Page): Promise<number> {
   return page.evaluate(() => {
     const footer = document.querySelector("footer");
     const footerBottom = footer === null ? 0 : footer.getBoundingClientRect().bottom + window.scrollY;
-    const documentHeight = document.documentElement.scrollHeight;
-    const offenders = Array.from(document.body.querySelectorAll<HTMLElement>("*")).map((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        tag: element.tagName.toLowerCase(),
-        className: typeof element.className === "string" ? element.className.slice(0, 180) : "",
-        top: Math.round(rect.top + window.scrollY),
-        bottom: Math.round(rect.bottom + window.scrollY),
-        height: Math.round(rect.height),
-        position: getComputedStyle(element).position,
-      };
-    }).filter((item) => item.bottom > footerBottom + 32).sort((a, b) => b.bottom - a.bottom).slice(0, 12);
-    return { documentHeight, footerBottom: Math.round(footerBottom), viewportHeight: window.innerHeight, offenders };
+    return document.documentElement.scrollHeight - Math.max(footerBottom, window.innerHeight);
   });
 }
 
@@ -32,8 +20,7 @@ test("landing search exposes direct live and history actions", async ({ page }, 
   await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
   await expect(page.locator('[data-testid="landing-delay-trend"] .recharts-surface')).not.toHaveAttribute("tabindex");
-  const scroll = await landingScrollDiagnostics(page);
-  expect(scroll.documentHeight - scroll.footerBottom, JSON.stringify(scroll)).toBeLessThan(96);
+  expect(await landingTrailingOverflow(page)).toBeLessThan(96);
   await expect(page.getByTestId("landing-title-highlight")).toHaveText("Ni pronto.");
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.focus();
