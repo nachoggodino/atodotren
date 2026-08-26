@@ -4,7 +4,6 @@ import * as Ariakit from "@ariakit/react";
 import { ArrowRight, TrainFront } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { DirectionId, Lang, SchematicPattern, TrainDetail } from "@/lib/domain/contracts";
-import { delayBand } from "@/lib/domain/delay-policy";
 import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { layoutSchematicPatterns, pointForTrain, schematicHeight, schematicWidth } from "@/lib/domain/schematic";
 import { positionCaptionKey } from "@/lib/domain/train";
@@ -20,14 +19,8 @@ function captionForTrain(train: TrainDetail, messages: Messages): string {
 }
 
 function trainColor(train: TrainDetail): string {
-  if (train.position.kind === "unknown") return "var(--unknown)";
-  switch (delayBand(train.delaySeconds)) {
-    case "punctual": return "var(--success)";
-    case "mild": return "var(--warning)";
-    case "delayed": return "var(--accent)";
-    case "severe": return "var(--danger)";
-    case "unknown": return "var(--unknown)";
-  }
+  if (train.position.kind === "unknown" || train.delaySeconds === null) return "var(--unknown)";
+  return train.delaySeconds > 120 ? "var(--danger)" : "var(--success)";
 }
 
 function stationLabel(value: string): readonly [string, string | null] {
@@ -91,7 +84,7 @@ export function SchematicMap({ patterns, trains, directionByJourney, lineColor, 
           {plottedTrains.map(({ train, point }) => (
             <Ariakit.PopoverDisclosure
               aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${captionForTrain(train, messages)}`}
-              className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[var(--background)] shadow-sm outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary"
+              className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-primary"
               key={train.id}
               onClick={() => setSelected(train)}
               style={{ left: point.x, top: point.y, color: trainColor(train) }}

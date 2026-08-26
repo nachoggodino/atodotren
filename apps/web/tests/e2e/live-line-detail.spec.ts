@@ -6,7 +6,9 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(page.getByTestId("live-active-trains")).toHaveText("5 trenes activos");
   const modes = page.getByRole("radiogroup", { name: "Vista de línea" });
   await expect(modes.getByRole("radio")).toHaveCount(2);
-  await expect(modes.getByRole("radio", { name: "Esquema" })).toHaveAttribute("aria-checked", "true");
+  await expect(modes.locator('input[type="radio"]')).toHaveCount(2);
+  await expect(modes).toHaveClass(/border-border/);
+  await expect(modes.getByRole("radio", { name: "Esquema" })).toBeChecked();
 
   const schematic = page.getByTestId("schematic-map");
   await expect(schematic).toBeVisible();
@@ -16,6 +18,8 @@ test("live line detail switches between a compact schematic and the daily delay 
   expect(await schematic.getByRole("button").count()).toBeGreaterThan(0);
 
   const reportedTrain = schematic.getByRole("button").first();
+  await expect(reportedTrain).toHaveClass(/bg-transparent/);
+  await expect(reportedTrain).not.toHaveClass(/rounded-full/);
   await reportedTrain.click();
   const trainDetail = page.getByTestId("train-detail");
   await expect(trainDetail).toBeVisible();
@@ -38,8 +42,10 @@ test("live line detail switches between a compact schematic and the daily delay 
 
   const directions = page.getByTestId("live-matrix-directions");
   await expect(directions.getByRole("radio")).toHaveCount(2);
-  await expect(directions.getByRole("radio").first()).toContainText("Hacia");
-  await expect(directions.getByRole("radio").last()).toContainText("Hacia");
+  await expect(directions.locator('input[type="radio"]')).toHaveCount(2);
+  await expect(directions.locator("label > span").first()).toHaveClass(/text-\[7px\]/);
+  await expect(directions.getByRole("radio").first()).toHaveAccessibleName(/Hacia/);
+  await expect(directions.getByRole("radio").last()).toHaveAccessibleName(/Hacia/);
 
   const matrixCell = matrix.getByRole("button").first();
   await matrixCell.click();
@@ -53,6 +59,6 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(matrixDetail).toBeHidden();
 
   await directions.getByRole("radio").last().click();
-  await expect(directions.getByRole("radio").last()).toHaveAttribute("aria-checked", "true");
+  await expect(directions.getByRole("radio").last()).toBeChecked();
   await expect(matrix.getByRole("button").first()).toBeVisible();
 });

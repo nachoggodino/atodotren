@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import type { DirectionId, Lang, MatrixCell, MatrixResponse, StationRef } from "@/lib/domain/contracts";
 import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import type { Messages } from "@/messages/types";
+import { SegmentedRadio } from "./segmented-radio";
 
 interface SelectedCell {
   readonly cell: MatrixCell;
@@ -91,20 +92,20 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
     <Ariakit.PopoverProvider open={selected !== null} setOpen={(open) => { if (!open) setSelected(null); }} placement="top">
       <div>
         {directions.length > 1 ? (
-          <div aria-label={messages.common.direction} className="mb-3 grid grid-cols-2 gap-2" role="radiogroup" data-testid="live-matrix-directions">
-            {directions.map((direction) => (
-              <button
-                aria-checked={selectedDirection === direction}
-                className={`flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-bold transition-[background-color,color,transform,opacity] active:scale-[.98] ${selectedDirection === direction ? "bg-muted-soft text-primary" : "text-muted hover:bg-muted-soft"}`}
-                key={direction}
-                onClick={() => { setSelected(null); setSelectedDirection(direction); }}
-                role="radio"
-                type="button"
-              >
-                <ArrowRight aria-hidden="true" className="size-3.5 shrink-0" />
-                <span className="truncate">{directionLabel(direction, matrix, lang, messages)}</span>
-              </button>
-            ))}
+          <div className="mb-3">
+            <SegmentedRadio
+              compact
+              label={messages.common.direction}
+              name="live-matrix-direction"
+              onChange={(direction) => { setSelected(null); setSelectedDirection(direction); }}
+              options={directions.map((direction) => ({
+                value: direction,
+                label: directionLabel(direction, matrix, lang, messages),
+                icon: <ArrowRight aria-hidden="true" className="size-2.5 shrink-0" />,
+              }))}
+              testId="live-matrix-directions"
+              value={selectedDirection}
+            />
           </div>
         ) : null}
 

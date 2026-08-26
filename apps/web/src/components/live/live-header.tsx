@@ -21,13 +21,14 @@ export function LiveHeader({
     ? undefined
     : { backgroundColor: contextColor, color: lineBadgeTextColor(contextColor) };
   const heading = (
-    <div className="min-w-0">
-      <h1 className="text-4xl font-black tracking-[-.045em] sm:text-5xl">{title}</h1>
+    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+      <h1 className="shrink-0 whitespace-nowrap text-[31px] font-black tracking-[-.045em] sm:text-[43px]">{title}</h1>
       <span
-        className={`mt-2 inline-flex max-w-full items-center rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+        className={`min-w-0 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
         style={contextStyle}
+        title={subtitle}
       >
         {subtitle}
       </span>
@@ -53,7 +54,7 @@ export function LiveHeader({
     );
 
   return (
-    <header className="grid grid-cols-[auto_1fr] items-start gap-x-1.5 sm:gap-x-2">
+    <header className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-1.5 sm:gap-x-2">
       {leading}
       {heading}
     </header>

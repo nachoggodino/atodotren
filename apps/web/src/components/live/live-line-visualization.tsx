@@ -6,6 +6,7 @@ import type { DirectionId, Lang, MatrixResponse, SchematicPattern, TrainDetail }
 import type { Messages } from "@/messages/types";
 import { DailyDelayMatrix } from "./daily-delay-matrix";
 import { SchematicMap } from "./schematic-map";
+import { SegmentedRadio } from "./segmented-radio";
 
 type ViewMode = "schematic" | "matrix";
 
@@ -41,28 +42,16 @@ export function LiveLineVisualization({
         <span>{trains.length} {messages.live.activeTrains}</span>
       </div>
 
-      <div aria-label={messages.live.viewMode} className="grid grid-cols-2 gap-2" role="radiogroup">
-        <button
-          aria-checked={mode === "schematic"}
-          className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition-[background-color,color,transform,opacity] active:scale-[.98] active:opacity-75 ${mode === "schematic" ? "bg-muted-soft text-primary" : "text-muted hover:bg-muted-soft"}`}
-          onClick={() => setMode("schematic")}
-          role="radio"
-          type="button"
-        >
-          <MapIcon aria-hidden="true" className="size-4" />
-          {messages.live.schematic}
-        </button>
-        <button
-          aria-checked={mode === "matrix"}
-          className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition-[background-color,color,transform,opacity] active:scale-[.98] active:opacity-75 ${mode === "matrix" ? "bg-muted-soft text-primary" : "text-muted hover:bg-muted-soft"}`}
-          onClick={() => setMode("matrix")}
-          role="radio"
-          type="button"
-        >
-          <Grid3X3 aria-hidden="true" className="size-4" />
-          {messages.live.dailyMatrix}
-        </button>
-      </div>
+      <SegmentedRadio
+        label={messages.live.viewMode}
+        name="live-line-view"
+        onChange={(value) => setMode(value)}
+        options={[
+          { value: "schematic", label: messages.live.schematic, icon: <MapIcon aria-hidden="true" className="size-4 shrink-0" /> },
+          { value: "matrix", label: messages.live.dailyMatrix, icon: <Grid3X3 aria-hidden="true" className="size-4 shrink-0" /> },
+        ]}
+        value={mode}
+      />
 
       <div className="mt-3">
         {mode === "schematic" ? (
