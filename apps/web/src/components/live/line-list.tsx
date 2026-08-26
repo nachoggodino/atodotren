@@ -35,12 +35,12 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
               data-testid="live-line-header"
               style={{ backgroundColor: line.color, color: lineTextColor }}
             >
-              <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 <strong className="shrink-0 text-[.72rem] font-black sm:text-sm">{line.code}</strong>
                 <span aria-hidden="true" className="opacity-70">•</span>
                 <span className="min-w-0 whitespace-nowrap">{line.activeTrains} {messages.live.activeTrains}</span>
               </span>
-              <ChevronRight aria-hidden="true" className="-mr-1 ml-3 size-5 shrink-0 transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
+              <ChevronRight aria-hidden="true" className="ml-4 size-4 shrink-0 translate-x-1.5 transition-transform group-hover:translate-x-2 group-active:translate-x-2.5" />
             </div>
             <span className="mt-3 grid grid-cols-2 gap-x-2 gap-y-2">
               {metrics.map(({ label, value, tone }) => (
