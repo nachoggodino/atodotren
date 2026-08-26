@@ -26,6 +26,14 @@ function routeContext(pathname: string, messages: Messages) {
   return { label: messages.nav.home, Icon: House, iconClassName: "text-muted" };
 }
 
+function scrollToTopImmediately() {
+  const root = document.documentElement;
+  const previousBehavior = root.style.scrollBehavior;
+  root.style.scrollBehavior = "auto";
+  window.scrollTo(0, 0);
+  root.style.scrollBehavior = previousBehavior;
+}
+
 export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -38,10 +46,10 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const refresh = useAutoRefresh();
 
   useEffect(() => {
-    setHidden(false);
-    window.scrollTo(0, 0);
+    scrollToTopImmediately();
     const frame = window.requestAnimationFrame(() => {
-      window.scrollTo(0, 0);
+      setHidden(false);
+      scrollToTopImmediately();
       previousY.current = 0;
     });
     return () => window.cancelAnimationFrame(frame);
