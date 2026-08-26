@@ -26,7 +26,7 @@ export default async function LiveLinePage({ params, searchParams }: { readonly 
         <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
         <LiveRefresh messages={messages} />
       </div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} /></div>
+      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
       <section className="mt-12">
         <div className="mb-4 flex items-baseline justify-between gap-4"><h2 className="text-2xl font-black">{messages.live.schematic}</h2><span className="text-sm text-muted">{data.trains.length} {messages.live.activeTrains}</span></div>
         {data.patterns.length === 0 ? <p className="border-y border-border py-8 text-muted">{messages.common.noData}</p> : <SchematicMap patterns={data.patterns} trains={data.trains} lineColor={data.context.color} lang={lang} messages={messages} />}

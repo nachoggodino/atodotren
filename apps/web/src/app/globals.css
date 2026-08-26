@@ -97,9 +97,10 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .live-status-item[data-tone="good"], .live-stat-cell[data-tone="good"] { --live-tone: var(--landing-positive); }
 .live-status-item[data-tone="warning"], .live-stat-cell[data-tone="warning"] { --live-tone: var(--landing-highlight); }
 .live-status-item[data-tone="bad"], .live-stat-cell[data-tone="bad"] { --live-tone: var(--landing-delay); }
-.live-status-item { color: var(--live-tone); }
-.live-stat-cell { background: color-mix(in srgb, var(--live-tone) 12%, var(--surface)); }
-.live-stat-cell dt { color: var(--live-tone); }
+.live-status-item { color: var(--foreground); }
+.live-status-item > svg { color: var(--live-tone); }
+.live-stat-cell { background: color-mix(in srgb, var(--live-tone) 12%, var(--surface)); box-shadow: inset 0 3px 0 var(--live-tone); }
+.live-stat-cell dt { color: var(--foreground); }
 
 .offline-status { display: none; }
 html[data-atodotren-offline="true"] .offline-status { display: flex; }

@@ -31,7 +31,7 @@ export default async function LiveStationPage({ params, searchParams }: { readon
         <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
         <LiveRefresh messages={messages} />
       </div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} /></div>
+      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
       <section className="mt-12">
         <h2 className="text-2xl font-black">{messages.live.trains}</h2>
         {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.overnight}</p> : (

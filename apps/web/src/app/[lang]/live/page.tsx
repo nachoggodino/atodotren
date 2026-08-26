@@ -23,7 +23,7 @@ export default async function LivePage({ params, searchParams }: { readonly para
         <DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" />
         <LiveRefresh messages={messages} />
       </div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} /></div>
+      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
       <section className="mt-10" aria-label={messages.live.networkTitle}>
         <LineList lines={data.lines} lang={lang} messages={messages} />
       </section>
