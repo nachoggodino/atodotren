@@ -1,0 +1,61 @@
+name: Frontend validation
+
+on:
+  push:
+    branches:
+      - ci/frontend-live-page-validation
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 24.15.0
+
+jobs:
+  web-verify:
+    name: Web typecheck, lint, unit and production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run web:typecheck
+      - run: npm run web:lint
+      - run: npm run web:test
+      - name: Build Next.js production bundle in private fixture preview mode
+        run: npm run web:build
+        env:
+          WEB_DATA_MODE: fixture
+          WEB_ALLOW_FIXTURE_PRODUCTION: "true"
+
+  web-browser:
+    name: Playwright / ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    needs: web-verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Desktop Chromium
+            project: desktop-chromium
+            browser: chromium
+          - label: Mobile Chromium
+            project: mobile-chromium
+            browser: chromium
+          - label: WebKit acceptance
+            project: webkit-acceptance
+            browser: webkit
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install ${{ matrix.browser }} browser runtime
+        run: npx playwright install --with-deps '${{ matrix.browser }}'
+      - name: Run ${{ matrix.label }} acceptance tests
+        run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
