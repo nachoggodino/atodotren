@@ -132,7 +132,7 @@ test("mobile navigation expands in place without becoming a modal", async ({ pag
   expect(Math.abs(after!.y - before!.y)).toBeLessThan(1);
 });
 
-test("navigation drawer does not restore an old open state after returning", async ({ page }) => {
+test("browser back does not restore a previously open navigation drawer", async ({ page }) => {
   await page.goto("/es/live/line/c1");
   const menuToggle = page.getByTestId("menu-toggle");
   await menuToggle.click();
