@@ -1,10 +1,14 @@
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { LineBadge } from "@/components/line-badge";
+import { lineBadgeTextColor } from "@/components/line-badge";
 import type { Lang, LinePerformance } from "@/lib/domain/contracts";
 import { formatDelay, formatPercent } from "@/lib/domain/format";
 import { coverageStatusLevel, delayStatusLevel, punctualityStatusLevel } from "@/lib/domain/live-status";
 import type { Messages } from "@/messages/types";
+
+function formatLineDelay(seconds: number | null, lang: Lang): string {
+  return formatDelay(seconds, lang).replace(" min ", " m ");
+}
 
 export function LineList({ lines, lang, messages }: { readonly lines: readonly LinePerformance[]; readonly lang: Lang; readonly messages: Messages }) {
   return (
@@ -15,9 +19,10 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
         const metrics = [
           { label: messages.common.punctuality, value: formatPercent(stats?.punctuality ?? null), tone: punctualityStatusLevel(stats?.punctuality ?? null) },
           { label: messages.common.coverage, value: formatPercent(coverage), tone: coverageStatusLevel(coverage) },
-          { label: messages.common.mean, value: formatDelay(stats?.meanDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.meanDelaySeconds ?? null) },
-          { label: messages.common.median, value: formatDelay(stats?.medianDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.medianDelaySeconds ?? null) },
+          { label: messages.common.mean, value: formatLineDelay(stats?.meanDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.meanDelaySeconds ?? null) },
+          { label: messages.common.median, value: formatLineDelay(stats?.medianDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.medianDelaySeconds ?? null) },
         ] as const;
+        const lineTextColor = lineBadgeTextColor(line.color);
 
         return (
           <Link
@@ -25,15 +30,20 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
             href={`/${lang}/live/line/${line.slug}`}
             key={line.id}
           >
-            <div className="grid min-w-0 grid-cols-[auto_1fr_auto] items-center gap-1.5 sm:gap-2">
-              <LineBadge className="size-8 text-[.68rem] sm:size-9 sm:text-xs" code={line.code} color={line.color} />
-              <span className="min-w-0 whitespace-nowrap text-[.55rem] font-semibold tracking-[-.01em] text-muted sm:text-xs">{line.activeTrains} {messages.live.activeTrains}</span>
-              <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
+            <div
+              className="flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-[.6rem] font-bold tracking-[-.01em] sm:h-9 sm:text-xs"
+              data-testid="live-line-header"
+              style={{ backgroundColor: line.color, color: lineTextColor }}
+            >
+              <strong className="shrink-0 text-[.72rem] font-black sm:text-sm">{line.code}</strong>
+              <span aria-hidden="true" className="opacity-70">•</span>
+              <span className="min-w-0 flex-1 whitespace-nowrap">{line.activeTrains} {messages.live.activeTrains}</span>
+              <ChevronRight aria-hidden="true" className="size-5 shrink-0 transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
             </div>
             <span className="mt-3 grid grid-cols-2 gap-x-2 gap-y-2">
               {metrics.map(({ label, value, tone }) => (
                 <span aria-label={`${label}: ${value}`} className="live-line-metric min-w-0" data-testid="live-line-metric" data-tone={tone} key={label}>
-                  <strong className="metric-value text-[.68rem] leading-4 sm:text-xs">{value}</strong>
+                  <strong className="metric-value whitespace-nowrap text-[.68rem] leading-4 sm:text-xs">{value}</strong>
                 </span>
               ))}
             </span>

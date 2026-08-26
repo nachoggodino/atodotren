@@ -28,7 +28,7 @@ export default async function LivePage({ params, searchParams }: { readonly para
         <LineList lines={data.lines} lang={lang} messages={messages} />
       </section>
       <section className="mt-8">
-        <h2 className="text-2xl font-black tracking-tight">{messages.live.todayDistributionTitle}</h2>
+        <h2 className="text-2xl font-black tracking-tight">{messages.charts.delayDistribution}</h2>
         <div className="mt-4"><DelayDistribution values={data.stats.distribution} messages={messages} /></div>
       </section>
     </div>

@@ -36,8 +36,8 @@ export function LiveRefresh({ messages }: { readonly messages: Messages }) {
   }, [enabled, refresh]);
 
   return (
-    <div className="mt-3 flex items-center gap-2.5 px-0.5" aria-live="polite" data-testid="live-refresh-progress">
-      <RefreshCw aria-hidden="true" className={`size-4 shrink-0 ${pending ? "animate-spin text-primary" : "text-muted"}`} />
+    <div className="mt-3 flex items-center gap-2.5" aria-live="polite" data-testid="live-refresh-progress">
+      <RefreshCw aria-hidden="true" className={`size-3.5 shrink-0 ${pending ? "animate-spin text-primary" : "text-muted"}`} />
       <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-muted-soft" aria-hidden="true">
         {enabled ? <span key={pending ? "pending" : "idle"} className="refresh-progress absolute inset-0 rounded-full bg-primary" style={{ animationDuration: `${LIVE_REFRESH_MS}ms` }} /> : null}
       </span>
