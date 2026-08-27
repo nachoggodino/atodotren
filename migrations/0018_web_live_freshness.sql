@@ -239,7 +239,7 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION api.live_vehicle_is_active(date, timestamptz, bigint, text, timestamptz) FROM PUBLIC;
-REVOKE ALL ON FUNCTION api.live_vehicle_is_active(date, timestamptz, bigint, text, timestamptz) FROM atodotren_web_reader;
+GRANT EXECUTE ON FUNCTION api.live_vehicle_is_active(date, timestamptz, bigint, text, timestamptz) TO atodotren_web_reader;
 REVOKE ALL ON FUNCTION api.landing_delay_timeline(text, timestamptz) FROM PUBLIC;
 GRANT SELECT ON api.active_live_vehicle TO atodotren_web_reader;
 GRANT EXECUTE ON FUNCTION api.landing_delay_timeline(text, timestamptz) TO atodotren_web_reader;

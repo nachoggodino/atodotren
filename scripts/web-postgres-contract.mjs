@@ -136,7 +136,7 @@ try {
       active_live_select: true,
       history_segment_select: true,
       landing_timeline_execute: true,
-      live_predicate_execute: false,
+      live_predicate_execute: true,
     });
 
     await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
