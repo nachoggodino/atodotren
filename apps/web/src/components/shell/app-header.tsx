@@ -42,10 +42,15 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const [openPathname, setOpenPathname] = useState<string | null>(null);
   const open = openPathname === pathname;
   const [hidden, setHidden] = useState(false);
+  const [displayTheme, setDisplayTheme] = useState<"light" | "dark" | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousY = useRef(0);
   const { resolvedTheme, setTheme } = useTheme();
   const refresh = useAutoRefresh();
+
+  useEffect(() => {
+    if (resolvedTheme === "light" || resolvedTheme === "dark") setDisplayTheme(resolvedTheme);
+  }, [resolvedTheme]);
 
   useEffect(() => {
     scrollToTopImmediately();
@@ -103,6 +108,11 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const search = searchParams.toString();
   const context = routeContext(pathname, messages);
   const ContextIcon = context.Icon;
+  const currentTheme = displayTheme ?? resolvedTheme;
+  const selectTheme = (nextTheme: "light" | "dark") => {
+    setDisplayTheme(nextTheme);
+    setTheme(nextTheme);
+  };
 
   return (
     <Ariakit.DisclosureProvider open={open} setOpen={setOpen}>
@@ -164,11 +174,11 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                       <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] items-center justify-between rounded-full border border-border bg-muted-soft p-px" role="group">
                         <span
                           aria-hidden="true"
-                          className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${resolvedTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
+                          className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${currentTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
                           data-testid="theme-thumb"
                         />
-                        <button aria-label={messages.nav.light} aria-pressed={resolvedTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
-                        <button aria-label={messages.nav.dark} aria-pressed={resolvedTheme === "dark"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
+                        <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("light")} type="button"><Sun className="size-4" /></button>
+                        <button aria-label={messages.nav.dark} aria-pressed={currentTheme === "dark"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("dark")} type="button"><Moon className="size-4" /></button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-3">
