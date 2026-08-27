@@ -14,6 +14,8 @@ web_migrations=(
   migrations/0015_web_live_contract.sql
   migrations/0016_web_search_normalization.sql
   migrations/0017_landing_live_metrics.sql
+  migrations/0018_web_live_freshness.sql
+  migrations/0019_web_history_insights.sql
 )
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -82,7 +84,7 @@ export POSTGRES_CONTRACT_TELEGRAM_PASSWORD="${telegram_password}"
 export POSTGRES_CONTRACT_WEB_PASSWORD="${web_password}"
 
 # Keep the accepted worker/database integration suite byte-for-byte scoped to its
-# original migration inventory through 0012. The public web migrations are tested
+# original migration inventory through 0012. Public web migrations are tested
 # immediately afterwards against a fresh disposable database on the same server.
 for migration in "${web_migrations[@]}"; do
   mv "${migration}" "${web_migration_staging}/"

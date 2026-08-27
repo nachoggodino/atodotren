@@ -23,6 +23,7 @@ function matrixSummary(cells: readonly MatrixCell[]): SummaryStats {
     punctuality: delays.length === 0 ? null : delays.filter((delay) => delay <= PUNCTUALITY_THRESHOLD_SECONDS).length / delays.length,
     meanDelaySeconds: delays.length === 0 ? null : Math.round(delays.reduce((sum, delay) => sum + delay, 0) / delays.length),
     medianDelaySeconds: sorted.length === 0 ? null : sorted[Math.floor((sorted.length - 1) / 2)] ?? null,
+    p90DelaySeconds: sorted.length === 0 ? null : sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? null,
     canceled: cells.filter((cell) => cell.state === "canceled").length,
     missing: cells.filter((cell) => cell.state === "missing_evidence").length,
     distribution: distributionFromCounts(counts),
