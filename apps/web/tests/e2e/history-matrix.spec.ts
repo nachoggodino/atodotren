@@ -14,7 +14,7 @@ test("historical filters are URL-addressable and the matrix exposes keyboard det
   await cell.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
-  await expect(page.getByText(/✓ ≤2m/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="punctual"]').first()).toHaveText("✓");
   if (testInfo.project.name.startsWith("desktop")) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: "test-results/screenshots/history-matrix-desktop.png", fullPage: true });
@@ -38,10 +38,10 @@ test("@webkit history filters and matrix basics", async ({ page }) => {
 
 test("current-day cancellation and missing-evidence fixtures remain distinct", async ({ page }) => {
   await page.goto("/en/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=cancellations");
-  await expect(page.getByText(/× canceled/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="canceled"]').first()).toHaveText("×");
   await expect(page.locator('[data-state="canceled"]').first()).toBeVisible();
   await page.goto("/en/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=missing");
-  await expect(page.getByText(/— missing evidence/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="missing"]').first()).toHaveText("—");
   await expect(page.locator('[data-state="missing_evidence"]').first()).toBeVisible();
 });
 

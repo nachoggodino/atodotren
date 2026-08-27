@@ -5,6 +5,10 @@ const LIGHT = {
   surface: "#FFFFFF",
   foreground: "#3A1B22",
   primary: "#7A3B4A",
+  accent: "#7A3B4A",
+  success: "#277A54",
+  warning: "#8F5D13",
+  focus: "#7A3B4A",
 };
 
 const DARK = {
@@ -12,6 +16,10 @@ const DARK = {
   surface: "#2E161C",
   foreground: "#F6E4E2",
   primary: "#C98A98",
+  accent: "#C98A98",
+  success: "#79C79A",
+  warning: "#E4B45C",
+  focus: "#C98A98",
 };
 
 async function palette(page: import("@playwright/test").Page) {
@@ -37,11 +45,8 @@ function normalizeColor(value: string): string {
 }
 
 function expectPalette(actual: Awaited<ReturnType<typeof palette>>, expected: typeof LIGHT) {
-  for (const key of ["background", "surface", "foreground", "primary"] as const) {
+  for (const key of ["background", "surface", "foreground", "primary", "accent", "success", "warning", "focus"] as const) {
     expect(normalizeColor(actual[key])).toBe(normalizeColor(expected[key]));
-  }
-  for (const key of ["accent", "success", "warning", "focus"] as const) {
-    expect(normalizeColor(actual[key])).toBe(normalizeColor(expected.primary));
   }
 }
 
