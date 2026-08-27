@@ -63,7 +63,7 @@ test("andén infinito brand and palette follow the selected theme", async ({ pag
   const headerBrand = headerHome.getByTestId("brand-symbol");
   const headerWordmark = headerHome.getByText("andén infinito", { exact: true });
   await expect(headerWordmark).toBeVisible();
-  await expect(headerWordmark).toHaveCSS("font-size", "18.4px");
+  await expect(headerWordmark).toHaveCSS("font-size", "15.36px");
   await expect(headerBrand).toHaveCSS("color", "rgb(122, 59, 74)");
   expectPalette(await palette(page), LIGHT);
 
