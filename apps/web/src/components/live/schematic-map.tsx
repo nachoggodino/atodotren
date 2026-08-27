@@ -76,7 +76,7 @@ function TrainMarker({ train, pattern, x, y, lang, messages }: { readonly train:
     <Ariakit.PopoverProvider placement="top">
       <Ariakit.PopoverDisclosure
         aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${position.value}`}
-        className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 touch-manipulation select-none place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-primary"
+        className="absolute z-10 grid size-10 -translate-x-1/2 -translate-y-1/2 touch-manipulation select-none place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-primary"
         style={{ left: x, top: y, color: trainColor(train) }}
         type="button"
       >
