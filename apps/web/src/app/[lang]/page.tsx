@@ -7,15 +7,17 @@ import { EntitySearch } from "@/components/search/entity-search";
 import { BRAND } from "@/lib/brand/config";
 import { formatDuration } from "@/lib/domain/format";
 import { getMessages, isLang } from "@/lib/i18n";
-import { publicBaseUrl } from "@/lib/seo";
+import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getLandingOverview } from "@/lib/server/services";
+import { metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
   const { lang } = await params;
-  if (!isLang(lang) || publicBaseUrl() === null) return {};
-  return { alternates: { canonical: `/${lang}`, languages: { es: "/es", en: "/en", "x-default": "/es" } } };
+  if (!isLang(lang)) return {};
+  const copy = metadataCopy[lang];
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(""), title: copy.landingTitle, description: copy.landingDescription });
 }
 
 export default async function LandingPage({ params, searchParams }: { readonly params: Promise<{ lang: string }>; readonly searchParams: Promise<{ scenario?: string }> }) {
@@ -52,10 +54,7 @@ export default async function LandingPage({ params, searchParams }: { readonly p
     </section>
 
     <section className="mt-10" data-testid="landing-delay-trend">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <div><p className="eyebrow">{messages.landing.delayTrend}</p><h2 className="mt-1 text-2xl font-black tracking-tight text-[var(--landing-delay)]">{formatDuration(data.dayDelaySeconds, lang)}</h2></div>
-        <span className="text-xs font-bold text-muted">{messages.landing.delayTrendWindow}</span>
-      </div>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><p className="eyebrow">{messages.landing.delayTrend}</p><h2 className="mt-1 text-2xl font-black tracking-tight text-[var(--landing-delay)]">{formatDuration(data.dayDelaySeconds, lang)}</h2></div><span className="text-xs font-bold text-muted">{messages.landing.delayTrendWindow}</span></div>
       <LandingDelayTrend points={data.trend} lang={lang} messages={messages} />
     </section>
 

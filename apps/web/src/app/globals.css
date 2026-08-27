@@ -12,13 +12,17 @@
   --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
   --accent: var(--primary);
   --accent-contrast: var(--surface);
-  --success: var(--primary);
-  --warning: var(--primary);
-  --danger: var(--primary-strong);
-  --unknown: var(--muted);
+  --success: #277A54;
+  --warning: #956217;
+  --danger: #AE3548;
+  --unknown: #71686D;
+  --state-early: #27758F;
+  --state-canceled: #AE3548;
+  --state-skipped: #5C659F;
+  --state-missing: #71686D;
   --focus: var(--primary);
-  --landing-positive: #2F7A59;
-  --landing-delay: #B44756;
+  --landing-positive: var(--success);
+  --landing-delay: var(--danger);
   --landing-highlight: #B96F2C;
   --nav-methodology: #7457A6;
   --live-context-neutral: #D6D0D2;
@@ -40,13 +44,17 @@
   --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
   --accent: var(--primary);
   --accent-contrast: var(--background);
-  --success: var(--primary);
-  --warning: var(--primary);
-  --danger: var(--primary-strong);
-  --unknown: var(--muted);
+  --success: #79C79A;
+  --warning: #E4B45C;
+  --danger: #F0808E;
+  --unknown: #B7ADB2;
+  --state-early: #7CC6D9;
+  --state-canceled: #F0808E;
+  --state-skipped: #A5AEF2;
+  --state-missing: #B7ADB2;
   --focus: var(--primary);
-  --landing-positive: #74C79C;
-  --landing-delay: #F0808E;
+  --landing-positive: var(--success);
+  --landing-delay: var(--danger);
   --landing-highlight: #F0B15F;
   --nav-methodology: #C6A7F2;
   --live-context-neutral: #5A5054;
@@ -100,9 +108,9 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .data-status[data-status="historical"]::before, .data-status[data-status="reference"]::before { background: var(--primary); }
 
 .live-status-item, .live-stat-cell, .live-line-metric { --live-tone: var(--muted); }
-.live-status-item[data-tone="good"], .live-stat-cell[data-tone="good"], .live-line-metric[data-tone="good"] { --live-tone: var(--landing-positive); }
-.live-status-item[data-tone="warning"], .live-stat-cell[data-tone="warning"], .live-line-metric[data-tone="warning"] { --live-tone: var(--landing-highlight); }
-.live-status-item[data-tone="bad"], .live-stat-cell[data-tone="bad"], .live-line-metric[data-tone="bad"] { --live-tone: var(--landing-delay); }
+.live-status-item[data-tone="good"], .live-stat-cell[data-tone="good"], .live-line-metric[data-tone="good"] { --live-tone: var(--success); }
+.live-status-item[data-tone="warning"], .live-stat-cell[data-tone="warning"], .live-line-metric[data-tone="warning"] { --live-tone: var(--warning); }
+.live-status-item[data-tone="bad"], .live-stat-cell[data-tone="bad"], .live-line-metric[data-tone="bad"] { --live-tone: var(--danger); }
 .live-status-item { color: var(--foreground); }
 .live-status-item > svg { color: var(--live-tone); }
 .live-stat-cell { background: color-mix(in srgb, var(--live-tone) 12%, var(--surface)); color: var(--foreground); transition: background-color 140ms ease, transform 100ms ease; }
@@ -118,6 +126,21 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .offline-status { display: none; }
 html[data-atodotren-offline="true"] .offline-status { display: flex; }
 
+.matrix-cell, .matrix-compact-cell, .matrix-legend-swatch { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--matrix-tone) 18%, var(--surface)); }
+.matrix-cell, .matrix-compact-cell { background-color: var(--matrix-base); color: var(--foreground); }
+.matrix-cell[data-kind="early"], .matrix-compact-cell[data-kind="early"], .matrix-legend-swatch[data-kind="early"] { --matrix-tone: var(--state-early); }
+.matrix-cell[data-kind="punctual"], .matrix-compact-cell[data-kind="punctual"], .matrix-legend-swatch[data-kind="punctual"] { --matrix-tone: var(--success); }
+.matrix-cell[data-kind="mild"], .matrix-compact-cell[data-kind="mild"] { --matrix-tone: color-mix(in srgb, var(--success) 42%, var(--warning)); }
+.matrix-cell[data-kind="delayed"], .matrix-compact-cell[data-kind="delayed"], .matrix-legend-swatch[data-kind="delayed"] { --matrix-tone: var(--warning); }
+.matrix-cell[data-kind="severe"], .matrix-compact-cell[data-kind="severe"], .matrix-legend-swatch[data-kind="severe"] { --matrix-tone: var(--danger); --matrix-base: color-mix(in srgb, var(--danger) 28%, var(--surface)); }
+.matrix-cell[data-kind="canceled"], .matrix-compact-cell[data-kind="canceled"], .matrix-legend-swatch[data-kind="canceled"] { --matrix-tone: var(--state-canceled); --matrix-base: color-mix(in srgb, var(--state-canceled) 18%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--state-canceled) 38%, transparent) 6px 9px); }
+.matrix-cell[data-kind="skipped"], .matrix-compact-cell[data-kind="skipped"], .matrix-legend-swatch[data-kind="skipped"] { --matrix-tone: var(--state-skipped); --matrix-base: color-mix(in srgb, var(--state-skipped) 16%, var(--surface)); background-image: repeating-linear-gradient(45deg, transparent 0 5px, color-mix(in srgb, var(--state-skipped) 34%, transparent) 5px 7px); }
+.matrix-cell[data-kind="missing"], .matrix-compact-cell[data-kind="missing"], .matrix-legend-swatch[data-kind="missing"] { --matrix-tone: var(--state-missing); --matrix-base: color-mix(in srgb, var(--state-missing) 10%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--state-missing) 24%, transparent) 7px 9px); }
+.matrix-cell[data-kind="pending"], .matrix-compact-cell[data-kind="pending"], .matrix-legend-swatch[data-kind="pending"] { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--unknown) 7%, var(--surface)); opacity: .74; }
+.matrix-compact-cell[data-selected="true"] { box-shadow: inset 0 0 0 2px var(--foreground); }
+.matrix-legend-swatch { display: inline-grid; width: 1.45rem; height: 1.45rem; place-items: center; border: 1px solid color-mix(in srgb, var(--matrix-tone) 48%, var(--border)); border-radius: .25rem; background-color: var(--matrix-base); color: var(--foreground); font-size: .64rem; font-weight: 900; }
+
+/* Retained for older chart/detail surfaces; matrices use the shared matrix policy above. */
 .delay-cell { position: relative; min-width: 5.2rem; }
 .delay-cell[data-band="punctual"] { background: color-mix(in srgb, var(--success) 12%, transparent); }
 .delay-cell[data-band="mild"] { background: color-mix(in srgb, var(--warning) 18%, transparent); }

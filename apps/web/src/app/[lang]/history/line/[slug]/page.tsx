@@ -1,20 +1,30 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { HistoryFiltersForm } from "@/components/history/history-filters";
 import { HistoryLayout } from "@/components/history/history-layout";
 import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
 import { TimetableMatrix } from "@/components/history/timetable-matrix";
 import type { MatrixResult } from "@/lib/domain/contracts";
+import { matrixResultMessage } from "@/lib/domain/matrix-result";
 import { tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
+import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getHistoryLine, getMatrix } from "@/lib/server/services";
+import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
+  const { lang, slug } = await params;
+  if (!isLang(lang)) return {};
+  const copy = metadataCopy[lang];
+  const context = slug.toUpperCase();
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/history/line/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyLineDescription, context) });
+}
+
 function matrixView(result: MatrixResult, lang: "es" | "en", messages: ReturnType<typeof getMessages>) {
   if (result.status === "available") return <TimetableMatrix matrix={result.matrix} lang={lang} messages={messages} />;
-  if (result.status === "failed") return <p className="border-y border-border py-8 text-sm text-danger">{messages.history.matrixFailed}</p>;
-  if (result.reason === "retention") return <p className="border-y border-border py-8 text-sm text-muted">{messages.history.matrixRetention}</p>;
-  return <p className="border-y border-border py-8 text-sm text-muted">{messages.history.matrixNoData}</p>;
+  return <p className={`border-y border-border py-8 text-sm ${result.status === "failed" ? "text-danger" : "text-muted"}`}>{matrixResultMessage(result, messages)}</p>;
 }
 
 export default async function HistoryLinePage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
