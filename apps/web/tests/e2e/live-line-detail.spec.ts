@@ -58,11 +58,12 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(page.getByText("adelanto", { exact: true })).toHaveCount(0);
   await expect(matrix.locator("th")).toHaveCount(0);
   await expect(matrix.getByText(/^\d{2}:\d{2}$/).first()).toBeVisible();
+  await expect(matrix.getByTestId("live-matrix-time-label").first()).toHaveClass(/text-\[10px\]/);
 
   const directions = page.getByTestId("live-matrix-directions");
   await expect(directions.getByRole("radio")).toHaveCount(2);
   await expect(directions.locator('input[type="radio"]')).toHaveCount(2);
-  await expect(directions).not.toHaveClass(/border-border/);
+  await expect(directions).toHaveClass(/border-border/);
   await expect(directions.locator("label > span").first()).toHaveClass(/text-\[7px\]/);
   await expect(directions.getByRole("radio").first()).toHaveAccessibleName("Hacia Villaverde Bajo");
   await expect(directions.getByRole("radio").last()).toHaveAccessibleName("Hacia Chamartín Clara Campoamor");
@@ -72,15 +73,21 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(stationLabels.first()).toHaveAttribute("title", "Chamartín Clara Campoamor");
   await expect(stationLabels.first()).toHaveClass(/w-\[26px\]/);
   await expect(stationLabels.first().locator("span")).toHaveClass(/-rotate-45/);
+  await expect(stationLabels.first().locator("span")).toHaveClass(/text-\[8px\]/);
 
+  const virtualRow = matrix.getByTestId("live-matrix-virtual-row").first();
+  await expect(virtualRow).not.toHaveClass(/gap-/);
   const matrixCell = matrix.getByRole("button").first();
   await expect(matrixCell).toHaveClass(/size-\[26px\]/);
   await expect(matrixCell).toHaveClass(/touch-manipulation/);
+  await expect(matrixCell).not.toHaveClass(/rounded-/);
   await expect(matrixCell).toHaveText("");
+  await expect(matrixCell.getByTestId("live-matrix-selected-dot")).toHaveCount(0);
   await matrixCell.click();
   const matrixDetail = page.getByTestId("live-matrix-detail");
   await expect(matrixDetail).toBeVisible();
   await expect(matrixCell).toHaveAttribute("data-selected", "true");
+  await expect(matrixCell.getByTestId("live-matrix-selected-dot")).toBeVisible();
   await expect(matrixDetail).toContainText("Estado");
   await expect(matrixDetail).toContainText("Hora prevista");
   await expect(matrixDetail).toContainText("Retraso");

@@ -34,7 +34,7 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
   return (
     <div
       aria-label={label}
-      className={compact ? "grid grid-cols-2 gap-1" : "grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-muted-soft p-1"}
+      className={compact ? "grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-muted-soft p-0.5" : "grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-muted-soft p-1"}
       data-testid={testId}
       role="radiogroup"
     >

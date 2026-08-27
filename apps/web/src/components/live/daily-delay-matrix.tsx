@@ -16,7 +16,7 @@ interface SelectedCell {
 }
 
 const MATRIX_HEADER_HEIGHT = 52;
-const MATRIX_ROW_HEIGHT = 29;
+const MATRIX_ROW_HEIGHT = 26;
 const MATRIX_CELL_SIZE = 26;
 const MATRIX_TIME_WIDTH = 45;
 
@@ -145,11 +145,11 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
         ) : null}
 
         <div className="max-h-[65vh] overflow-auto" data-testid="live-daily-matrix" ref={scrollRef}>
-          <div className="sticky top-0 z-20 grid w-max gap-px bg-background pr-6" style={{ gridTemplateColumns: gridColumns, height: MATRIX_HEADER_HEIGHT }}>
+          <div className="sticky top-0 z-20 grid w-max bg-background pr-6" style={{ gridTemplateColumns: gridColumns, height: MATRIX_HEADER_HEIGHT }}>
             <span aria-hidden="true" />
             {stations.map((station) => (
               <div className="relative h-[52px] w-[26px]" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
-                <span className="absolute bottom-1 left-1/2 block w-16 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[7px] font-semibold leading-none text-muted">
+                <span className="absolute bottom-1 left-1/2 block w-16 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[8px] font-semibold leading-none text-muted">
                   {stationLabel(station.name[lang])}
                 </span>
               </div>
@@ -162,12 +162,12 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
               const departure = rowCells.find((cell): cell is MatrixCell => cell !== undefined);
               return (
                 <div
-                  className="absolute left-0 top-0 grid w-max items-center gap-px"
+                  className="absolute left-0 top-0 grid w-max items-center"
                   data-testid="live-matrix-virtual-row"
                   key={journey.id}
                   style={{ gridTemplateColumns: gridColumns, height: virtualRow.size, transform: `translateY(${virtualRow.start - MATRIX_HEADER_HEIGHT}px)` }}
                 >
-                  <span className="pr-1 text-right font-mono text-[8px] font-semibold tabular-nums text-muted">
+                  <span className="pr-1 text-right font-mono text-[10px] font-semibold tabular-nums text-muted" data-testid="live-matrix-time-label">
                     {departure === undefined ? "—" : formatMadridTime(departure.scheduledAt, lang)}
                   </span>
                   {stations.map((station, index) => {
@@ -178,14 +178,16 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
                     return (
                       <Ariakit.PopoverDisclosure
                         aria-label={`${stationRef.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${matrixStateLabel(cell, messages)}, ${formatDelay(cell.delaySeconds, lang)}`}
-                        className="relative size-[26px] touch-manipulation rounded-[2px] outline-none transition-[filter,transform,opacity] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--background)] data-[selected=true]:scale-[.88]"
+                        className="relative size-[26px] touch-manipulation outline-none transition-[filter,opacity] hover:brightness-110 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0"
                         data-kind={matrixCellPresentation(cell).kind}
                         data-selected={active ? "true" : "false"}
                         key={station.id}
                         onClick={() => setSelected({ cell, station: stationRef })}
                         style={{ backgroundColor: matrixCellColor(cell) }}
                         type="button"
-                      />
+                      >
+                        {active ? <span aria-hidden="true" className="absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" data-testid="live-matrix-selected-dot" /> : null}
+                      </Ariakit.PopoverDisclosure>
                     );
                   })}
                 </div>
