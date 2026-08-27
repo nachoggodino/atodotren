@@ -118,11 +118,11 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
         <div className="overflow-x-auto pb-1" data-testid="live-daily-matrix">
           <div
             className="grid w-max items-center gap-px pr-12"
-            style={{ gridTemplateColumns: `3.25rem repeat(${stations.length}, .875rem)` }}
+            style={{ gridTemplateColumns: `3.25rem repeat(${stations.length}, 1.05rem)` }}
           >
             <span aria-hidden="true" className="h-14" />
             {stations.map((station) => (
-              <div className="relative h-14 w-3.5" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
+              <div className="relative h-14 w-[1.05rem]" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
                 <span className="absolute bottom-1 left-1/2 block w-16 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[7px] font-semibold leading-none text-muted">
                   {stationLabel(station.name[lang])}
                 </span>
@@ -137,16 +137,21 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
                 </span>,
                 ...stations.map((station, index) => {
                   const cell = rowCells[index];
-                  if (cell === undefined) return <span aria-hidden="true" className="size-3.5" key={`${journey.id}-${station.id}`} />;
+                  if (cell === undefined) return <span aria-hidden="true" className="size-[1.05rem]" key={`${journey.id}-${station.id}`} />;
                   const stationRef = stationById.get(cell.stationId) ?? station;
+                  const active = selected?.cell.journeyId === cell.journeyId && selected.cell.stationId === cell.stationId;
                   return (
                     <Ariakit.PopoverDisclosure
                       aria-label={`${stationRef.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${formatDelay(cell.delaySeconds, lang)}`}
-                      className="size-3.5 rounded-[2px] outline-none transition-[transform,box-shadow] hover:scale-125 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--background)]"
+                      className="relative grid size-[1.05rem] touch-manipulation place-items-center rounded-[2px] outline-none transition-[transform,box-shadow] hover:scale-125 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--background)]"
+                      data-selected={active ? "true" : "false"}
                       key={`${journey.id}-${station.id}`}
                       onClick={() => setSelected({ cell, station: stationRef })}
                       style={{ backgroundColor: cellColor(cell.delaySeconds) }}
-                    />
+                      type="button"
+                    >
+                      {active ? <span aria-hidden="true" className="pointer-events-none size-1.5 rounded-full bg-white shadow-sm ring-1 ring-black/20" data-testid="live-matrix-selected-dot" /> : null}
+                    </Ariakit.PopoverDisclosure>
                   );
                 }),
               ];
