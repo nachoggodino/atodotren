@@ -58,12 +58,18 @@ function stationsForDirection(matrix: MatrixResponse, direction: DirectionId): r
 function directionLabel(direction: DirectionId, matrix: MatrixResponse, lang: Lang, messages: Messages): string {
   const representative = matrix.journeys.find((journey) => journey.direction?.id === direction);
   if (representative === undefined) return direction === 0 ? messages.common.directionA : messages.common.directionB;
+  const explicitDestination = representative.direction?.to;
+  if (explicitDestination !== null && explicitDestination !== undefined) return `${messages.live.towards} ${explicitDestination.name[lang]}`;
   const destinationCell = matrix.cells
     .filter((cell) => cell.journeyId === representative.id)
     .sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt))
     .at(-1);
   const destination = destinationCell === undefined ? undefined : matrix.stations.find((station) => station.id === destinationCell.stationId);
   return destination === undefined ? (direction === 0 ? messages.common.directionA : messages.common.directionB) : `${messages.live.towards} ${destination.name[lang]}`;
+}
+
+function stationLabel(value: string): string {
+  return value.length > 17 ? `${value.slice(0, 16)}…` : value;
 }
 
 export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: MatrixResponse; readonly lang: Lang; readonly messages: Messages }) {
@@ -111,9 +117,17 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
 
         <div className="overflow-x-auto pb-1" data-testid="live-daily-matrix">
           <div
-            className="grid w-max items-center gap-px"
+            className="grid w-max items-center gap-px pr-12"
             style={{ gridTemplateColumns: `3.25rem repeat(${stations.length}, .875rem)` }}
           >
+            <span aria-hidden="true" className="h-14" />
+            {stations.map((station) => (
+              <div className="relative h-14 w-3.5" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
+                <span className="absolute bottom-1 left-1/2 block w-16 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[7px] font-semibold leading-none text-muted">
+                  {stationLabel(station.name[lang])}
+                </span>
+              </div>
+            ))}
             {journeys.flatMap((journey) => {
               const rowCells = stations.map((station) => cells.get(`${journey.id}:${station.id}`));
               const departure = rowCells.find((cell): cell is MatrixCell => cell !== undefined);
