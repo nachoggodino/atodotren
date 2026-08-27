@@ -21,7 +21,7 @@ export function LiveHeader({
     ? undefined
     : { backgroundColor: contextColor, color: lineBadgeTextColor(contextColor) };
   const heading = (
-    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+    <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
       <h1 className="shrink-0 whitespace-nowrap text-[31px] font-black tracking-[-.045em] sm:text-[43px]">{title}</h1>
       <span
         className={`min-w-0 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}

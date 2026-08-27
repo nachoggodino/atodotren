@@ -19,7 +19,7 @@ export const metadataCopy: Readonly<Record<Lang, MetadataCopy>> = {
   es: {
     landingTitle: "Andén Infinito · Evidencia de Cercanías Madrid",
     landingDescription: "Consulta el estado actual y el histórico de puntualidad, retrasos y cobertura de Cercanías Madrid a partir de evidencia pública de Renfe.",
-    liveNetworkTitle: "Cercanías Madrid en directo",
+    liveNetworkTitle: "Cercanías Madrid · Directo",
     liveNetworkDescription: "Estado actual de Cercanías Madrid: trenes activos con evidencia fresca, retrasos, cobertura y detalle por línea.",
     liveLineDescription: "Estado en directo, trenes activos, esquema y matriz diaria de la línea {context} de Cercanías Madrid.",
     liveStationDescription: "Estado en directo y trenes con evidencia fresca en {context}, Cercanías Madrid.",

@@ -63,7 +63,6 @@ function DetailField({ label, value, evidence, messages, className = "" }: { rea
 
 function TrainMarker({ train, pattern, x, y, lang, messages }: { readonly train: TrainDetail; readonly pattern: SchematicPattern; readonly x: number; readonly y: number; readonly lang: Lang; readonly messages: Messages }) {
   const position = positionField(train, pattern, lang, messages);
-  const previousStation = train.previousStation?.name[lang] ?? messages.common.unavailable;
   return (
     <Ariakit.PopoverProvider placement="top">
       <Ariakit.PopoverDisclosure aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${position.value}`} className="absolute z-10 grid size-10 -translate-x-1/2 -translate-y-1/2 touch-manipulation select-none place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-primary" style={{ left: x, top: y, color: trainColor(train) }} type="button">
@@ -74,13 +73,10 @@ function TrainMarker({ train, pattern, x, y, lang, messages }: { readonly train:
           <div className="flex min-w-0 items-center gap-1.5"><TrainFront aria-hidden="true" className="size-4 shrink-0" style={{ color: trainColor(train) }} /><span className="shrink-0 text-sm font-black">{train.id}</span><span aria-hidden="true" className="text-xs text-muted">·</span><span className="min-w-0 truncate text-xs font-semibold text-muted">{messages.live.towards} {trainDestination(train, pattern, lang, messages)}</span></div>
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
             <DetailField label={position.label} value={position.value} evidence={position.evidence} messages={messages} />
-            <DetailField label={messages.live.previousStop} value={previousStation} evidence={train.information.previousStation} messages={messages} />
             <DetailField label={messages.live.delay} value={formatDelay(train.delaySeconds, lang)} evidence={train.information.delay} messages={messages} />
             <DetailField label={messages.live.nextArrival} value={formatMadridTime(train.scheduledArrivalAt, lang, true)} evidence={train.information.scheduledArrival} messages={messages} />
             <DetailField label={messages.live.probableArrival} value={formatMadridTime(train.probableArrivalAt, lang, true)} evidence={train.information.probableArrival} messages={messages} />
-            <DetailField label={messages.live.sourceArrival} value={formatMadridTime(train.renfeReportedArrivalAt, lang, true)} evidence={train.information.reportedArrival} messages={messages} />
-            <DetailField label={messages.live.observedPresence} value={formatMadridTime(train.observedPastArrivalAt ?? train.observedPresenceAt, lang, true)} evidence={train.information.observedPresence} messages={messages} />
-            <DetailField className="border-t border-border pt-2.5" label={messages.live.lastPositionUpdate} value={formatMadridTime(train.sourceAt, lang, true)} messages={messages} />
+            <DetailField className="col-span-2" label={messages.live.lastPositionUpdate} value={formatMadridTime(train.sourceAt, lang, true)} messages={messages} />
           </dl>
         </div>
       </Ariakit.Popover>

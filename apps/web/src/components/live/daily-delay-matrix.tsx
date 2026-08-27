@@ -4,7 +4,6 @@ import * as Ariakit from "@ariakit/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowRight } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { MatrixLegend } from "@/components/matrix/matrix-legend";
 import type { DirectionId, Lang, MatrixCell, MatrixResponse, StationRef } from "@/lib/domain/contracts";
 import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { matrixCellPresentation } from "@/lib/domain/matrix-presentation";
@@ -16,8 +15,10 @@ interface SelectedCell {
   readonly station: StationRef;
 }
 
-const MATRIX_HEADER_HEIGHT = 64;
-const MATRIX_ROW_HEIGHT = 36;
+const MATRIX_HEADER_HEIGHT = 52;
+const MATRIX_ROW_HEIGHT = 29;
+const MATRIX_CELL_SIZE = 26;
+const MATRIX_TIME_WIDTH = 45;
 
 function directionIds(matrix: MatrixResponse): readonly DirectionId[] {
   const values = new Set<DirectionId>();
@@ -57,6 +58,38 @@ function stationLabel(value: string): string {
   return value.length > 17 ? `${value.slice(0, 16)}…` : value;
 }
 
+function colorMix(from: string, to: string, progress: number): string {
+  const fromPercent = Math.round((1 - Math.max(0, Math.min(1, progress))) * 100);
+  return `color-mix(in srgb, ${from} ${fromPercent}%, ${to})`;
+}
+
+function matrixCellColor(cell: MatrixCell): string {
+  const kind = matrixCellPresentation(cell).kind;
+  if (kind === "canceled") return "var(--matrix-canceled)";
+  if (kind === "pending" || kind === "missing" || kind === "skipped" || cell.delaySeconds === null) return "var(--matrix-pending)";
+  const delay = cell.delaySeconds;
+  if (delay <= 0) return "var(--matrix-delay-green)";
+  if (delay <= 300) return colorMix("var(--matrix-delay-green)", "var(--matrix-delay-yellow)", delay / 300);
+  if (delay <= 600) return colorMix("var(--matrix-delay-yellow)", "var(--matrix-delay-orange)", (delay - 300) / 300);
+  if (delay <= 900) return colorMix("var(--matrix-delay-orange)", "var(--matrix-delay-red)", (delay - 600) / 300);
+  if (delay <= 1800) return colorMix("var(--matrix-delay-red)", "var(--matrix-delay-burgundy)", (delay - 900) / 900);
+  return "var(--matrix-delay-burgundy)";
+}
+
+function matrixStateLabel(cell: MatrixCell, messages: Messages): string {
+  switch (matrixCellPresentation(cell).kind) {
+    case "canceled": return messages.history.canceled;
+    case "skipped": return messages.history.skipped;
+    case "missing": return messages.common.missing;
+    case "pending": return messages.history.pending;
+    case "early": return messages.history.early;
+    case "punctual": return messages.history.punctual;
+    case "mild":
+    case "delayed": return messages.history.delayed;
+    case "severe": return messages.history.severe;
+  }
+}
+
 export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: MatrixResponse; readonly lang: Lang; readonly messages: Messages }) {
   const directions = useMemo(() => directionIds(matrix), [matrix]);
   const [selectedDirection, setSelectedDirection] = useState<DirectionId>(directions[0] ?? 0);
@@ -88,13 +121,13 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
     overscan: 6,
     scrollMargin: MATRIX_HEADER_HEIGHT,
   });
-  const gridColumns = `3.5rem repeat(${stations.length}, 2rem)`;
+  const gridColumns = `${MATRIX_TIME_WIDTH}px repeat(${stations.length}, ${MATRIX_CELL_SIZE}px)`;
 
   return (
     <Ariakit.PopoverProvider open={selected !== null} setOpen={(open) => { if (!open) setSelected(null); }} placement="top">
       <div>
         {directions.length > 1 ? (
-          <div className="mb-3">
+          <div className="mb-2">
             <SegmentedRadio
               compact
               label={messages.common.direction}
@@ -110,20 +143,19 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
             />
           </div>
         ) : null}
-        <MatrixLegend messages={messages} />
 
-        <div className="max-h-[65vh] overflow-auto rounded-lg border border-border" data-testid="live-daily-matrix" ref={scrollRef}>
-          <div className="sticky top-0 z-20 grid w-max gap-px border-b border-border bg-surface-strong pr-8" style={{ gridTemplateColumns: gridColumns, height: MATRIX_HEADER_HEIGHT }}>
+        <div className="max-h-[65vh] overflow-auto" data-testid="live-daily-matrix" ref={scrollRef}>
+          <div className="sticky top-0 z-20 grid w-max gap-px bg-background pr-6" style={{ gridTemplateColumns: gridColumns, height: MATRIX_HEADER_HEIGHT }}>
             <span aria-hidden="true" />
             {stations.map((station) => (
-              <div className="relative h-16 w-8" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
-                <span className="absolute bottom-1 left-1/2 block w-20 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[8px] font-semibold leading-none text-muted">
+              <div className="relative h-[52px] w-[26px]" data-testid="live-matrix-station-label" key={`header-${station.id}`} title={station.name[lang]}>
+                <span className="absolute bottom-1 left-1/2 block w-16 origin-bottom-left -rotate-45 truncate whitespace-nowrap text-[7px] font-semibold leading-none text-muted">
                   {stationLabel(station.name[lang])}
                 </span>
               </div>
             ))}
           </div>
-          <div className="relative w-max pr-8" style={{ height: rowVirtualizer.getTotalSize(), minWidth: `calc(3.5rem + ${stations.length * 2}rem)` }}>
+          <div className="relative w-max pr-6" style={{ height: rowVirtualizer.getTotalSize(), minWidth: `${MATRIX_TIME_WIDTH + stations.length * MATRIX_CELL_SIZE}px` }}>
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const journey = journeys[virtualRow.index]!;
               const rowCells = stations.map((station) => cells.get(`${journey.id}:${station.id}`));
@@ -135,27 +167,25 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
                   key={journey.id}
                   style={{ gridTemplateColumns: gridColumns, height: virtualRow.size, transform: `translateY(${virtualRow.start - MATRIX_HEADER_HEIGHT}px)` }}
                 >
-                  <span className="pr-1 text-right font-mono text-[10px] font-semibold tabular-nums text-muted">
+                  <span className="pr-1 text-right font-mono text-[8px] font-semibold tabular-nums text-muted">
                     {departure === undefined ? "—" : formatMadridTime(departure.scheduledAt, lang)}
                   </span>
                   {stations.map((station, index) => {
                     const cell = rowCells[index];
-                    if (cell === undefined) return <span aria-hidden="true" className="size-8" key={station.id} />;
+                    if (cell === undefined) return <span aria-hidden="true" className="size-[26px]" key={station.id} />;
                     const stationRef = stationById.get(cell.stationId) ?? station;
                     const active = selected?.cell.journeyId === cell.journeyId && selected.cell.stationId === cell.stationId;
-                    const presentation = matrixCellPresentation(cell);
                     return (
                       <Ariakit.PopoverDisclosure
-                        aria-label={`${stationRef.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${formatDelay(cell.delaySeconds, lang)}`}
-                        className="matrix-compact-cell relative grid size-8 touch-manipulation place-items-center rounded-[3px] text-[9px] font-black outline-none transition-[transform,box-shadow] hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--background)]"
-                        data-kind={presentation.kind}
+                        aria-label={`${stationRef.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${matrixStateLabel(cell, messages)}, ${formatDelay(cell.delaySeconds, lang)}`}
+                        className="relative size-[26px] touch-manipulation rounded-[2px] outline-none transition-[filter,transform,opacity] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--background)] data-[selected=true]:scale-[.88]"
+                        data-kind={matrixCellPresentation(cell).kind}
                         data-selected={active ? "true" : "false"}
                         key={station.id}
                         onClick={() => setSelected({ cell, station: stationRef })}
+                        style={{ backgroundColor: matrixCellColor(cell) }}
                         type="button"
-                      >
-                        <span aria-hidden="true">{presentation.symbol}</span>
-                      </Ariakit.PopoverDisclosure>
+                      />
                     );
                   })}
                 </div>
@@ -170,6 +200,7 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
           <div className="text-sm">
             <p className="font-black">{selected.station.name[lang]}</p>
             <dl className="mt-2 grid gap-1.5">
+              <div className="flex items-baseline justify-between gap-4"><dt className="text-muted">{messages.common.state}</dt><dd className="font-bold capitalize">{matrixStateLabel(selected.cell, messages)}</dd></div>
               <div className="flex items-baseline justify-between gap-4"><dt className="text-muted">{messages.live.expectedTime}</dt><dd className="font-mono font-bold">{formatMadridTime(selected.cell.scheduledAt, lang)}</dd></div>
               <div className="flex items-baseline justify-between gap-4"><dt className="text-muted">{messages.live.delay}</dt><dd className="font-bold">{formatDelay(selected.cell.delaySeconds, lang)}</dd></div>
             </dl>

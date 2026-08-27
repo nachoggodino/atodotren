@@ -32,6 +32,12 @@ describe("schematic geometry", () => {
     const between = line!.trains.find((train) => train.position.kind === "between_stations");
     expect(between).toBeDefined();
     if (between?.position.kind !== "between_stations") throw new Error("Expected between-stations fixture");
-    expect(pointForTrain({ ...between, position: { ...between.position, progress: null } }, plotted)).toBeNull();
+    const midpoint = pointForTrain({ ...between, position: { ...between.position, progress: null } }, plotted);
+    expect(midpoint).not.toBeNull();
+    const plottedPattern = plotted.find((candidate) => candidate.pattern.id === midpoint?.patternId);
+    const from = plottedPattern?.stopByStation.get(between.position.fromStationId);
+    const to = plottedPattern?.stopByStation.get(between.position.toStationId);
+    expect(midpoint?.x).toBe(((from?.x ?? 0) + (to?.x ?? 0)) / 2);
+    expect(midpoint?.y).toBe(((from?.y ?? 0) + (to?.y ?? 0)) / 2);
   });
 });

@@ -20,6 +20,13 @@
   --state-canceled: #AE3548;
   --state-skipped: #5C659F;
   --state-missing: #71686D;
+  --matrix-delay-green: #4F8A5B;
+  --matrix-delay-yellow: #D6A82B;
+  --matrix-delay-orange: #C8752A;
+  --matrix-delay-red: #B44756;
+  --matrix-delay-burgundy: #7A2638;
+  --matrix-pending: #8B8186;
+  --matrix-canceled: #7457A6;
   --focus: var(--primary);
   --landing-positive: var(--success);
   --landing-delay: var(--danger);
@@ -52,6 +59,13 @@
   --state-canceled: #F0808E;
   --state-skipped: #A5AEF2;
   --state-missing: #B7ADB2;
+  --matrix-delay-green: #76B88A;
+  --matrix-delay-yellow: #D9B958;
+  --matrix-delay-orange: #E59652;
+  --matrix-delay-red: #E36A77;
+  --matrix-delay-burgundy: #B64B66;
+  --matrix-pending: #81777C;
+  --matrix-canceled: #A88AD4;
   --focus: var(--primary);
   --landing-positive: var(--success);
   --landing-delay: var(--danger);

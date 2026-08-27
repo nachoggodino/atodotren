@@ -15,7 +15,7 @@ test("live line detail switches between a compact schematic and the daily delay 
   const schematicImage = schematic.getByRole("img", { name: "Esquema" });
   await expect(schematicImage).toContainText("Hacia");
   await expect(schematicImage).not.toContainText("→");
-  expect(await schematic.getByRole("button").count()).toBeGreaterThan(0);
+  await expect(schematic.getByRole("button")).toHaveCount(5);
 
   const reportedTrain = schematic.getByRole("button").first();
   const trainSquircle = reportedTrain.getByTestId("train-marker-squircle");
@@ -31,16 +31,16 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(trainDetail).toHaveClass(/w-\[20rem\]/);
   await expect(trainDetail).toContainText("Hacia");
   await expect(trainDetail).toContainText(/Próxima parada|Detenido en/);
-  await expect(trainDetail).toContainText("Parada anterior");
   await expect(trainDetail).toContainText("Retraso");
   await expect(trainDetail).toContainText("Llegada programada");
   await expect(trainDetail).toContainText("Llegada probable");
-  await expect(trainDetail).toContainText("Llegada reportada");
-  await expect(trainDetail).toContainText("Presencia observada");
   await expect(trainDetail).toContainText("Última actualización de posición");
+  await expect(trainDetail).not.toContainText("Parada anterior");
+  await expect(trainDetail).not.toContainText("Llegada reportada");
+  await expect(trainDetail).not.toContainText("Presencia observada");
   await expect(trainDetail).not.toContainText("Estado");
   await expect(trainDetail).not.toContainText("Confianza");
-  await page.getByRole("heading", { level: 1, name: "En directo" }).click();
+  await page.getByRole("heading", { level: 1, name: "Directo" }).click();
   await expect(trainDetail).toBeHidden();
 
   const unavailableTrain = schematic.getByRole("button", { name: /No disponible/ });
@@ -48,18 +48,21 @@ test("live line detail switches between a compact schematic and the daily delay 
   await unavailableTrain.click();
   const unavailableDetail = page.getByTestId("train-detail").filter({ visible: true });
   await expect(unavailableDetail).toContainText("Última actualización de posición");
-  await page.getByRole("heading", { level: 1, name: "En directo" }).click();
+  await page.getByRole("heading", { level: 1, name: "Directo" }).click();
 
   await modes.getByRole("radio", { name: "Matriz diaria" }).click();
   const matrix = page.getByTestId("live-daily-matrix");
   await expect(matrix).toBeVisible();
   await expect(schematic).toBeHidden();
+  await expect(matrix).not.toHaveClass(/border/);
+  await expect(page.getByText("adelanto", { exact: true })).toHaveCount(0);
   await expect(matrix.locator("th")).toHaveCount(0);
   await expect(matrix.getByText(/^\d{2}:\d{2}$/).first()).toBeVisible();
 
   const directions = page.getByTestId("live-matrix-directions");
   await expect(directions.getByRole("radio")).toHaveCount(2);
   await expect(directions.locator('input[type="radio"]')).toHaveCount(2);
+  await expect(directions).not.toHaveClass(/border-border/);
   await expect(directions.locator("label > span").first()).toHaveClass(/text-\[7px\]/);
   await expect(directions.getByRole("radio").first()).toHaveAccessibleName("Hacia Villaverde Bajo");
   await expect(directions.getByRole("radio").last()).toHaveAccessibleName("Hacia Chamartín Clara Campoamor");
@@ -67,21 +70,22 @@ test("live line detail switches between a compact schematic and the daily delay 
   const stationLabels = matrix.getByTestId("live-matrix-station-label");
   await expect(stationLabels).toHaveCount(6);
   await expect(stationLabels.first()).toHaveAttribute("title", "Chamartín Clara Campoamor");
-  await expect(stationLabels.first()).toHaveClass(/w-8/);
+  await expect(stationLabels.first()).toHaveClass(/w-\[26px\]/);
   await expect(stationLabels.first().locator("span")).toHaveClass(/-rotate-45/);
 
   const matrixCell = matrix.getByRole("button").first();
-  await expect(matrixCell).toHaveClass(/size-8/);
+  await expect(matrixCell).toHaveClass(/size-\[26px\]/);
   await expect(matrixCell).toHaveClass(/touch-manipulation/);
+  await expect(matrixCell).toHaveText("");
   await matrixCell.click();
   const matrixDetail = page.getByTestId("live-matrix-detail");
   await expect(matrixDetail).toBeVisible();
   await expect(matrixCell).toHaveAttribute("data-selected", "true");
+  await expect(matrixDetail).toContainText("Estado");
   await expect(matrixDetail).toContainText("Hora prevista");
   await expect(matrixDetail).toContainText("Retraso");
-  await expect(matrixDetail).not.toContainText("Estado");
   await expect(matrixDetail).not.toContainText("Confianza");
-  await page.getByRole("heading", { level: 1, name: "En directo" }).click();
+  await page.getByRole("heading", { level: 1, name: "Directo" }).click();
   await expect(matrixDetail).toBeHidden();
   await expect(matrixCell).toHaveAttribute("data-selected", "false");
 
