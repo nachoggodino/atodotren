@@ -18,6 +18,8 @@ export function TimetableMatrix({ matrix, lang, messages }: { readonly matrix: M
   const [selected, setSelected] = useState<MatrixCell | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const cells = useMemo(() => new Map(matrix.cells.map((cell) => [`${cell.stationId}:${cell.journeyId}`, cell])), [matrix.cells]);
+  // TanStack Virtual is intentionally compiler-incompatible; this component owns its virtualizer state directly.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const journeyVirtualizer = useVirtualizer({
     count: matrix.journeys.length,
     getScrollElement: () => scrollRef.current,

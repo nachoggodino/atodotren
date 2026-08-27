@@ -79,6 +79,8 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
   const stations = useMemo(() => stationsForDirection(matrix, selectedDirection), [matrix, selectedDirection]);
   const cells = useMemo(() => new Map(matrix.cells.map((cell) => [`${cell.journeyId}:${cell.stationId}`, cell])), [matrix.cells]);
   const stationById = useMemo(() => new Map(matrix.stations.map((station) => [station.id, station])), [matrix.stations]);
+  // TanStack Virtual is intentionally compiler-incompatible; this component owns its virtualizer state directly.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: journeys.length,
     getScrollElement: () => scrollRef.current,
