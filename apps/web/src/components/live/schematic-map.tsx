@@ -84,12 +84,14 @@ export function SchematicMap({ patterns, trains, directionByJourney, lineColor, 
           {plottedTrains.map(({ train, point }) => (
             <Ariakit.PopoverDisclosure
               aria-label={`${train.id}, ${formatDelay(train.delaySeconds, lang)}, ${captionForTrain(train, messages)}`}
-              className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-primary"
+              className="absolute z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center bg-transparent p-0 outline-none transition-[color,transform,opacity] hover:scale-110 active:scale-95 active:opacity-75 focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-primary"
               key={train.id}
               onClick={() => setSelected(train)}
               style={{ left: point.x, top: point.y, color: trainColor(train) }}
             >
-              <TrainFront aria-hidden="true" className="size-5" strokeWidth={2.4} />
+              <span className="grid size-5 place-items-center rounded-[35%] border border-border bg-surface-strong shadow-sm" data-testid="train-marker-squircle">
+                <TrainFront aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
+              </span>
             </Ariakit.PopoverDisclosure>
           ))}
         </div>
