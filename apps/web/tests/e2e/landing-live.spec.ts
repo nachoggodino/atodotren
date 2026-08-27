@@ -114,7 +114,7 @@ test("global refresh pause persists and live train detail is keyboard operable",
   const train = page.getByTestId("schematic-map").getByRole("button").first();
   await train.focus();
   await page.keyboard.press("Enter");
-  const detail = page.getByTestId("train-detail");
+  const detail = page.getByTestId("train-detail").filter({ visible: true });
   await expect(detail).toBeVisible();
   await expect(detail).toContainText("Última actualización de posición");
 });
@@ -128,7 +128,7 @@ test("@webkit theme and schematic keyboard interaction", async ({ page }) => {
   const train = page.getByTestId("schematic-map").getByRole("button").first();
   await train.focus();
   await train.press("Enter");
-  await expect(page.getByTestId("train-detail")).toBeVisible();
+  await expect(page.getByTestId("train-detail").filter({ visible: true })).toBeVisible();
 });
 
 test("English routes, theme persistence, mobile drawer and reduced motion remain usable", async ({ page }, testInfo) => {
