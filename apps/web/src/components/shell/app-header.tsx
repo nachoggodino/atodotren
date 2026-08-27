@@ -5,7 +5,7 @@ import { BarChart3, BookOpen, House, Moon, Radio, Sun } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { Lang } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
 import { BrandSymbol, BrandWordmark } from "./brand-mark";
@@ -36,16 +36,30 @@ function scrollToTopImmediately() {
   root.style.scrollBehavior = previousBehavior;
 }
 
+function subscribeToAppliedTheme(onStoreChange: () => void): () => void {
+  const observer = new MutationObserver(onStoreChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => observer.disconnect();
+}
+
+function getAppliedTheme(): "light" | "dark" {
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+function getServerTheme(): "light" {
+  return "light";
+}
+
 export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [openPathname, setOpenPathname] = useState<string | null>(null);
   const open = openPathname === pathname;
   const [hidden, setHidden] = useState(false);
-  const [menuTheme, setMenuTheme] = useState<"light" | "dark" | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousY = useRef(0);
-  const { resolvedTheme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
+  const currentTheme = useSyncExternalStore(subscribeToAppliedTheme, getAppliedTheme, getServerTheme);
   const refresh = useAutoRefresh();
 
   useEffect(() => {
@@ -100,16 +114,10 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
     if (next) setHidden(false);
   };
 
-  const syncMenuTheme = () => setMenuTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
   const closeForNavigation = () => setOpenPathname(null);
   const search = searchParams.toString();
   const context = routeContext(pathname, messages);
   const ContextIcon = context.Icon;
-  const currentTheme = menuTheme ?? resolvedTheme;
-  const selectTheme = (nextTheme: "light" | "dark") => {
-    setMenuTheme(nextTheme);
-    setTheme(nextTheme);
-  };
 
   return (
     <Ariakit.DisclosureProvider open={open} setOpen={setOpen}>
@@ -134,7 +142,6 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                 data-testid="menu-toggle"
                 aria-label={open ? messages.nav.close : messages.nav.menu}
                 className="ml-auto grid size-11 place-items-center rounded-lg transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
-                onClick={syncMenuTheme}
               >
                 <span className="relative block h-4 w-5" aria-hidden="true">
                   <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />
@@ -175,8 +182,8 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                           className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${currentTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
                           data-testid="theme-thumb"
                         />
-                        <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("light")} type="button"><Sun className="size-4" /></button>
-                        <button aria-label={messages.nav.dark} aria-pressed={currentTheme === "dark"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("dark")} type="button"><Moon className="size-4" /></button>
+                        <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
+                        <button aria-label={messages.nav.dark} aria-pressed={currentTheme === "dark"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-3">
