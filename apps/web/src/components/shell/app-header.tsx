@@ -97,12 +97,10 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
 
   const setOpen = (next: boolean) => {
     setOpenPathname(next ? pathname : null);
-    if (next) {
-      setHidden(false);
-      setMenuTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
-    }
+    if (next) setHidden(false);
   };
 
+  const syncMenuTheme = () => setMenuTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
   const closeForNavigation = () => setOpenPathname(null);
   const search = searchParams.toString();
   const context = routeContext(pathname, messages);
@@ -136,6 +134,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                 data-testid="menu-toggle"
                 aria-label={open ? messages.nav.close : messages.nav.menu}
                 className="ml-auto grid size-11 place-items-center rounded-lg transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
+                onClick={syncMenuTheme}
               >
                 <span className="relative block h-4 w-5" aria-hidden="true">
                   <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />
@@ -173,7 +172,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                       <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] items-center justify-between rounded-full border border-border bg-muted-soft p-px" role="group">
                         <span
                           aria-hidden="true"
-                          className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${currentTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
+                          className="pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 translate-x-0 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out dark:translate-x-9 motion-reduce:transition-none"
                           data-testid="theme-thumb"
                         />
                         <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("light")} type="button"><Sun className="size-4" /></button>
