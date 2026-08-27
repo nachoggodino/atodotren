@@ -87,7 +87,7 @@ describe("PostgreSQL domain mapping", () => {
     const calls: string[] = [];
     const adapter = createPostgresAdapter(config, client(async (text) => {
       calls.push(text);
-      if (text.includes("GROUP BY history.line_slug")) return [{ line_slug: "c1", public_code: "C1", valid_delay_observations: 100, punctual_count: 80, signed_delay_sum: 12000 }];
+      if (text.includes("SELECT history.line_slug, catalog.public_code")) return [{ line_slug: "c1", public_code: "C1", valid_delay_observations: 100, punctual_count: 80, signed_delay_sum: 12000 }];
       if (text.includes("SELECT history.station_id, catalog.name_es AS station_name")) return [];
       if (text.includes("history.scheduled_hour::text AS hour_id")) return [];
       if (text.includes("extract(dow FROM history.service_date)::integer AS weekday")) return [];
