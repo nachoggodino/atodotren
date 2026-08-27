@@ -18,8 +18,10 @@ test("live line detail switches between a compact schematic and the daily delay 
   expect(await schematic.getByRole("button").count()).toBeGreaterThan(0);
 
   const reportedTrain = schematic.getByRole("button").first();
-  await expect(reportedTrain).toHaveClass(/bg-transparent/);
-  await expect(reportedTrain).not.toHaveClass(/rounded-full/);
+  const trainSquircle = reportedTrain.getByTestId("train-marker-squircle");
+  await expect(trainSquircle).toHaveClass(/rounded-\[35%\]/);
+  await expect(trainSquircle).toHaveClass(/bg-surface-strong/);
+  await expect(trainSquircle.locator("svg")).toHaveClass(/size-3\.5/);
   await reportedTrain.click();
   const trainDetail = page.getByTestId("train-detail");
   await expect(trainDetail).toBeVisible();
@@ -44,8 +46,13 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(directions.getByRole("radio")).toHaveCount(2);
   await expect(directions.locator('input[type="radio"]')).toHaveCount(2);
   await expect(directions.locator("label > span").first()).toHaveClass(/text-\[7px\]/);
-  await expect(directions.getByRole("radio").first()).toHaveAccessibleName(/Hacia/);
-  await expect(directions.getByRole("radio").last()).toHaveAccessibleName(/Hacia/);
+  await expect(directions.getByRole("radio").first()).toHaveAccessibleName("Hacia Villaverde Bajo");
+  await expect(directions.getByRole("radio").last()).toHaveAccessibleName("Hacia Chamartín Clara Campoamor");
+
+  const stationLabels = matrix.getByTestId("live-matrix-station-label");
+  await expect(stationLabels).toHaveCount(6);
+  await expect(stationLabels.first()).toHaveAttribute("title", "Chamartín Clara Campoamor");
+  await expect(stationLabels.first().locator("span")).toHaveClass(/-rotate-45/);
 
   const matrixCell = matrix.getByRole("button").first();
   await matrixCell.click();
@@ -61,4 +68,5 @@ test("live line detail switches between a compact schematic and the daily delay 
   await directions.getByRole("radio").last().click();
   await expect(directions.getByRole("radio").last()).toBeChecked();
   await expect(matrix.getByRole("button").first()).toBeVisible();
+  await expect(matrix.getByTestId("live-matrix-station-label").first()).toHaveAttribute("title", "Villaverde Bajo");
 });
