@@ -172,7 +172,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                       <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] items-center justify-between rounded-full border border-border bg-muted-soft p-px" role="group">
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 translate-x-0 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out dark:translate-x-9 motion-reduce:transition-none"
+                          className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${currentTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
                           data-testid="theme-thumb"
                         />
                         <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => selectTheme("light")} type="button"><Sun className="size-4" /></button>
