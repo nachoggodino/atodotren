@@ -19,9 +19,9 @@ function meta(expectedOvernight?: boolean) {
 }
 
 describe("live source policy", () => {
-  it("does not infer overnight solely from a fresh empty vehicle snapshot", () => {
+  it("keeps a fresh successful source healthy even when no active vehicles are present", () => {
     const result = meta();
-    expect(result.source.status).toBe("unavailable");
+    expect(result.source.status).toBe("healthy");
     expect(result.source.freshness.state).toBe("fresh");
   });
 

@@ -88,6 +88,10 @@ describe("PostgreSQL domain mapping", () => {
     const adapter = createPostgresAdapter(config, client(async (text) => {
       calls.push(text);
       if (text.includes("GROUP BY history.line_slug")) return [{ line_slug: "c1", public_code: "C1", valid_delay_observations: 100, punctual_count: 80, signed_delay_sum: 12000 }];
+      if (text.includes("SELECT history.station_id, catalog.name_es AS station_name")) return [];
+      if (text.includes("history.scheduled_hour::text AS hour_id")) return [];
+      if (text.includes("extract(dow FROM history.service_date)::integer AS weekday")) return [];
+      if (text.includes("AS entity_id") && text.includes("AS entity_label")) return [];
       if (text.includes("WITH filtered") && text.includes("api.history_network_hour")) return [aggregateRow()];
       if (text.includes("api.service_day_state")) return [{ service_date: "2026-08-20", aggregate_algorithm_version: "v1", status: "verified", finalized_at: "2026-08-21T02:00:00Z" }];
       throw new Error(`Unexpected query: ${text}`);
