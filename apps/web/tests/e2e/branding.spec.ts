@@ -111,6 +111,17 @@ test("andén infinito brand and palette follow the selected theme", async ({ pag
   expectPalette(await palette(page), DARK);
   await expect(headerBrand).toHaveCSS("color", "rgb(201, 138, 152)");
   await expect(methodologyIcon).toHaveCSS("color", "rgb(198, 167, 242)");
+
+  await page.getByTestId("menu-toggle").click();
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page.getByTestId("menu-toggle").click();
+  const restoredTheme = page.getByRole("group", { name: "Theme" });
+  await expect(restoredTheme.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+  const restoredDarkCenter = await center(restoredTheme.getByRole("button", { name: "Dark" }));
+  const restoredThumbCenter = await center(restoredTheme.getByTestId("theme-thumb"));
+  expect(Math.abs(restoredThumbCenter.x - restoredDarkCenter.x)).toBeLessThan(1);
+  expect(Math.abs(restoredThumbCenter.y - restoredDarkCenter.y)).toBeLessThan(1);
 });
 
 test("mobile navigation expands in place without becoming a modal", async ({ page }) => {

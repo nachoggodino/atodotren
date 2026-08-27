@@ -1,4 +1,4 @@
-import type { LandingOverviewResponse, MatrixResult, SearchResult, SummaryStats, TrainPosition } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, SummaryStats, TrainPosition } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
@@ -43,6 +43,23 @@ function fixtureLandingOverview(scenario: FixtureScenario): LandingOverviewRespo
     };
   });
   return { meta: liveMeta(scenario, stats, activeTrains), activeTrains, activeDelaySeconds, dayDelaySeconds, trend };
+}
+
+function directionalFixtureMatrix(scenario: FixtureScenario): MatrixResponse {
+  const matrix = matrixResponse(scenario);
+  const reverseJourneys = new Set(matrix.journeys.filter((journey) => journey.direction?.id === 1).map((journey) => journey.id));
+  if (reverseJourneys.size === 0) return matrix;
+  const stationIndexes = new Map(matrix.stations.map((station, index) => [station.id, index]));
+  const reversedStations = [...matrix.stations].reverse();
+  return {
+    ...matrix,
+    cells: matrix.cells.map((cell) => {
+      if (!reverseJourneys.has(cell.journeyId)) return cell;
+      const stationIndex = stationIndexes.get(cell.stationId);
+      const reverseStation = stationIndex === undefined ? undefined : reversedStations[stationIndex];
+      return reverseStation === undefined ? cell : { ...cell, stationId: reverseStation.id };
+    }),
+  };
 }
 
 export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
@@ -116,7 +133,7 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
       failSource(scenario);
       if (normalizedLineAlias(lineSlug) !== "c1") return { status: "unavailable", reason: "no-data" };
       if (serviceDate !== FIXTURE_TODAY) return { status: "unavailable", reason: "retention" };
-      return { status: "available", matrix: matrixResponse(scenario) };
+      return { status: "available", matrix: directionalFixtureMatrix(scenario) };
     },
   };
 }
