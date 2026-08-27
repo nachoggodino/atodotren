@@ -64,6 +64,10 @@ export async function getHistoryStation(slug: string, filters: HistoryFilters, s
 }
 
 export async function getMatrix(lineSlug: string, serviceDate: string, scenario?: string): Promise<MatrixResult> {
-  const adapter = await getDataAdapter(scenario);
-  return getCached(cacheKey(["matrix", lineSlug, serviceDate, scenarioKey(scenario)]), cacheSecondsForDate(serviceDate), () => adapter.matrix(lineSlug, serviceDate));
+  try {
+    const adapter = await getDataAdapter(scenario);
+    return await getCached(cacheKey(["matrix", lineSlug, serviceDate, scenarioKey(scenario)]), cacheSecondsForDate(serviceDate), () => adapter.matrix(lineSlug, serviceDate));
+  } catch {
+    return { status: "failed", reason: "temporarily-unavailable" };
+  }
 }

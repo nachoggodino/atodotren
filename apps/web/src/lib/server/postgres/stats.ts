@@ -16,17 +16,22 @@ export function mergeHistograms(histograms: readonly (readonly number[])[]): rea
   return Array.from({ length: HISTOGRAM_BIN_COUNT }, (_, index) => histograms.reduce((sum, values) => sum + (values[index] ?? 0), 0));
 }
 
-export function medianFromHistogram(values: readonly number[]): number | null {
+export function percentileFromHistogram(values: readonly number[], percentile: number): number | null {
   if (values.length !== HISTOGRAM_BIN_COUNT) throw new Error("Unexpected h30-v1 histogram length");
+  if (!(percentile > 0 && percentile <= 1)) throw new Error("Histogram percentile must be in (0, 1]");
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total === 0) return null;
-  const target = total / 2;
+  const target = total * percentile;
   let seen = 0;
   for (let index = 0; index < values.length; index += 1) {
     seen += values[index] ?? 0;
     if (seen >= target) return histogramRepresentativeSeconds(index);
   }
   return null;
+}
+
+export function medianFromHistogram(values: readonly number[]): number | null {
+  return percentileFromHistogram(values, 0.5);
 }
 
 export function normalizeHistogram(values: readonly number[]): readonly DelayBucket[] {
@@ -46,6 +51,7 @@ export function emptySummaryStats(): SummaryStats {
     punctuality: null,
     meanDelaySeconds: null,
     medianDelaySeconds: null,
+    p90DelaySeconds: null,
     canceled: null,
     missing: null,
     distribution: emptyDelayDistribution(),
@@ -70,6 +76,7 @@ export function summaryFromAggregateRows(rows: readonly AggregateRow[]): Summary
     punctuality: observed === 0 ? null : punctual / observed,
     meanDelaySeconds: observed === 0 ? null : Math.round(signedDelaySum / observed),
     medianDelaySeconds: medianFromHistogram(histogram),
+    p90DelaySeconds: percentileFromHistogram(histogram, 0.9),
     canceled: sumNullable(rows, "canceled"),
     missing: sumNullable(rows, "missing"),
     distribution: normalizeHistogram(histogram),
