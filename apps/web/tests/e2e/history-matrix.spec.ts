@@ -57,6 +57,7 @@ test("@webkit large matrix keeps a bounded DOM while remaining scrollable and in
   await page.goto("/es/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=large-matrix");
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
+  await expect(matrix.getByTestId("matrix-virtual-column").first()).toBeVisible();
   const renderedMs = Date.now() - started;
 
   const initialColumns = await matrix.getByTestId("matrix-virtual-column").allTextContents();
