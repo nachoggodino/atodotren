@@ -42,15 +42,11 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const [openPathname, setOpenPathname] = useState<string | null>(null);
   const open = openPathname === pathname;
   const [hidden, setHidden] = useState(false);
-  const [displayTheme, setDisplayTheme] = useState<"light" | "dark" | null>(null);
+  const [menuTheme, setMenuTheme] = useState<"light" | "dark" | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousY = useRef(0);
   const { resolvedTheme, setTheme } = useTheme();
   const refresh = useAutoRefresh();
-
-  useEffect(() => {
-    if (resolvedTheme === "light" || resolvedTheme === "dark") setDisplayTheme(resolvedTheme);
-  }, [resolvedTheme]);
 
   useEffect(() => {
     scrollToTopImmediately();
@@ -101,16 +97,19 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
 
   const setOpen = (next: boolean) => {
     setOpenPathname(next ? pathname : null);
-    if (next) setHidden(false);
+    if (next) {
+      setHidden(false);
+      setMenuTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+    }
   };
 
   const closeForNavigation = () => setOpenPathname(null);
   const search = searchParams.toString();
   const context = routeContext(pathname, messages);
   const ContextIcon = context.Icon;
-  const currentTheme = displayTheme ?? resolvedTheme;
+  const currentTheme = menuTheme ?? resolvedTheme;
   const selectTheme = (nextTheme: "light" | "dark") => {
-    setDisplayTheme(nextTheme);
+    setMenuTheme(nextTheme);
     setTheme(nextTheme);
   };
 
