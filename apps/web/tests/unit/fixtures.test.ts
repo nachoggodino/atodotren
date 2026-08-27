@@ -53,11 +53,23 @@ describe("fixture contract scenarios", () => {
     expect(mixed.meta.provenance.kind).toBe("mixed");
   });
 
-  it("models matrix retention and available data separately", async () => {
+  it("models matrix retention, direction order and available data separately", async () => {
     const available = await createFixtureAdapter("cancellations").matrix("c1", "2026-08-24");
     const expired = await createFixtureAdapter("healthy").matrix("c1", "2026-07-01");
     expect(available.status).toBe("available");
-    if (available.status === "available") expect(available.matrix.cells.some((cell) => cell.state === "canceled")).toBe(true);
+    if (available.status === "available") {
+      expect(available.matrix.cells.some((cell) => cell.state === "canceled")).toBe(true);
+      const endpoint = (direction: 0 | 1) => {
+        const journey = available.matrix.journeys.find((candidate) => candidate.direction?.id === direction);
+        if (journey === undefined) return undefined;
+        return available.matrix.cells
+          .filter((cell) => cell.journeyId === journey.id)
+          .sort((left, right) => left.scheduledAt.localeCompare(right.scheduledAt))
+          .at(-1)?.stationId;
+      };
+      expect(endpoint(0)).toBe("villaverde-bajo");
+      expect(endpoint(1)).toBe("chamartin");
+    }
     expect(expired).toEqual({ status: "unavailable", reason: "retention" });
   });
 });
