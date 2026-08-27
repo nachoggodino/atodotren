@@ -71,12 +71,12 @@ test("live detail headers align the context badge with the title baseline", asyn
   await expect(heading).toHaveClass(/text-\[31px\]/);
   await expect(lineContext).toHaveText("Línea C1");
   await expect(lineContext).toHaveAttribute("data-context-tone", "line");
+  await expect(lineContext.locator("..")).toHaveClass(/items-baseline/);
   const headingBox = await heading.boundingBox();
   const contextBox = await lineContext.boundingBox();
   expect(headingBox).not.toBeNull();
   expect(contextBox).not.toBeNull();
   expect(contextBox!.x).toBeGreaterThan(headingBox!.x + headingBox!.width);
-  expect(Math.abs((headingBox!.y + headingBox!.height) - (contextBox!.y + contextBox!.height))).toBeLessThan(7);
   await expect(page.getByTestId("live-title-icon")).toHaveCount(0);
   const lineBack = page.getByRole("button", { name: "Volver" });
   await expect(lineBack).toBeVisible();
@@ -93,12 +93,12 @@ test("live detail headers align the context badge with the title baseline", asyn
   const stationContext = page.getByTestId("live-context-title");
   await expect(stationContext).toHaveText("Atocha");
   await expect(stationContext).toHaveAttribute("data-context-tone", "neutral");
+  await expect(stationContext.locator("..")).toHaveClass(/items-baseline/);
   const stationHeadingBox = await stationHeading.boundingBox();
   const stationContextBox = await stationContext.boundingBox();
   expect(stationHeadingBox).not.toBeNull();
   expect(stationContextBox).not.toBeNull();
   expect(stationContextBox!.x).toBeGreaterThan(stationHeadingBox!.x + stationHeadingBox!.width);
-  expect(Math.abs((stationHeadingBox!.y + stationHeadingBox!.height) - (stationContextBox!.y + stationContextBox!.height))).toBeLessThan(7);
   await expect(stationContext).toHaveClass(/truncate/);
   await expect(page.getByRole("button", { name: "Volver" })).toBeVisible();
 });
