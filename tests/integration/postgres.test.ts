@@ -1041,7 +1041,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         }
 
         const unresolvedAt = new Date(captured.getTime() - 1_000);
-        const ambiguousArrivalTime = Math.floor((captured.getTime() + (11 * 60 * 60 + 54 * 60 + 59) * 1_000) / 1_000);
+        const unresolvedArrivalTime = Math.floor((captured.getTime() + 24 * 60 * 60 * 1_000) / 1_000);
         const unresolvedIdentity = checksum(['intentionally-unresolved', unresolvedAt.toISOString()]);
         await pool.query(`
           INSERT INTO ingest.stop_evidence (
@@ -1051,7 +1051,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
             trip_relationship, stop_relationship, source_timestamp,
             matching_method, matching_version, evidence_classification
           )
-          SELECT $1, $2, 'legacy:ambiguous-date', $2, 'trip_updates', $3, $4, NULL, 'missing',
+          SELECT $1, $2, 'legacy:unresolved-date', $2, 'trip_updates', $3, $4, NULL, 'missing',
             stop_time.stop_id, stop_time.stop_sequence, station_map.station_id, $5, 120,
             'SCHEDULED', 'SCHEDULED', $5, 'previous-exact-trip', 'madrid-v1', 'reported_prediction'
           FROM gtfs_static.stop_time AS stop_time
@@ -1059,7 +1059,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
             ON station_map.feed_version_id = stop_time.feed_version_id
            AND station_map.stop_id = stop_time.stop_id
           WHERE stop_time.feed_version_id = $3 AND stop_time.trip_id = $4 AND stop_time.stop_sequence = 1
-        `, [unresolvedAt, unresolvedIdentity, previousFeedVersionId, oldDescriptor.tripId, ambiguousArrivalTime]);
+        `, [unresolvedAt, unresolvedIdentity, previousFeedVersionId, oldDescriptor.tripId, unresolvedArrivalTime]);
 
         type BackfillReport = {
           report: { scanned: number; updated: number; unresolved: number; remainingEligible: number };
@@ -1099,7 +1099,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
             max(service_date_backfill_reason) FILTER (WHERE renfe_arrival_time = $1) AS unresolved_reason
           FROM ingest.stop_evidence
           WHERE source_trip_id = '10TRIP-A'
-        `, [ambiguousArrivalTime]);
+        `, [unresolvedArrivalTime]);
         assert.equal(recovered.rows[0]?.unresolved, '1');
         assert.ok(Number(recovered.rows[0]?.inferred ?? 0) >= 3);
         assert.deepEqual(recovered.rows[0]?.inferred_dates, [serviceDate]);
