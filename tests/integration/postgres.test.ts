@@ -854,6 +854,32 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
       const pool = new Pool({ connectionString: workerDatabaseUrl, max: 3 });
       try {
         const fixtureNames = ['agency.txt', 'routes.txt', 'trips.txt', 'stops.txt', 'stop_times.txt', 'calendar.txt', 'shapes.txt'];
+        const serviceDateResult = await pool.query<{ service_date: string }>('SELECT current_date::text AS service_date');
+        const serviceDate = serviceDateResult.rows[0]!.service_date;
+        const compactServiceDate = serviceDate.replaceAll('-', '');
+        const previousEntries = await Promise.all(fixtureNames.map(async (name) => {
+          let data = await readFile(join(representativeFixtureDirectory, name), 'utf8');
+          if (name === 'calendar.txt') {
+            data = data
+              .replace(
+                'WK,1,1,1,1,1,0,0,20260101,20261231',
+                `WK,1,1,1,1,1,1,1,${compactServiceDate},${compactServiceDate}`,
+              )
+              .replace(
+                'NAT,1,1,1,1,1,1,1,20260101,20261231',
+                `NAT,1,1,1,1,1,1,1,${compactServiceDate},${compactServiceDate}`,
+              );
+          }
+          return { name, data };
+        }));
+        const previousPath = join(directory, 'current-service-trip.zip');
+        await writeFile(previousPath, createStoredZip(previousEntries));
+        const previousStatic = await importStaticFeed({
+          pool, source: { kind: 'file', path: previousPath }, mapping: fixtureMapping,
+          temporaryDirectory: directory,
+        });
+        assert.equal(previousStatic.result, 'imported', JSON.stringify(previousStatic));
+
         const entries = await Promise.all(fixtureNames.map(async (name) => {
           let data = await readFile(join(representativeFixtureDirectory, name), 'utf8');
           if (name === 'trips.txt' || name === 'stop_times.txt') data = data.replaceAll('10TRIP-A', '10TRIP-NEW');
@@ -875,11 +901,11 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         const previousFeedVersionId = previousMatch.candidate!.feedVersionId;
         const fallbackDate = await pool.query<{ feed_version_id: string }>(`
           SELECT feed_version_id::text
-          FROM operations.timetable_service_dates(date '2026-08-24', date '2026-08-24')
-        `);
+          FROM operations.timetable_service_dates($1::date, $1::date)
+        `, [serviceDate]);
         assert.equal(fallbackDate.rows[0]?.feed_version_id, previousIndex.versionIdentity?.previousFeedVersionId);
 
-        const captured = new Date('2026-08-24T22:05:00Z');
+        const captured = new Date(`${serviceDate}T22:05:00Z`);
         const makeFeed = (delay: number, at: Date): DecodedFeed => ({
           feedKind: 'trip_updates', headerTimestamp: Math.floor(at.getTime() / 1000), entityTotal: 2,
           invalidEntities: [],
@@ -1015,7 +1041,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         }
 
         const unresolvedAt = new Date(captured.getTime() - 1_000);
-        const ambiguousArrivalTime = Math.floor(Date.parse('2026-08-25T09:59:59Z') / 1000);
+        const ambiguousArrivalTime = Math.floor((captured.getTime() + (11 * 60 * 60 + 54 * 60 + 59) * 1_000) / 1_000);
         const unresolvedIdentity = checksum(['intentionally-unresolved', unresolvedAt.toISOString()]);
         await pool.query(`
           INSERT INTO ingest.stop_evidence (
@@ -1076,7 +1102,7 @@ void test('empty PostgreSQL migration, idempotency, permissions, and worker doct
         `, [ambiguousArrivalTime]);
         assert.equal(recovered.rows[0]?.unresolved, '1');
         assert.ok(Number(recovered.rows[0]?.inferred ?? 0) >= 3);
-        assert.deepEqual(recovered.rows[0]?.inferred_dates, ['2026-08-24']);
+        assert.deepEqual(recovered.rows[0]?.inferred_dates, [serviceDate]);
         assert.equal(recovered.rows[0]?.unresolved_reason, 'ambiguous_or_too_distant');
         const exhaustedBackfill = await pool.query<{ report: { scanned: number } }>(
           'SELECT operations.backfill_realtime_service_dates(1) AS report',
