@@ -30,11 +30,11 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(trainDetail).toBeVisible();
   await expect(trainDetail).toHaveClass(/w-\[17rem\]/);
   await expect(trainDetail).toContainText("Hacia");
-  await expect(trainDetail).toContainText(/PRÓXIMA PARADA|DETENIDO EN/);
-  await expect(trainDetail).toContainText("RETRASO");
-  await expect(trainDetail).toContainText("LLEGADA PROGRAMADA");
-  await expect(trainDetail).toContainText(/LLEGADA PROBABLE|LLEGADA REAL/);
-  await expect(trainDetail).toContainText("ÚLTIMA ACTUALIZACIÓN DE POSICIÓN");
+  await expect(trainDetail).toContainText(/Próxima parada|Detenido en/);
+  await expect(trainDetail).toContainText("Retraso");
+  await expect(trainDetail).toContainText("Llegada programada");
+  await expect(trainDetail).toContainText(/Llegada probable|Llegada real/);
+  await expect(trainDetail).toContainText("Última actualización de posición");
   await expect(trainDetail).not.toContainText("Estado");
   await expect(trainDetail).not.toContainText("Confianza");
   await page.getByRole("heading", { level: 1, name: "En directo" }).click();
@@ -44,7 +44,7 @@ test("live line detail switches between a compact schematic and the daily delay 
   await expect(unavailableTrain).toBeVisible();
   await unavailableTrain.click();
   const unavailableDetail = page.getByTestId("train-detail").filter({ visible: true });
-  await expect(unavailableDetail).toContainText("ÚLTIMA ACTUALIZACIÓN DE POSICIÓN");
+  await expect(unavailableDetail).toContainText("Última actualización de posición");
   await page.getByRole("heading", { level: 1, name: "En directo" }).click();
 
   await modes.getByRole("radio", { name: "Matriz diaria" }).click();
