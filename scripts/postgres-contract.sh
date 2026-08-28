@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-postgres_image="${1:?usage: postgres-contract.sh <exact-postgres-image>}"
+postgres_image="${1:?usage: postgres-contract.sh <exact-postgres-image> [full|compat]}"
+contract_mode="${2:-full}"
+if [[ "${contract_mode}" != 'full' && "${contract_mode}" != 'compat' ]]; then
+  echo "Unknown PostgreSQL contract mode: ${contract_mode}" >&2
+  exit 2
+fi
+
 container_name="atodotren-postgres-contract-$$"
 admin_password='local-contract-admin-password'
 worker_password='local-contract-worker-password'
 telegram_password='local-contract-telegram-password'
 web_password='local-contract-web-password'
-web_migration_staging="$(mktemp -d)"
+legacy_root=''
+legacy_worktree=''
 web_migrations=(
   migrations/0013_public_web_api.sql
   migrations/0014_web_reader_permissions.sql
@@ -23,19 +30,12 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-restore_web_migrations() {
-  local migration basename_value
-  for migration in "${web_migrations[@]}"; do
-    basename_value="$(basename "${migration}")"
-    if [[ -f "${web_migration_staging}/${basename_value}" ]]; then
-      mv "${web_migration_staging}/${basename_value}" "${migration}"
-    fi
-  done
-}
-
 cleanup() {
-  restore_web_migrations
-  rm -rf "${web_migration_staging}"
+  if [[ -n "${legacy_worktree}" && -d "${legacy_worktree}" ]]; then
+    git worktree remove --force "${legacy_worktree}" >/dev/null 2>&1 || true
+    git worktree prune >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${legacy_root}" ]]; then rm -rf "${legacy_root}"; fi
   docker rm --force "${container_name}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -55,6 +55,7 @@ docker run --detach --name "${container_name}" \
   --volume "${PWD}/docker/postgres/init/001-runtime-roles.sh:/docker-entrypoint-initdb.d/001-runtime-roles.sh:ro" \
   "${postgres_image}" >/dev/null
 
+health='starting'
 for _attempt in {1..60}; do
   health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_name}")"
   if [[ "${health}" == 'healthy' ]]; then break; fi
@@ -83,14 +84,29 @@ export POSTGRES_CONTRACT_WORKER_PASSWORD="${worker_password}"
 export POSTGRES_CONTRACT_TELEGRAM_PASSWORD="${telegram_password}"
 export POSTGRES_CONTRACT_WEB_PASSWORD="${web_password}"
 
-# Keep the accepted worker/database integration suite byte-for-byte scoped to its
-# original migration inventory through 0012. Public web migrations are tested
-# immediately afterwards against a fresh disposable database on the same server.
+if [[ "${contract_mode}" == 'compat' ]]; then
+  node scripts/postgres-compat-contract.mjs
+  echo "PostgreSQL compatibility contract passed for ${postgres_image}."
+  exit 0
+fi
+
+# The accepted worker/database suite intentionally exercises the historical
+# 0001-0012 inventory. Run that inventory in an isolated worktree rather than
+# moving migrations out of the active checkout.
+legacy_root="$(mktemp -d)"
+legacy_worktree="${legacy_root}/repo"
+git worktree add --detach "${legacy_worktree}" HEAD >/dev/null
 for migration in "${web_migrations[@]}"; do
-  mv "${migration}" "${web_migration_staging}/"
+  rm "${legacy_worktree}/${migration}"
 done
-npm run test:integration
-restore_web_migrations
+cp -al node_modules "${legacy_worktree}/node_modules"
+(
+  cd "${legacy_worktree}"
+  npm run test:integration
+)
+git worktree remove --force "${legacy_worktree}" >/dev/null
+legacy_worktree=''
+
 node scripts/web-postgres-contract.mjs
 
-echo "PostgreSQL worker and public-web contracts passed for ${postgres_image}."
+echo "PostgreSQL full worker and public-web contracts passed for ${postgres_image}."
