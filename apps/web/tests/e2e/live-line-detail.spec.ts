@@ -27,6 +27,8 @@ test("live line detail switches between schematic and daily matrix and exposes a
   await modes.getByRole("radio", { name: "Matriz diaria" }).click();
   const matrix = page.getByTestId("live-daily-matrix");
   await expect(matrix).toBeVisible();
+  await expect(matrix).toHaveAttribute("role", "grid");
+  expect(await matrix.getByRole("gridcell").count()).toBeGreaterThan(0);
   await expect(schematic).toBeHidden();
 
   const directions = page.getByTestId("live-matrix-directions");
