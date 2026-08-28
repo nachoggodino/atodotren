@@ -2,11 +2,12 @@ import "server-only";
 
 import type { HistoryFilters, HistoryResponse, MatrixResult } from "@/lib/domain/contracts";
 import { boundedDateRange } from "@/lib/domain/filters";
+import { LIVE_CACHE_SECONDS } from "@/lib/domain/live-policy";
 import { effectiveFixtureScenario, getDataAdapter } from "./adapter";
 import { cacheKey, getCached } from "./cache";
 import { cacheSecondsForDate, cacheSecondsForHistory } from "./history-request";
 
-export const LIVE_CACHE_SECONDS = 30;
+export { LIVE_CACHE_SECONDS } from "@/lib/domain/live-policy";
 export const CATALOG_CACHE_SECONDS = 86_400;
 
 function scenarioKey(scenario: string | undefined): string {

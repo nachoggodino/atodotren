@@ -9,9 +9,6 @@
   --muted-soft: color-mix(in srgb, var(--background) 76%, var(--surface));
   --border: color-mix(in srgb, var(--primary) 22%, var(--surface));
   --primary: #7A3B4A;
-  --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
-  --accent: var(--primary);
-  --accent-contrast: var(--surface);
   --success: #277A54;
   --warning: #8F5D13;
   --danger: #AE3548;
@@ -48,9 +45,6 @@
   --muted-soft: color-mix(in srgb, var(--surface) 82%, var(--primary));
   --border: color-mix(in srgb, var(--primary) 25%, var(--surface));
   --primary: #C98A98;
-  --primary-strong: color-mix(in srgb, var(--primary) 82%, var(--foreground));
-  --accent: var(--primary);
-  --accent-contrast: var(--background);
   --success: #79C79A;
   --warning: #E4B45C;
   --danger: #F0808E;
@@ -86,8 +80,6 @@
   --color-muted-soft: var(--muted-soft);
   --color-border: var(--border);
   --color-primary: var(--primary);
-  --color-primary-strong: var(--primary-strong);
-  --color-accent: var(--accent);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
@@ -109,7 +101,6 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .recharts-wrapper:focus, .recharts-wrapper:focus-visible, .recharts-wrapper *:focus, .recharts-wrapper *:focus-visible { outline: none !important; box-shadow: none !important; }
 
 .page-shell { width: min(100% - 2rem, 72rem); margin-inline: auto; }
-.section-rule { border-top: 1px solid var(--border); }
 .metric-value { font-variant-numeric: tabular-nums; letter-spacing: -0.035em; }
 .eyebrow { font-size: .72rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .data-status { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; font-weight: 700; }
@@ -140,28 +131,18 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
 .offline-status { display: none; }
 html[data-atodotren-offline="true"] .offline-status { display: flex; }
 
-.matrix-cell, .matrix-compact-cell, .matrix-legend-swatch { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--matrix-tone) 18%, var(--surface)); }
-.matrix-cell, .matrix-compact-cell { background-color: var(--matrix-base); color: var(--foreground); }
-.matrix-cell[data-kind="early"], .matrix-compact-cell[data-kind="early"], .matrix-legend-swatch[data-kind="early"] { --matrix-tone: var(--state-early); }
-.matrix-cell[data-kind="punctual"], .matrix-compact-cell[data-kind="punctual"], .matrix-legend-swatch[data-kind="punctual"] { --matrix-tone: var(--success); }
-.matrix-cell[data-kind="mild"], .matrix-compact-cell[data-kind="mild"] { --matrix-tone: color-mix(in srgb, var(--success) 42%, var(--warning)); }
-.matrix-cell[data-kind="delayed"], .matrix-compact-cell[data-kind="delayed"], .matrix-legend-swatch[data-kind="delayed"] { --matrix-tone: var(--warning); }
-.matrix-cell[data-kind="severe"], .matrix-compact-cell[data-kind="severe"], .matrix-legend-swatch[data-kind="severe"] { --matrix-tone: var(--danger); --matrix-base: color-mix(in srgb, var(--danger) 28%, var(--surface)); }
-.matrix-cell[data-kind="canceled"], .matrix-compact-cell[data-kind="canceled"], .matrix-legend-swatch[data-kind="canceled"] { --matrix-tone: var(--state-canceled); --matrix-base: color-mix(in srgb, var(--state-canceled) 18%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--state-canceled) 38%, transparent) 6px 9px); }
-.matrix-cell[data-kind="skipped"], .matrix-compact-cell[data-kind="skipped"], .matrix-legend-swatch[data-kind="skipped"] { --matrix-tone: var(--state-skipped); --matrix-base: color-mix(in srgb, var(--state-skipped) 16%, var(--surface)); background-image: repeating-linear-gradient(45deg, transparent 0 5px, color-mix(in srgb, var(--state-skipped) 34%, transparent) 5px 7px); }
-.matrix-cell[data-kind="missing"], .matrix-compact-cell[data-kind="missing"], .matrix-legend-swatch[data-kind="missing"] { --matrix-tone: var(--state-missing); --matrix-base: color-mix(in srgb, var(--state-missing) 10%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--state-missing) 24%, transparent) 7px 9px); }
-.matrix-cell[data-kind="pending"], .matrix-compact-cell[data-kind="pending"], .matrix-legend-swatch[data-kind="pending"] { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--unknown) 7%, var(--surface)); opacity: .74; }
-.matrix-compact-cell[data-selected="true"] { box-shadow: inset 0 0 0 2px var(--foreground); }
+.matrix-cell, .matrix-legend-swatch { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--matrix-tone) 18%, var(--surface)); }
+.matrix-cell { background-color: var(--matrix-base); color: var(--foreground); }
+.matrix-cell[data-kind="early"], .matrix-legend-swatch[data-kind="early"] { --matrix-tone: var(--state-early); }
+.matrix-cell[data-kind="punctual"], .matrix-legend-swatch[data-kind="punctual"] { --matrix-tone: var(--success); }
+.matrix-cell[data-kind="mild"] { --matrix-tone: color-mix(in srgb, var(--success) 42%, var(--warning)); }
+.matrix-cell[data-kind="delayed"], .matrix-legend-swatch[data-kind="delayed"] { --matrix-tone: var(--warning); }
+.matrix-cell[data-kind="severe"], .matrix-legend-swatch[data-kind="severe"] { --matrix-tone: var(--danger); --matrix-base: color-mix(in srgb, var(--danger) 28%, var(--surface)); }
+.matrix-cell[data-kind="canceled"], .matrix-legend-swatch[data-kind="canceled"] { --matrix-tone: var(--state-canceled); --matrix-base: color-mix(in srgb, var(--state-canceled) 18%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--state-canceled) 38%, transparent) 6px 9px); }
+.matrix-cell[data-kind="skipped"], .matrix-legend-swatch[data-kind="skipped"] { --matrix-tone: var(--state-skipped); --matrix-base: color-mix(in srgb, var(--state-skipped) 16%, var(--surface)); background-image: repeating-linear-gradient(45deg, transparent 0 5px, color-mix(in srgb, var(--state-skipped) 34%, transparent) 5px 7px); }
+.matrix-cell[data-kind="missing"], .matrix-legend-swatch[data-kind="missing"] { --matrix-tone: var(--state-missing); --matrix-base: color-mix(in srgb, var(--state-missing) 10%, var(--surface)); background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--state-missing) 24%, transparent) 7px 9px); }
+.matrix-cell[data-kind="pending"], .matrix-legend-swatch[data-kind="pending"] { --matrix-tone: var(--unknown); --matrix-base: color-mix(in srgb, var(--unknown) 7%, var(--surface)); opacity: .74; }
 .matrix-legend-swatch { display: inline-grid; width: 1.45rem; height: 1.45rem; place-items: center; border: 1px solid color-mix(in srgb, var(--matrix-tone) 48%, var(--border)); border-radius: .25rem; background-color: var(--matrix-base); color: var(--foreground); font-size: .64rem; font-weight: 900; }
-
-/* Retained for older chart/detail surfaces; matrices use the shared matrix policy above. */
-.delay-cell { position: relative; min-width: 5.2rem; }
-.delay-cell[data-band="punctual"] { background: color-mix(in srgb, var(--success) 12%, transparent); }
-.delay-cell[data-band="mild"] { background: color-mix(in srgb, var(--warning) 18%, transparent); }
-.delay-cell[data-band="delayed"] { background: color-mix(in srgb, var(--accent) 25%, transparent); }
-.delay-cell[data-band="severe"] { background: color-mix(in srgb, var(--danger) 32%, transparent); }
-.delay-cell[data-state="canceled"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--danger) 24%, transparent) 7px 10px); }
-.delay-cell[data-state="missing_evidence"], .delay-cell[data-state="pending"] { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--unknown) 20%, transparent) 7px 10px); }
 
 .skeleton { background: linear-gradient(100deg, var(--muted-soft) 20%, color-mix(in srgb, var(--muted-soft) 55%, var(--surface-strong)) 45%, var(--muted-soft) 70%); background-size: 220% 100%; animation: skeleton 1.5s ease-in-out infinite; }
 @keyframes skeleton { to { background-position-x: -220%; } }

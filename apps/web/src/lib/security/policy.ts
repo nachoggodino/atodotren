@@ -9,7 +9,9 @@ export function createContentSecurityPolicy(nonce: string, development = process
   return [
     "default-src 'self'",
     scriptSource,
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
+    "style-src-elem 'self'",
+    "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self'",

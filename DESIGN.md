@@ -1,6 +1,6 @@
 # andén infinito frontend design system
 
-Status: frontend alpha implementation reference with the accepted product brand, mark, and palette.
+Status: implemented frontend design reference with the accepted product brand, mark, palette, and interaction patterns.
 
 ## Principles
 
@@ -19,39 +19,39 @@ The voice is factual and incisive: show the evidence, expose missing evidence, a
 
 ## Color
 
-The final product palette is intentionally narrow and is centralized in `apps/web/src/app/globals.css`.
+The product keeps a narrow burgundy base palette while using a deliberate semantic status palette. Both are centralized in `apps/web/src/app/globals.css`; semantic colors are data/status language, not decorative accents.
 
-Light:
+Base light palette:
 - background: `#F6E4E2`;
 - surface/cards: `#FFFFFF`;
 - text: `#3A1B22`;
 - primary accent: `#7A3B4A`.
 
-Dark:
+Base dark palette:
 - background: `#221016`;
 - surface/cards: `#2E161C`;
 - text: `#F6E4E2`;
 - primary accent: `#C98A98`.
 
-All interface accents, charts, focus treatment, icons, freshness markers and delay-state emphasis are derived from those colors. Delay and evidence states are differentiated through intensity, symbols, labels and patterns rather than introducing unrelated green/amber/red/blue accent hues.
+Healthy, warning, danger, unknown and evidence-state colors use dedicated green/amber/red/blue-purple tokens with light/dark variants chosen for contrast. The landing positive/delay accents and the matrix heatmap reuse or interpolate those semantic tokens. Color is never the sole state carrier: text, symbols, patterns, labels and accessible names retain the meaning independently.
 
-Cercanías line colors are the deliberate exception: they remain source transport-identity data on line badges and schematic route strokes. They are not part of the andén infinito interface palette, and surrounding UI never reuses them as generic accents.
+Cercanías line colors are a separate transport-identity data set. They remain source identity on line badges and schematic route strokes and are not reused as generic interface status colors.
 
 ## Charts and matrices
 
-Recharts is used for conventional trends/distributions/rankings. Charts use semantic CSS variables and concise tooltips; exact values remain available in adjacent text. Animations are short and disabled by `prefers-reduced-motion`.
+Recharts is used for conventional trends/distributions/rankings. Charts use semantic CSS variables and concise tooltips; exact values remain available in adjacent or screen-reader-only tabular text. Animations are short and disabled by `prefers-reduced-motion`.
 
-The timetable matrix is semantic HTML/CSS, not canvas. Rows are stops, columns are scheduled journeys. Every applicable cell displays scheduled time, has a textual state, is keyboard focusable and exposes detail. Delay background is supplementary to symbols/labels. No virtualization is introduced until measured DOM/render cost justifies it.
+Timetable matrices use semantic HTML/CSS grid structures rather than canvas. Every applicable cell remains a real keyboard-operable button with a textual state and detail surface, while row/column/grid roles expose the matrix structure to assistive technology. Large matrix surfaces use TanStack Virtual after browser profiling showed the need for a bounded DOM; only the large axis is virtualized in each view. Do not introduce virtualization on smaller surfaces without measured pressure.
 
 The live railway view is a custom accessible SVG. It is explicitly schematic. Coordinates are isolated in the network layout module and may fall back to topology-derived spacing; neither mode is presented as geographic/GPS placement.
 
 ## Motion
 
-Default transitions are 140-240ms. The floating navigation drawer animates measured height and the hamburger morphs with CSS. Live refresh uses a subtle 30-second progress indicator while retaining existing content. Reduced-motion disables nonessential interpolation and progress animation.
+Default transitions are 140-240ms. The floating navigation drawer expands in place and the hamburger morphs with CSS. Live refresh uses a subtle 30-second progress indicator tied to the same refresh policy as the server live-cache interval. Reduced-motion disables nonessential interpolation and progress animation.
 
 ## Shell
 
-The floating sticky shell adapts the interaction quality of Termómetro de Madrid without copying its product structure: measured-height expansion, inert hidden menu content, focus restoration, mobile hide-on-scroll/reveal, route context, language/theme controls and a global auto-refresh switch.
+The floating sticky shell adapts the interaction quality of Termómetro de Madrid without copying its product structure: in-place expansion, inert hidden menu content, focus restoration, mobile hide-on-scroll/reveal, route context, language/theme controls and a global auto-refresh switch. A narrow route-scroll coordinator preserves the intended browser semantics across App Router transitions: pathname-changing forward navigation starts at the top, while Back/Forward restores the last recorded position for the destination route instead of globally resetting every route change.
 
 ## Brand assets
 
@@ -59,4 +59,4 @@ The supplied final andén infinito SVG is the canonical geometry. The in-app mar
 
 ## Accessibility
 
-Target WCAG 2.2 AA. Visible focus, 44px mobile targets where practical, semantic landmarks/headings/tables, keyboard-operable SVG train controls and matrix cells, `aria-live` only for meaningful refresh state, reduced-motion support, sufficient contrast and non-color status cues are required. Automated axe checks complement, not replace, manual keyboard/screen-reader review.
+Target WCAG 2.2 AA. Visible focus, 44px mobile targets where practical, semantic landmarks/headings/tables or grids, keyboard-operable SVG train controls and matrix cells, `aria-live` only for meaningful refresh state, reduced-motion support, sufficient contrast and non-color status cues are required. Automated axe checks complement, not replace, manual keyboard/screen-reader review.

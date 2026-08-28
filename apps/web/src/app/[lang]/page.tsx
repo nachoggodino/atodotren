@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { ArrowRight, ArrowUpRight, BarChart3, Radio } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LandingDelayTrend } from "@/components/charts/landing-delay-trend";
+import { LandingActions } from "@/components/landing/landing-actions";
+import { LandingMetrics } from "@/components/landing/landing-metrics";
 import { EntitySearch } from "@/components/search/entity-search";
 import { BRAND } from "@/lib/brand/config";
 import { formatDuration } from "@/lib/domain/format";
@@ -25,32 +27,22 @@ export default async function LandingPage({ params, searchParams }: { readonly p
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);
   const data = await getLandingOverview(query.scenario);
-  const number = new Intl.NumberFormat(lang === "es" ? "es-ES" : "en-GB");
   const titleHighlightIndex = messages.landing.title.indexOf(messages.landing.titleHighlight);
   const hasTitleHighlight = titleHighlightIndex >= 0;
 
   return <div className="page-shell overflow-x-clip pb-6 pt-9 sm:pb-8 sm:pt-14">
     <section className="mx-auto max-w-4xl text-center">
       <blockquote>
-        <h1 className="mx-auto max-w-4xl text-[2rem] font-bold leading-[1.04] tracking-[-.035em] sm:text-4xl lg:text-5xl">“{hasTitleHighlight ? <>{messages.landing.title.slice(0, titleHighlightIndex)}<strong className="font-black text-[var(--landing-highlight)]" data-testid="landing-title-highlight">{messages.landing.titleHighlight}</strong>{messages.landing.title.slice(titleHighlightIndex + messages.landing.titleHighlight.length)}</> : messages.landing.title}”</h1>
+        <h1 className="mx-auto w-[84.375%] max-w-4xl text-[27px] font-bold leading-[1.04] tracking-[-.035em] sm:w-[86.111%] sm:text-[31px] lg:w-[89.583%] lg:text-[43px]">“{hasTitleHighlight ? <>{messages.landing.title.slice(0, titleHighlightIndex)}<strong className="font-black text-[var(--landing-highlight)]" data-testid="landing-title-highlight">{messages.landing.titleHighlight}</strong>{messages.landing.title.slice(titleHighlightIndex + messages.landing.titleHighlight.length)}</> : messages.landing.title}”</h1>
       </blockquote>
       <p className="mx-auto mt-4 max-w-2xl text-[.825rem] leading-6 text-muted sm:text-sm">{messages.landing.body}</p>
     </section>
 
-    <section className="mt-9 overflow-hidden rounded-2xl border border-border bg-surface-strong" data-testid="landing-live-metrics">
-      <div className="grid grid-cols-3 divide-x divide-border">
-        <div className="flex min-h-[5.75rem] min-w-0 flex-col items-center justify-center gap-1 px-3 py-3 text-center sm:min-h-24 sm:px-5" data-testid="landing-metric-active-delay" style={{ background: "color-mix(in srgb, var(--landing-delay) 4%, var(--surface-strong))" }}><p className="flex h-6 items-end justify-center text-[.5rem] font-bold uppercase leading-tight tracking-[.07em] text-muted sm:text-[.55rem]">{messages.landing.activeDelay}</p><p className="metric-value flex h-8 items-center justify-center text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.activeDelaySeconds, lang)}</p></div>
-        <div className="flex min-h-[5.75rem] min-w-0 flex-col items-center justify-center gap-1 px-3 py-3 text-center sm:min-h-24 sm:px-5" data-testid="landing-metric-active-trains" style={{ background: "color-mix(in srgb, var(--landing-positive) 6%, var(--surface-strong))" }}><p className="flex h-6 items-end justify-center text-[.5rem] font-bold uppercase leading-tight tracking-[.07em] text-muted sm:text-[.55rem]">{messages.landing.activeTrains}</p><p className="metric-value flex h-8 items-center justify-center text-[29px] font-black leading-none text-[var(--landing-positive)] sm:text-[33px]" data-testid="landing-active-trains-value">{number.format(data.activeTrains)}</p></div>
-        <div className="flex min-h-[5.75rem] min-w-0 flex-col items-center justify-center gap-1 px-3 py-3 text-center sm:min-h-24 sm:px-5" data-testid="landing-metric-today-delay" style={{ background: "color-mix(in srgb, var(--landing-delay) 6%, var(--surface-strong))" }}><p className="flex h-6 items-end justify-center text-[.5rem] font-bold uppercase leading-tight tracking-[.07em] text-muted sm:text-[.55rem]">{messages.landing.todayDelay}</p><p className="metric-value flex h-8 items-center justify-center text-[.94rem] font-black text-[var(--landing-delay)] sm:text-[1.18rem]">{formatDuration(data.dayDelaySeconds, lang)}</p></div>
-      </div>
-    </section>
+    <LandingMetrics activeDelaySeconds={data.activeDelaySeconds} activeTrains={data.activeTrains} dayDelaySeconds={data.dayDelaySeconds} lang={lang} messages={messages} />
 
     <section className="mt-7 grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end">
       <EntitySearch lang={lang} messages={messages} />
-      <div className="grid grid-cols-2 gap-3">
-        <Link data-testid="landing-live-link" className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border px-4 font-black transition-[transform,box-shadow,opacity] duration-100 hover:-translate-y-0.5 hover:shadow-sm active:scale-[.97] active:opacity-80 active:shadow-none" style={{ background: "color-mix(in srgb, var(--landing-positive) 4%, var(--surface-strong))" }} href={`/${lang}/live`}><Radio className="size-5 shrink-0 text-[var(--landing-positive)]" /><span className="flex-1">{messages.landing.summaryLive}</span><ArrowRight className="size-4 text-muted transition group-hover:translate-x-0.5" /></Link>
-        <Link data-testid="landing-history-link" className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border px-4 font-black transition-[transform,box-shadow,opacity] duration-100 hover:-translate-y-0.5 hover:shadow-sm active:scale-[.97] active:opacity-80 active:shadow-none" style={{ background: "color-mix(in srgb, var(--landing-highlight) 4%, var(--surface-strong))" }} href={`/${lang}/history`}><BarChart3 className="size-5 shrink-0 text-[var(--landing-highlight)]" /><span className="flex-1">{messages.landing.summaryHistory}</span><ArrowRight className="size-4 text-muted transition group-hover:translate-x-0.5" /></Link>
-      </div>
+      <LandingActions lang={lang} messages={messages} />
     </section>
 
     <section className="mt-10" data-testid="landing-delay-trend">

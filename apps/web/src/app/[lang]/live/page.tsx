@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { DelayDistribution } from "@/components/charts/delay-distribution";
-import { DataMeta } from "@/components/feedback/data-meta";
 import { LineList } from "@/components/live/line-list";
-import { LiveHeader } from "@/components/live/live-header";
-import { LiveRefresh } from "@/components/live/live-refresh";
-import { StatsBand } from "@/components/live/stats-band";
+import { LivePageSummary } from "@/components/live/live-page-summary";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getLiveNetwork } from "@/lib/server/services";
@@ -28,9 +25,7 @@ export default async function LivePage({ params, searchParams }: { readonly para
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader title={messages.nav.live} subtitle={messages.live.networkTitle} />
-      <div className="mt-5"><DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" /><LiveRefresh messages={messages} /></div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
+      <LivePageSummary meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={messages.live.networkTitle} />
       <section className="mt-10" aria-label={messages.live.networkTitle}><LineList lines={data.lines} lang={lang} messages={messages} /></section>
       <section className="mt-8"><h2 className="text-2xl font-black tracking-tight">{messages.live.todayDistributionTitle}</h2><div className="mt-4"><DelayDistribution values={data.stats.distribution} messages={messages} /></div></section>
     </div>

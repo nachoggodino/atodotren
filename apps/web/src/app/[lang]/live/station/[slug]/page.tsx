@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { DataMeta } from "@/components/feedback/data-meta";
 import { LineBadge } from "@/components/line-badge";
-import { LiveHeader } from "@/components/live/live-header";
-import { LiveRefresh } from "@/components/live/live-refresh";
-import { StatsBand } from "@/components/live/stats-band";
+import { LivePageSummary } from "@/components/live/live-page-summary";
 import { formatDelay } from "@/lib/domain/format";
+import { humanizeSlug } from "@/lib/domain/slugs";
 import { positionCaptionKey } from "@/lib/domain/train";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
@@ -14,15 +12,11 @@ import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
 
-function contextFromSlug(slug: string): string {
-  return slug.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
-}
-
 export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
   const { lang, slug } = await params;
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
-  const context = contextFromSlug(slug);
+  const context = humanizeSlug(slug);
   return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/live/station/${slug}`), title: `${context} · ${copy.liveNetworkTitle}`, description: contextDescription(copy.liveStationDescription, context) });
 }
 
@@ -41,9 +35,7 @@ export default async function LiveStationPage({ params, searchParams }: { readon
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader backLabel={messages.common.back} title={messages.nav.live} subtitle={data.context.name[lang]} />
-      <div className="mt-5"><DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" /><LiveRefresh messages={messages} /></div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
+      <LivePageSummary backLabel={messages.common.back} meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
       <section className="mt-12">
         <h2 className="text-2xl font-black">{messages.live.trains}</h2>
         {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.overnight}</p> : (

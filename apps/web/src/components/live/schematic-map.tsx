@@ -8,18 +8,23 @@ import { formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { layoutSchematicPatterns, pointForTrain, schematicHeight, schematicWidth } from "@/lib/domain/schematic";
 import type { Messages } from "@/messages/types";
 
+const STATION_LABEL_SINGLE_LINE_MAX = 18;
+const STATION_LABEL_FIRST_LINE_MAX = 17;
+const STATION_LABEL_MIN_SPLIT_INDEX = 7;
+const STATION_LABEL_SECOND_LINE_MAX = 18;
+
 function trainColor(train: TrainDetail): string {
   if (train.position.kind === "unknown" || train.delaySeconds === null) return "var(--unknown)";
   return train.delaySeconds > 120 ? "var(--danger)" : "var(--success)";
 }
 
 function stationLabel(value: string): readonly [string, string | null] {
-  if (value.length <= 18) return [value, null];
-  const split = value.lastIndexOf(" ", 18);
-  if (split < 7) return [`${value.slice(0, 17)}…`, null];
+  if (value.length <= STATION_LABEL_SINGLE_LINE_MAX) return [value, null];
+  const split = value.lastIndexOf(" ", STATION_LABEL_SINGLE_LINE_MAX);
+  if (split < STATION_LABEL_MIN_SPLIT_INDEX) return [`${value.slice(0, STATION_LABEL_FIRST_LINE_MAX)}…`, null];
   const first = value.slice(0, split);
   const rest = value.slice(split + 1);
-  return [first, rest.length > 19 ? `${rest.slice(0, 18)}…` : rest];
+  return [first, rest.length > STATION_LABEL_SECOND_LINE_MAX + 1 ? `${rest.slice(0, STATION_LABEL_SECOND_LINE_MAX)}…` : rest];
 }
 
 function destinationLabel(pattern: SchematicPattern, lang: Lang, messages: Messages): string {
@@ -100,7 +105,7 @@ export function SchematicMap({ patterns, trains, directionByJourney, lineColor, 
   return (
     <div className="overflow-x-auto" data-testid="schematic-map"><div className="relative" style={{ width, height }}>
       <svg aria-label={messages.live.schematic} className="absolute inset-0" role="img" viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
-        {plottedPatterns.map(({ pattern, stops }) => <g key={pattern.id}><g transform={`translate(22 ${(stops[0]?.y ?? 52) - 24})`}><ArrowRight aria-hidden="true" height="11" width="11" x="0" y="-8" /><text x="16" y="0" fill="var(--muted)" fontSize="10" fontWeight="700">{destinationLabel(pattern, lang, messages)}</text></g><path d={stops.map((stop, index) => `${index === 0 ? "M" : "L"}${stop.x} ${stop.y}`).join(" ")} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth="8" opacity=".86" />{stops.map((stop) => { const [first, second] = stationLabel(stop.station.name[lang]); return <g key={`${pattern.id}-${stop.station.id}`}><circle cx={stop.x} cy={stop.y} r="6" fill="var(--background)" stroke={lineColor} strokeWidth="3" /><text x={stop.x} y={stop.y + 20} textAnchor="middle" fill="var(--foreground)" fontSize="9" fontWeight="700"><tspan x={stop.x}>{first}</tspan>{second === null ? null : <tspan x={stop.x} dy="11">{second}</tspan>}</text></g>; })}</g>)}
+        {plottedPatterns.map(({ pattern, stops, destinationLabelY }) => <g key={pattern.id}><g transform={`translate(22 ${destinationLabelY})`}><ArrowRight aria-hidden="true" height="11" width="11" x="0" y="-8" /><text x="16" y="0" fill="var(--muted)" fontSize="10" fontWeight="700">{destinationLabel(pattern, lang, messages)}</text></g><path d={stops.map((stop, index) => `${index === 0 ? "M" : "L"}${stop.x} ${stop.y}`).join(" ")} fill="none" stroke={lineColor} strokeLinecap="round" strokeLinejoin="round" strokeWidth="8" opacity=".86" />{stops.map((stop) => { const [first, second] = stationLabel(stop.station.name[lang]); return <g key={`${pattern.id}-${stop.station.id}`}><circle cx={stop.x} cy={stop.y} r="6" fill="var(--background)" stroke={lineColor} strokeWidth="3" /><text x={stop.x} y={stop.y + 20} textAnchor="middle" fill="var(--foreground)" fontSize="9" fontWeight="700"><tspan x={stop.x}>{first}</tspan>{second === null ? null : <tspan x={stop.x} dy="11">{second}</tspan>}</text></g>; })}</g>)}
       </svg>
       {plottedTrains.map(({ train, point, pattern }) => <TrainMarker key={train.id} lang={lang} messages={messages} pattern={pattern} train={train} x={point.x} y={point.y} />)}
     </div></div>

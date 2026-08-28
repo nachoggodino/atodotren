@@ -2,26 +2,15 @@ import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { lineBadgeTextColor } from "@/components/line-badge";
 import type { Lang, LinePerformance } from "@/lib/domain/contracts";
-import { formatDelay, formatPercent } from "@/lib/domain/format";
-import { coverageStatusLevel, delayStatusLevel, punctualityStatusLevel } from "@/lib/domain/live-status";
 import type { Messages } from "@/messages/types";
-
-function formatLineDelay(seconds: number | null, lang: Lang): string {
-  return formatDelay(seconds, lang).replace(" min ", " m ");
-}
+import { summaryMetricItems } from "./summary-metrics";
 
 export function LineList({ lines, lang, messages }: { readonly lines: readonly LinePerformance[]; readonly lang: Lang; readonly messages: Messages }) {
   return (
     <div className="grid grid-cols-2 gap-3 px-1 sm:gap-4 sm:px-3" data-testid="live-line-grid">
       {lines.map((line) => {
         const stats = line.stats.status === "available" ? line.stats.value : null;
-        const coverage = stats === null || stats.scheduled === 0 ? null : stats.observed / stats.scheduled;
-        const metrics = [
-          { label: messages.common.punctuality, value: formatPercent(stats?.punctuality ?? null), tone: punctualityStatusLevel(stats?.punctuality ?? null) },
-          { label: messages.common.coverage, value: formatPercent(coverage), tone: coverageStatusLevel(coverage) },
-          { label: messages.common.mean, value: formatLineDelay(stats?.meanDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.meanDelaySeconds ?? null) },
-          { label: messages.common.median, value: formatLineDelay(stats?.medianDelaySeconds ?? null, lang), tone: delayStatusLevel(stats?.medianDelaySeconds ?? null) },
-        ] as const;
+        const metrics = summaryMetricItems(stats, lang, messages, true);
         const lineTextColor = lineBadgeTextColor(line.color);
 
         return (
@@ -43,8 +32,8 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
               <ChevronRight aria-hidden="true" className="ml-4 size-4 shrink-0 translate-x-1.5 transition-transform group-hover:translate-x-2 group-active:translate-x-2.5" />
             </div>
             <span className="mt-3 grid grid-cols-2 gap-x-2 gap-y-2">
-              {metrics.map(({ label, value, tone }) => (
-                <span aria-label={`${label}: ${value}`} className="live-line-metric min-w-0" data-testid="live-line-metric" data-tone={tone} key={label}>
+              {metrics.map(({ key, label, value, tone }) => (
+                <span aria-label={`${label}: ${value}`} className="live-line-metric min-w-0" data-testid="live-line-metric" data-tone={tone} key={key}>
                   <strong className="metric-value whitespace-nowrap text-[.68rem] leading-4 sm:text-xs">{value}</strong>
                 </span>
               ))}

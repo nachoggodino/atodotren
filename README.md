@@ -8,7 +8,7 @@ The public interface is deliberately evidence-first: freshness, coverage, incomp
 
 - Milestones 0–4: accepted data foundation.
 - Milestone 5: CI implementation/readiness for reporting and private Telegram operations is complete; the Pi/local pilot acceptance remains a separate operational gate.
-- Frontend alpha: implemented on `feature/frontend-alpha` and subject to CI, browser/visual review and later representative managed-database acceptance. A green implementation CI does not by itself accept the frontend.
+- Frontend: implemented on `main` and still subject to browser/visual review, representative managed-database acceptance and production PWA verification. A green implementation CI does not by itself accept the public product.
 - Migrations `0001`–`0012` are immutable. Frontend public-read work begins with `0013`.
 
 The detailed historical worker/database operations guide that previously occupied this README is retained verbatim in [`docs/FOUNDATION_OPERATIONS.md`](docs/FOUNDATION_OPERATIONS.md). The current milestone plan is [`MVP_IMPLEMENTATION_PLAN.md`](MVP_IMPLEMENTATION_PLAN.md), and the frontend visual contract is [`DESIGN.md`](DESIGN.md).
@@ -50,7 +50,7 @@ The browser never receives PostgreSQL credentials and never connects to PostgreS
 - Server Components by default and narrow client boundaries for interaction, refresh, theme, charts and menus;
 - Recharts for ordinary charts;
 - purpose-built accessible SVG for the schematic network;
-- semantic HTML/CSS for the timetable matrix;
+- semantic HTML/CSS grids with bounded TanStack Virtual rendering for large timetable matrices;
 - CSS transitions with reduced-motion support;
 - `pg` server-side only, with fixture and PostgreSQL adapters implementing the same UI contracts.
 
@@ -147,7 +147,7 @@ docker compose --env-file .env run --rm migrate
 WEB_DATA_MODE=postgres npm run web:dev
 ```
 
-The frontend alpha does not contact a managed database, production service or Pi database during ordinary verification.
+The frontend does not contact a managed database, production service or Pi database during ordinary verification.
 
 ## Web commands
 
@@ -164,7 +164,7 @@ The existing worker/database commands remain documented in [`docs/FOUNDATION_OPE
 
 ## Live behavior
 
-Live reads default to a 30-second refresh interval. The floating application menu exposes a global pause/resume switch; that preference persists locally. Hidden tabs suspend polling and refresh once after becoming visible again. A local refresh preserves the previous rendered content instead of replacing the page with a route-level skeleton.
+Live reads default to a 30-second refresh interval. The floating application menu exposes a global pause/resume switch; that preference persists locally when browser storage is available. Hidden tabs suspend polling and refresh once after becoming visible again. Each effective refresh starts a new 30-second cycle, and a local refresh preserves the previous rendered content instead of replacing the page with a route-level skeleton.
 
 The live schematic uses explicit topology/layout configuration rather than geographic coordinates. Train placement can be associated with a stop or interpolated between schematic stops, but UI copy labels that position as feed-derived/inferred. Detail views keep delay in integer seconds internally and format it only for presentation.
 
@@ -172,7 +172,7 @@ The live schematic uses explicit topology/layout configuration rather than geogr
 
 Historical views expose punctuality at the project threshold (`delay <= 120 seconds`), mean/median delay, distributions, volume, coverage, rankings and temporal evolution. Rankings apply minimum-sample safeguards instead of promoting tiny samples as meaningful extremes.
 
-The selected-day matrix is stops × scheduled trains. Applicable cells always expose the scheduled time and use separate semantic states for measured delay, canceled, skipped, missing evidence and not-yet-observed. Cells are keyboard focusable and their state is communicated through text/symbols as well as color.
+The selected-day matrix is stops × scheduled trains. Applicable cells always expose the scheduled time and use separate semantic states for measured delay, canceled, skipped, missing evidence and not-yet-observed. Cells are keyboard focusable, expose grid semantics, and communicate state through text/symbols as well as color. Large matrix surfaces use bounded virtualization so DOM size remains controlled without changing those semantics.
 
 ## PWA and offline boundary
 
@@ -186,7 +186,7 @@ It does **not** cache the complete historical dataset or timetable matrices. Cac
 
 ## Verification
 
-The frontend alpha extends, rather than replaces, the existing gates:
+The frontend extends, rather than replaces, the existing gates:
 
 - repository whitespace/credential/migration immutability contract;
 - worker strict typecheck, lint and unit tests;
@@ -204,7 +204,7 @@ The PostgreSQL web contract also records a small representative query timing rat
 
 ## Acceptance boundary
 
-The alpha is not product-accepted merely because implementation CI is green. Before a public deployment, still perform and record:
+The frontend is not product-accepted merely because implementation CI is green. Before a public deployment, still perform and record:
 
 1. browser visual review with representative data at mobile/desktop and light/dark sizes;
 2. managed PostgreSQL role/bootstrap verification against the provider's exact supported major;
@@ -213,4 +213,4 @@ The alpha is not product-accepted merely because implementation CI is green. Bef
 5. production PWA/install/offline checks on intended devices;
 6. confirmation that the public deployment reaches only the managed read endpoint and never exposes the Pi database.
 
-No frontend-alpha code is merged to `main` by this branch workflow.
+Frontend feature branches remain independently reviewable; passing branch CI is necessary but does not replace the acceptance steps above.

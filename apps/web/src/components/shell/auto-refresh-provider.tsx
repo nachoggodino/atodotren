@@ -13,7 +13,11 @@ interface AutoRefreshContextValue {
 const AutoRefreshContext = createContext<AutoRefreshContextValue | null>(null);
 
 function getSnapshot(): boolean {
-  return window.localStorage.getItem(STORAGE_KEY) !== "paused";
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) !== "paused";
+  } catch {
+    return true;
+  }
 }
 
 function getServerSnapshot(): boolean {
@@ -34,7 +38,11 @@ function subscribe(onStoreChange: () => void): () => void {
 }
 
 function storeEnabled(enabled: boolean): void {
-  window.localStorage.setItem(STORAGE_KEY, enabled ? "active" : "paused");
+  try {
+    window.localStorage.setItem(STORAGE_KEY, enabled ? "active" : "paused");
+  } catch {
+    // Auto-refresh remains usable for the current tab when persistent storage is unavailable.
+  }
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 

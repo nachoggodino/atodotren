@@ -33,19 +33,21 @@ export function TimetableMatrix({ matrix, lang, messages }: { readonly matrix: M
   return (
     <div>
       <MatrixLegend messages={messages} />
-      <div className="max-h-[70vh] overflow-auto rounded-xl border border-border" data-testid="timetable-matrix" ref={scrollRef}>
+      <div aria-colcount={matrix.journeys.length + 1} aria-label={messages.history.matrix} aria-rowcount={matrix.stations.length + 1} className="max-h-[70vh] overflow-auto rounded-xl border border-border" data-testid="timetable-matrix" ref={scrollRef} role="grid">
         <div className="relative min-w-max text-xs" style={{ width: matrixWidth }}>
-          <div className="sticky top-0 z-20 h-12 border-b border-border bg-surface-strong">
-            <div className="sticky left-0 z-30 grid h-12 place-items-center border-r border-border bg-surface-strong px-3 text-left font-bold" style={{ width: STATION_COLUMN_WIDTH }}>
+          <div className="sticky top-0 z-20 h-12 border-b border-border bg-surface-strong" role="row" aria-rowindex={1}>
+            <div aria-colindex={1} className="sticky left-0 z-30 grid h-12 place-items-center border-r border-border bg-surface-strong px-3 text-left font-bold" role="columnheader" style={{ width: STATION_COLUMN_WIDTH }}>
               <span className="w-full">{messages.history.stationColumn}</span>
             </div>
             {virtualJourneys.map((virtualJourney) => {
               const journey = matrix.journeys[virtualJourney.index]!;
               return (
                 <div
+                  aria-colindex={virtualJourney.index + 2}
                   className="absolute top-0 grid h-12 place-items-center border-l border-border px-2 text-center font-bold"
                   data-testid="matrix-virtual-column"
                   key={journey.id}
+                  role="columnheader"
                   style={{ left: STATION_COLUMN_WIDTH + virtualJourney.start, width: virtualJourney.size }}
                 >
                   {journey.label}
@@ -53,9 +55,9 @@ export function TimetableMatrix({ matrix, lang, messages }: { readonly matrix: M
               );
             })}
           </div>
-          {matrix.stations.map((station) => (
-            <div className="relative border-b border-border last:border-b-0" key={station.id} style={{ height: ROW_HEIGHT }}>
-              <div className="sticky left-0 z-10 flex h-full items-center border-r border-border bg-surface-strong px-3 font-bold whitespace-normal" style={{ width: STATION_COLUMN_WIDTH }}>
+          {matrix.stations.map((station, stationIndex) => (
+            <div aria-rowindex={stationIndex + 2} className="relative border-b border-border last:border-b-0" key={station.id} role="row" style={{ height: ROW_HEIGHT }}>
+              <div aria-colindex={1} className="sticky left-0 z-10 flex h-full items-center border-r border-border bg-surface-strong px-3 font-bold whitespace-normal" role="rowheader" style={{ width: STATION_COLUMN_WIDTH }}>
                 {station.name[lang]}
               </div>
               {virtualJourneys.map((virtualJourney) => {
@@ -64,29 +66,37 @@ export function TimetableMatrix({ matrix, lang, messages }: { readonly matrix: M
                 if (cell === undefined) {
                   return (
                     <span
-                      aria-hidden="true"
+                      aria-colindex={virtualJourney.index + 2}
+                      aria-label={`${station.name[lang]}, ${messages.common.noData}`}
                       className="absolute top-0 grid h-full place-items-center border-l border-border text-muted"
                       key={journey.id}
+                      role="gridcell"
                       style={{ left: STATION_COLUMN_WIDTH + virtualJourney.start, width: virtualJourney.size }}
                     >·</span>
                   );
                 }
                 const presentation = matrixCellPresentation(cell);
                 return (
-                  <button
-                    aria-label={`${station.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${evidenceLabel(cell.state, messages)}, ${formatDelay(cell.delaySeconds, lang)}`}
-                    className="matrix-cell absolute top-0 grid h-full place-items-center gap-0.5 border-l border-border px-2 text-center outline-none hover:ring-2 hover:ring-inset hover:ring-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
-                    data-kind={presentation.kind}
-                    data-state={cell.state}
+                  <div
+                    aria-colindex={virtualJourney.index + 2}
+                    className="absolute top-0 h-full"
                     key={journey.id}
-                    onClick={() => setSelected(cell)}
+                    role="gridcell"
                     style={{ left: STATION_COLUMN_WIDTH + virtualJourney.start, width: virtualJourney.size }}
-                    type="button"
                   >
-                    <strong className="font-mono text-[11px]">{formatMadridTime(cell.scheduledAt, lang)}</strong>
-                    <span aria-hidden="true" className="font-black">{presentation.symbol}</span>
-                    <span className="sr-only">{evidenceLabel(cell.state, messages)}, {formatDelay(cell.delaySeconds, lang)}</span>
-                  </button>
+                    <button
+                      aria-label={`${station.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${evidenceLabel(cell.state, messages)}, ${formatDelay(cell.delaySeconds, lang)}`}
+                      className="matrix-cell grid h-full w-full place-items-center gap-0.5 border-l border-border px-2 text-center outline-none hover:ring-2 hover:ring-inset hover:ring-primary focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                      data-kind={presentation.kind}
+                      data-state={cell.state}
+                      onClick={() => setSelected(cell)}
+                      type="button"
+                    >
+                      <strong className="font-mono text-[11px]">{formatMadridTime(cell.scheduledAt, lang)}</strong>
+                      <span aria-hidden="true" className="font-black">{presentation.symbol}</span>
+                      <span className="sr-only">{evidenceLabel(cell.state, messages)}, {formatDelay(cell.delaySeconds, lang)}</span>
+                    </button>
+                  </div>
                 );
               })}
             </div>

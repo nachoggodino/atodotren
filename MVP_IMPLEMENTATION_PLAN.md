@@ -1,10 +1,10 @@
 # Atodotren MVP Implementation Plan
 
-Status: data foundation Milestones 0–4 accepted; Milestone 5 operational pilot acceptance remains separate; frontend alpha implemented but not yet accepted
+Status: data foundation Milestones 0–4 accepted; Milestone 5 operational pilot acceptance remains separate; frontend implemented with public acceptance still pending
 Scope: Madrid Cercanías evidence foundation plus a read-only bilingual public-accountability PWA
 Working name: Atodotren
 
-The detailed foundation-era plan previously stored at this path is retained verbatim in [`docs/MVP_IMPLEMENTATION_PLAN_FOUNDATION.md`](docs/MVP_IMPLEMENTATION_PLAN_FOUNDATION.md). This document is now the active plan and records the architecture and acceptance boundary after the frontend alpha was introduced.
+The detailed foundation-era plan previously stored at this path is retained verbatim in [`docs/MVP_IMPLEMENTATION_PLAN_FOUNDATION.md`](docs/MVP_IMPLEMENTATION_PLAN_FOUNDATION.md). This document is now the active plan and records the architecture and acceptance boundary after the frontend was introduced.
 
 ## 1. Product outcome
 
@@ -57,7 +57,7 @@ stock PostgreSQL 16–18
         Next.js server
              │
              ▼
-       bilingual public PWA
+        bilingual public PWA
 ```
 
 No Supabase/browser database SDK, provider Data API or direct Pi database exposure belongs in the frontend architecture.
@@ -88,7 +88,7 @@ docs/                      retained detailed foundation/operations material
 
 Existing project-prefixed group roles remain `NOLOGIN` and unsafe attributes are rejected.
 
-Frontend alpha adds the runtime login `atodotren_web` with exactly one direct membership:
+Frontend adds the runtime login `atodotren_web` with exactly one direct membership:
 
 ```text
 atodotren_web -> atodotren_web_reader
@@ -138,10 +138,11 @@ Use:
 - Recharts for conventional charts;
 - custom accessible SVG for the schematic network;
 - semantic HTML/CSS grid for the timetable matrix;
+- bounded TanStack Virtual rendering for measured large-matrix pressure;
 - CSS transitions and reduced-motion fallbacks;
 - a small consistent icon set.
 
-Do not add a general animation framework or grid virtualization until measurements justify them.
+Do not add a general animation framework. Virtualization is intentionally limited to the large timetable-matrix axes already covered by bounded-DOM browser acceptance; smaller surfaces should remain unvirtualized until measurements justify otherwise.
 
 Design direction and concrete tokens live in [`DESIGN.md`](DESIGN.md). The UI combines:
 
@@ -229,7 +230,7 @@ Expose:
 - temporal evolution;
 - selected-day timetable matrix for line detail.
 
-Matrix cells display scheduled time and distinguish measured delay, canceled, skipped, missing and not-yet-observed. They are keyboard focusable and expose concise detail. Text/symbol semantics accompany color.
+Matrix cells display scheduled time and distinguish measured delay, canceled, skipped, missing and not-yet-observed. They are keyboard focusable, expose row/column/grid semantics and provide concise detail. Text/symbol semantics accompany color. Large matrices retain a bounded DOM through the accepted virtualization policy.
 
 The exact matrix remains a recent-detail feature governed by the 30-day policy.
 
@@ -258,7 +259,7 @@ Offline storage is intentionally limited to:
 - last important successful live selection;
 - one useful daily summary.
 
-Do not cache complete history or matrices. Cached answers must show their cache timestamp. When no approved cache entry exists, show an explicit no-cache offline state. Update cache names/versioning safely.
+Do not cache complete history or matrices. Cached answers must be explicitly identified as cached/offline; the service worker retains cache timestamps as response metadata for diagnostics, but the compact offline banner does not need to surface that timestamp. When no approved cache entry exists, show an explicit no-cache offline state. Update cache names/versioning safely.
 
 ## 15. Accessibility and responsive behavior
 
@@ -267,13 +268,13 @@ Target WCAG 2.2 AA:
 - keyboard operation and visible focus;
 - focus restoration for the floating menu;
 - inert hidden drawer content;
-- screen-reader labels/summaries;
+- screen-reader labels/summaries and grid structure for timetable matrices;
 - color never as the sole state carrier;
 - reduced-motion support;
 - responsive mobile/desktop layouts;
 - longer English copy tested alongside Spanish.
 
-The floating navigation adapts the proven Termómetro interaction architecture: measured-height expansion, hamburger morph and mobile hide-on-scroll/reveal, without copying its reporting or Supabase coupling.
+The floating navigation adapts the proven Termómetro interaction architecture: in-place expansion, hamburger morph and mobile hide-on-scroll/reveal, without copying its reporting or Supabase coupling. A small shell-owned scroll coordinator records route positions so pathname-changing forward navigation starts at the top while browser Back/Forward restores the destination route's previous position.
 
 ## 16. Verification strategy
 
@@ -289,17 +290,18 @@ PostgreSQL 16.14 and 18.4 contracts cover:
 
 Browser tests cover:
 
-- landing search and selection;
-- line/station navigation;
+- landing search and selection, including stale-query invalidation;
+- line/station navigation and browser scroll restoration;
 - refresh pause/resume persistence;
 - keyboard train details;
-- historical filters and matrix keyboard behavior;
+- historical filters and matrix keyboard/grid behavior;
 - Spanish/English;
 - light/dark;
 - mobile/desktop;
 - reduced motion;
 - offline cached/no-cache scenarios;
-- automated accessibility smoke.
+- automated accessibility smoke;
+- bounded DOM and interaction for virtualized large matrices.
 
 CI also builds standalone worker and web images for amd64 and amd64/arm64 where the existing image strategy supports it cleanly.
 
@@ -313,7 +315,7 @@ Repository/runtime, static Madrid foundation, realtime evidence, canonical journ
 
 The reporting/Telegram CI implementation exists, but final pilot acceptance still depends on intended local/Pi operation and measured evidence. Frontend work does not silently convert that implementation readiness into pilot acceptance.
 
-### Frontend alpha — implementation branch
+### Frontend — implemented, acceptance ongoing
 
 Implemented scope:
 
@@ -321,10 +323,10 @@ Implemented scope:
 2. design system and floating application shell;
 3. landing/search and fixture scenarios;
 4. live overview/line/station/schematic/train detail;
-5. historical views, temporal filters and timetable matrix;
+5. historical views, temporal filters and bounded timetable matrices;
 6. PWA/offline boundary, accessibility, responsive polish, CI/container verification.
 
-Acceptance requires all GitHub Actions gates green plus actual inspection of browser artifacts. The branch remains draft/unmerged until that review is complete.
+The implementation is present on `main`; ongoing frontend feature branches refine it without changing the acceptance boundary. Public acceptance still requires all relevant GitHub Actions gates green plus actual browser inspection and the representative managed-data checks below.
 
 ### Managed deployment — deferred
 
@@ -346,11 +348,12 @@ Do not infer production performance from fixture rendering. Record separately:
 - public query latency and plans on representative accumulated data;
 - live/network/line/station server response timings;
 - matrix source-query timing at its maximum supported recent window;
+- bounded-DOM matrix browser behavior at representative maximum width/height;
 - web production build output and container build success;
 - mobile/desktop browser inspection findings;
 - offline/PWA behavior on intended devices.
 
-Virtualization, additional indexes, animation frameworks or provider-specific features are introduced only in response to measured need.
+Additional virtualization, indexes, animation frameworks or provider-specific features are introduced only in response to measured need.
 
 ## 19. Explicitly deferred
 
@@ -362,6 +365,6 @@ Virtualization, additional indexes, animation frameworks or provider-specific fe
 - public raw-data API;
 - caching of full history or matrices;
 - geographic/GPS train-map claims;
-- virtualization without measured matrix-performance pressure.
+- virtualization outside the measured large-matrix surfaces without new performance evidence.
 
 This ordering keeps the UI a consumer of the evidence model rather than a reason to weaken it.

@@ -34,9 +34,10 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
   return (
     <div
       aria-label={label}
-      className={compact ? "grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-muted-soft p-0.5" : "grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-muted-soft p-1"}
+      className={compact ? "grid overflow-hidden rounded-lg border border-border bg-muted-soft p-0.5" : "grid overflow-hidden rounded-xl border border-border bg-muted-soft p-1"}
       data-testid={testId}
       role="radiogroup"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((option) => {
         const checked = option.value === value;
@@ -52,11 +53,11 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
             />
             <span
               className={compact
-                ? `flex min-h-6 min-w-0 items-center justify-center gap-1 px-1 text-[7px] font-bold transition-[color,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${checked ? "text-primary underline decoration-2 underline-offset-4" : "text-muted group-hover:text-foreground"}`
+                ? `flex min-h-6 min-w-0 items-center justify-center gap-1 px-2 text-[9px] font-bold transition-[color,transform,opacity] [&_svg]:size-3 group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${checked ? "text-primary underline decoration-2 underline-offset-4" : "text-muted group-hover:text-foreground"}`
                 : `flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition-[background-color,color,box-shadow,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-inset ${checked ? "bg-surface-strong text-primary shadow-sm" : "text-muted group-hover:text-foreground"}`}
             >
               {option.icon}
-              <span className="truncate">{option.label}</span>
+              <span className="min-w-0 truncate">{option.label}</span>
             </span>
           </label>
         );
