@@ -105,44 +105,58 @@ done
 cp -al node_modules "${legacy_worktree}/node_modules"
 (
   cd "${legacy_worktree}"
-  legacy_partition_watcher_pid=''
 
   # A frozen legacy fixture chooses the next weekday from current_date. On a
   # Friday that is Monday (+3), while immutable migration 0004 deliberately
   # pre-creates only current_date +/- 2. Keep production policy unchanged and
-  # prepare the one additional permitted fixture partition in disposable test
-  # databases as soon as each historical migration has created the helper.
+  # prepare exactly one extra partition in the disposable postgres-test DB.
   if [[ "$(date -u +%u)" == '5' ]]; then
-    (
-      while true; do
-        databases="$(docker exec \
+    npm run test:integration &
+    integration_pid=$!
+    partition_prepared=0
+
+    for _attempt in {1..300}; do
+      if ! kill -0 "${integration_pid}" >/dev/null 2>&1; then
+        break
+      fi
+
+      test_database="$(docker exec \
+        --env PGPASSWORD="${admin_password}" \
+        "${container_name}" psql -h 127.0.0.1 -U postgres -d postgres -Atqc \
+        "SELECT datname FROM pg_database WHERE datname LIKE 'atodotren_test_%' AND datallowconn ORDER BY datname LIMIT 1" \
+        2>/dev/null || true)"
+
+      if [[ -n "${test_database}" ]]; then
+        helper_ready="$(docker exec \
           --env PGPASSWORD="${admin_password}" \
-          "${container_name}" psql -h 127.0.0.1 -U postgres -d postgres -Atqc \
-          "SELECT datname FROM pg_database WHERE datname LIKE 'atodotren_%' AND datallowconn" 2>/dev/null || true)"
-        while IFS= read -r database; do
-          [[ -z "${database}" ]] && continue
+          "${container_name}" psql -h 127.0.0.1 -U postgres -d "${test_database}" -Atqc \
+          "SELECT to_regprocedure('ingest.ensure_realtime_partitions(date)') IS NOT NULL" \
+          2>/dev/null || true)"
+        if [[ "${helper_ready}" == 't' ]]; then
           docker exec \
             --env PGPASSWORD="${admin_password}" \
-            "${container_name}" psql -h 127.0.0.1 -U postgres -d "${database}" -Atqc \
+            "${container_name}" psql -h 127.0.0.1 -U postgres -d "${test_database}" -Atqc \
             "SELECT ingest.ensure_realtime_partitions(current_date + 3)" \
-            >/dev/null 2>&1 || true
-        done <<< "${databases}"
-        sleep 0.2
-      done
-    ) &
-    legacy_partition_watcher_pid=$!
-  fi
+            >/dev/null
+          partition_prepared=1
+          break
+        fi
+      fi
 
-  set +e
-  npm run test:integration
-  integration_status=$?
-  set -e
+      sleep 0.2
+    done
 
-  if [[ -n "${legacy_partition_watcher_pid}" ]]; then
-    kill "${legacy_partition_watcher_pid}" >/dev/null 2>&1 || true
-    wait "${legacy_partition_watcher_pid}" >/dev/null 2>&1 || true
+    if (( partition_prepared == 0 )) && kill -0 "${integration_pid}" >/dev/null 2>&1; then
+      echo 'Timed out preparing the Friday-only legacy realtime partition.' >&2
+      kill "${integration_pid}" >/dev/null 2>&1 || true
+      wait "${integration_pid}" >/dev/null 2>&1 || true
+      exit 1
+    fi
+
+    wait "${integration_pid}"
+  else
+    npm run test:integration
   fi
-  exit "${integration_status}"
 )
 git worktree remove --force "${legacy_worktree}" >/dev/null
 legacy_worktree=''
