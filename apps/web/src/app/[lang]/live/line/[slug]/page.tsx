@@ -30,7 +30,7 @@ export default async function LiveLinePage({ params, searchParams }: { readonly 
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LivePageSummary backLabel={messages.common.back} contextColor={data.context.color} meta={data.meta} stats={data.stats} lang={lang} messages={messages} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
+      <LivePageSummary backLabel={messages.common.back} context="line" contextColor={data.context.color} meta={data.meta} stats={data.stats} lang={lang} messages={messages} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
       <section className="mt-9"><LiveLineVisualization patterns={data.patterns} trains={data.trains} matrixResult={matrixResult} lineColor={data.context.color} lang={lang} messages={messages} /></section>
       <section className="mt-10 grid gap-8 border-t border-border pt-8 lg:grid-cols-2">
         <div><h2 className="text-2xl font-black">{messages.history.distribution}</h2><DelayDistribution values={data.stats.distribution} messages={messages} /></div>

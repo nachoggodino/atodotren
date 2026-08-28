@@ -3,9 +3,9 @@ import type { Lang, ResponseMeta, SummaryStats } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
 import { LiveHeader } from "./live-header";
 import { LiveRefresh } from "./live-refresh";
-import { LiveStatsBand } from "./live-stats-band";
+import { LiveStatsBand, type LiveStatsContext } from "./live-stats-band";
 
-export function LivePageSummary({ meta, stats, lang, messages, title, subtitle, backLabel, contextColor }: { readonly meta: ResponseMeta; readonly stats: SummaryStats; readonly lang: Lang; readonly messages: Messages; readonly title: string; readonly subtitle: string; readonly backLabel?: string; readonly contextColor?: string }) {
+export function LivePageSummary({ meta, stats, lang, messages, title, subtitle, backLabel, contextColor, context }: { readonly meta: ResponseMeta; readonly stats: SummaryStats; readonly lang: Lang; readonly messages: Messages; readonly title: string; readonly subtitle: string; readonly backLabel?: string; readonly contextColor?: string; readonly context: LiveStatsContext }) {
   return (
     <>
       <LiveHeader
@@ -17,7 +17,7 @@ export function LivePageSummary({ meta, stats, lang, messages, title, subtitle, 
         title={title}
       />
       <div className="mt-5"><DataMeta meta={meta} lang={lang} messages={messages} variant="live" /><LiveRefresh messages={messages} /></div>
-      <div className="mt-6"><LiveStatsBand stats={stats} lang={lang} messages={messages} /></div>
+      <div className="mt-6"><LiveStatsBand stats={stats} lang={lang} messages={messages} context={context} /></div>
     </>
   );
 }
