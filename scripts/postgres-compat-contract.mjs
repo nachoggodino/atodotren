@@ -56,7 +56,8 @@ try {
   await databaseAdmin.connect();
   try {
     const version = await databaseAdmin.query("SHOW server_version_num");
-    assert.ok(Number(version.rows[0]?.server_version_num) >= 160_000);
+    const serverVersion = Number(version.rows[0]?.server_version_num);
+    assert.ok(serverVersion >= 160_000 && serverVersion < 170_000, `expected PostgreSQL 16, received server_version_num=${serverVersion}`);
     const serviceTimes = await databaseAdmin.query(`SELECT
       core.service_instant('2026-03-29', 9000, 'Europe/Madrid') AS spring,
       core.service_instant('2026-10-25', 9000, 'Europe/Madrid') AS fall`);
