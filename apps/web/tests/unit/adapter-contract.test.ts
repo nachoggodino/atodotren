@@ -60,15 +60,9 @@ function publicDataAdapterContract(name: string, harness: AdapterHarness) {
       expect(station?.trains.length).toBeGreaterThan(0);
       expect(station?.trains.length).toBeLessThanOrEqual(10);
       expect(station?.trains.every((train) => train.scheduledArrivalAt !== null)).toBe(true);
+      expect(station?.trains.some((train) => train.lastStoppedStation !== null)).toBe(true);
       expect(station?.stationInsights.delayTrend.length).toBeGreaterThan(0);
-      expect(station?.stationInsights.linePunctuality).toHaveLength(1);
-      expect(station?.stationInsights.cadence).toMatchObject({
-        sample: 5,
-        regularity: 1,
-        medianScheduledHeadwaySeconds: 600,
-        medianObservedHeadwaySeconds: 630,
-        medianDeviationSeconds: 30,
-      });
+      expect(station?.stationInsights.totalAddedDelaySeconds).toBeGreaterThan(0);
     });
 
     it("keeps history filters, rankings, finalization and normalized distributions aligned", async () => {
@@ -273,18 +267,12 @@ function stationArrivalRows(serviceDate: string, capturedAt: string): RawPostgre
     target_station_id: "atocha",
     station_scheduled_arrival_at: `${serviceDate}T08:10:00Z`,
     station_expected_arrival_at: `${serviceDate}T08:13:00Z`,
+    last_stopped_station_id: "chamartin",
+    last_stopped_station_slug_es: "chamartin",
+    last_stopped_station_slug_en: "chamartin",
+    last_stopped_station_name_es: "Chamartín",
+    last_stopped_station_name_en: "Chamartín",
   }];
-}
-
-function stationCallRows(serviceDate: string): RawPostgresRow[] {
-  const delays = [60, 90, 120, 120, 150, 180];
-  return delays.map((delay, index) => ({
-    line_slug: "c1",
-    direction: 0,
-    scheduled_arrival_at: `${serviceDate}T08:${String(index * 10).padStart(2, "0")}:00Z`,
-    selected_delay_seconds: delay,
-    evidence_status: "reported_only",
-  }));
 }
 
 function matrixRows(serviceDate: string): RawPostgresRow[] {
@@ -335,7 +323,7 @@ function postgresHarness(): AdapterHarness {
             const dates = Array.isArray(values[0]) ? values[0] as string[] : [date];
             return dates.map((serviceDate) => ({ service_date: serviceDate, aggregate_algorithm_version: scenario === "mixed" ? "v2" : "v1", status: "verified", finalized_at: `${serviceDate}T23:00:00Z` }));
           }
-          if (text.includes("api.recent_station_calls")) return stationCallRows(date);
+          if (text.includes("api.station_live_day_metrics")) return [{ total_added_delay_seconds: 12345, usable_stop_count: 42 }];
           if (text.includes("api.recent_line_matrix")) return matrixRows(date);
           if (text.includes("SELECT history.station_id, catalog.name_es AS station_name")) return [{ station_id: "atocha", station_name: "Atocha", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
           if (text.includes("history.scheduled_hour::text AS hour_id")) return [{ hour_id: "8", hour_label: "08:00", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
