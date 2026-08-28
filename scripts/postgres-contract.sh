@@ -147,6 +147,9 @@ cp -al node_modules "${legacy_worktree}/node_modules"
 git worktree remove --force "${legacy_worktree}" >/dev/null
 legacy_worktree=''
 
+# The historical integration build happened inside the disposable worktree.
+# Compile the DB package in the active checkout before the public-web contract imports it.
+npm run build --workspace @atodotren/db
 node scripts/web-postgres-contract.mjs
 
 echo "PostgreSQL full worker and public-web contracts passed for ${postgres_image}."
