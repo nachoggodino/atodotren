@@ -7,10 +7,11 @@ test("station live exposes clickable upcoming trains and current-day insights", 
   await expect(train).toBeVisible();
   await train.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("station-train-detail")).toBeVisible();
-  await expect(page.getByTestId("station-train-detail")).toContainText("Hacia");
-  await expect(page.getByTestId("station-train-detail")).toContainText("Llegada programada");
-  await expect(page.getByTestId("station-train-detail")).toContainText("Llegada prevista");
+  const detail = page.getByTestId("station-train-detail").filter({ visible: true });
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("Hacia");
+  await expect(detail).toContainText("Llegada programada");
+  await expect(detail).toContainText("Llegada prevista");
 
   await expect(page.getByRole("heading", { name: "Evolución del retraso hoy" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Distribución del retraso" })).toBeVisible();
