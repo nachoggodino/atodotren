@@ -12,12 +12,13 @@ function stationArrivalDistance(train: TrainDetail, stationId: string): number |
   if (pattern === undefined) return null;
   const targetIndex = pattern.stops.findIndex((stop) => stop.station.id === stationId);
   if (targetIndex < 0) return null;
-  if (train.position.kind === "unknown") return null;
-  if (train.position.kind === "at_station") {
-    const currentIndex = pattern.stops.findIndex((stop) => stop.station.id === train.position.stationId);
+  const position = train.position;
+  if (position.kind === "unknown") return null;
+  if (position.kind === "at_station") {
+    const currentIndex = pattern.stops.findIndex((stop) => stop.station.id === position.stationId);
     return currentIndex >= 0 && targetIndex > currentIndex ? targetIndex - currentIndex : null;
   }
-  const nextIndex = pattern.stops.findIndex((stop) => stop.station.id === train.position.toStationId);
+  const nextIndex = pattern.stops.findIndex((stop) => stop.station.id === position.toStationId);
   return nextIndex >= 0 && targetIndex >= nextIndex ? targetIndex - nextIndex : null;
 }
 

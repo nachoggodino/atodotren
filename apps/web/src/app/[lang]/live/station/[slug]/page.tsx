@@ -44,9 +44,10 @@ export default async function LiveStationPage({ params, searchParams }: { readon
     redirect(`/${lang}/live/station/${canonicalSlug}${suffix}`);
   }
 
+  const nextTrain = data.trains[0];
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LivePageSummary backLabel={messages.common.back} context="station" contextColor={data.trains[0]?.line.color} meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
+      <LivePageSummary {...(nextTrain === undefined ? {} : { contextColor: nextTrain.line.color })} backLabel={messages.common.back} context="station" meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
       <section className="mt-12">
         <h2 className="text-2xl font-black">{messages.live.upcomingTrains}</h2>
         {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.noUpcomingTrains}</p> : (
