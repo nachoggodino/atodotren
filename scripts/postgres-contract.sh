@@ -105,6 +105,21 @@ done
 cp -al node_modules "${legacy_worktree}/node_modules"
 (
   cd "${legacy_worktree}"
+
+  # One legacy integration fixture chooses the next weekday from current_date,
+  # while migration 0004 intentionally pre-creates realtime partitions only
+  # through current_date + 2. On Fridays that fixture selects Monday (+3), so
+  # run this historical harness with an equivalent adjacent local date rather
+  # than making the immutable migration or production partition policy broader.
+  if [[ "$(date -u +%u)" == '5' ]]; then
+    utc_hour="$(date -u +%H)"
+    if (( 10#${utc_hour} >= 10 )); then
+      export PGOPTIONS='-c TimeZone=Pacific/Kiritimati'
+    else
+      export PGOPTIONS='-c TimeZone=Pacific/Pago_Pago'
+    fi
+  fi
+
   npm run test:integration
 )
 git worktree remove --force "${legacy_worktree}" >/dev/null
