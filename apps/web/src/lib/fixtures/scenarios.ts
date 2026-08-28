@@ -1,4 +1,4 @@
-import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, StationLiveInsights, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, StationLiveInsights, StationUpcomingTrain, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
@@ -22,7 +22,7 @@ function stationArrivalDistance(train: TrainDetail, stationId: string): number |
   return nextIndex >= 0 && targetIndex >= nextIndex ? targetIndex - nextIndex : null;
 }
 
-function fixtureStationTrains(scenario: FixtureScenario, stationId: string): readonly TrainDetail[] {
+function fixtureStationTrains(scenario: FixtureScenario, stationId: string): readonly StationUpcomingTrain[] {
   const now = Date.parse(FIXTURE_NOW);
   return fixtureTrains(scenario)
     .flatMap((train, index) => {
@@ -30,20 +30,15 @@ function fixtureStationTrains(scenario: FixtureScenario, stationId: string): rea
       if (distance === null) return [];
       const scheduledArrivalAt = new Date(now + (3 + distance * 4 + index) * 60_000).toISOString();
       const probableArrivalAt = train.delaySeconds === null ? null : new Date(Date.parse(scheduledArrivalAt) + train.delaySeconds * 1000).toISOString();
-      return [{ ...train, scheduledArrivalAt, probableArrivalAt }];
+      const lastStoppedStation = train.currentStation ?? (train.observedPastArrivalAt === null ? null : train.previousStation);
+      return [{ ...train, scheduledArrivalAt, probableArrivalAt, lastStoppedStation }];
     })
     .sort((left, right) => Date.parse(left.probableArrivalAt ?? left.scheduledArrivalAt ?? FIXTURE_NOW) - Date.parse(right.probableArrivalAt ?? right.scheduledArrivalAt ?? FIXTURE_NOW))
     .slice(0, STATION_ARRIVAL_LIMIT);
 }
 
 function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats): StationLiveInsights {
-  if (scenario === "outage") {
-    return {
-      delayTrend: [],
-      linePunctuality: [],
-      cadence: { sample: 0, regularity: null, medianScheduledHeadwaySeconds: null, medianObservedHeadwaySeconds: null, medianDeviationSeconds: null },
-    };
-  }
+  if (scenario === "outage") return { delayTrend: [], totalAddedDelaySeconds: 0 };
   const hours = [6, 7, 8, 9, 10, 11, 12];
   const delayTrend = hours.map((hour, index) => ({
     hour,
@@ -51,12 +46,9 @@ function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats):
     meanDelaySeconds: stats.meanDelaySeconds === null ? null : Math.max(0, stats.meanDelaySeconds + (index - 3) * 18),
     medianDelaySeconds: stats.medianDelaySeconds === null ? null : Math.max(0, stats.medianDelaySeconds + (index - 3) * 12),
   }));
-  const c1 = fixtureLines.find((line) => line.slug === "c1") ?? fixtureLines[0];
-  const linePunctuality = c1 === undefined ? [] : [{ line: c1, sample: stats.observed, punctuality: stats.punctuality }];
   return {
     delayTrend,
-    linePunctuality,
-    cadence: { sample: 5, regularity: 1, medianScheduledHeadwaySeconds: 600, medianObservedHeadwaySeconds: 630, medianDeviationSeconds: 30 },
+    totalAddedDelaySeconds: Math.max(0, Math.round((stats.meanDelaySeconds ?? 0) * stats.observed)),
   };
 }
 
