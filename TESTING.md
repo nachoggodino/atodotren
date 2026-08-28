@@ -31,7 +31,7 @@ Good examples:
 
 Do not use unit tests to read repository files and assert that particular strings still exist in `package.json`, Compose or migrations. Those are repository contracts or integration behavior.
 
-Prefer one file per cohesive subsystem. A soft ceiling of roughly 500 lines is a signal to split a suite; the repository guardrail rejects extreme unit-test monoliths above 1,200 lines. Shared helpers should be extracted only when they remove meaningful duplication across closely related suites.
+Prefer one file per cohesive subsystem. A soft ceiling of roughly 500 lines is a signal to split a suite; the repository guardrail rejects unit-test files above 600 lines. Shared helpers should be extracted only when they remove meaningful duplication across closely related suites.
 
 ### PostgreSQL integration — `tests/integration/`
 
@@ -47,6 +47,10 @@ Use a real PostgreSQL instance for contracts that PostgreSQL itself owns:
 Keep capabilities independently diagnosable. Do not create one giant chronological acceptance scenario merely because features were delivered together. A setup step may be shared, but unrelated assertions should not depend on prior tests mutating the same database into an undocumented state.
 
 Integration filenames describe capabilities such as `aggregation-retention.test.ts`, `reporting-telegram.test.ts` or `postgres.test.ts`; never milestones.
+
+Two legacy integration scenarios are intentionally retained as shared-database acceptance harnesses: `postgres.test.ts` and `aggregation-retention.test.ts`. Splitting them correctly requires redesigning their database fixture lifecycle, not mechanically cutting the files. Their current size is therefore **frozen by CI**: do not add new responsibilities to either file. New integration capabilities must go into focused files, and any future refactor of these two harnesses should first introduce isolated reusable database setup so the resulting tests are independently runnable.
+
+New integration files have an 800-line hard ceiling. This is a guardrail, not a target; most should be far smaller.
 
 ### Web unit tests — `apps/web/tests/unit/`
 
@@ -150,7 +154,9 @@ Do not mutate the checked-out migration directory to run a historical migration 
 - test filenames based on milestones/corrections/miscellaneous chronology;
 - CSS/class/geometry implementation assertions in Playwright;
 - unit tests that grep tracked migration/Compose/package source as a substitute for behavior;
-- extreme unit-test monoliths.
+- unit-test files that grow past the architecture budget;
+- new oversized integration files, and growth of the two frozen legacy integration harnesses;
+- broad browser specs that should be split by user/browser behavior.
 
 When a source-shape invariant is genuinely necessary, add it to an explicit repository contract check rather than disguising it as a unit test.
 
@@ -164,6 +170,7 @@ Before finishing any change that touches tests:
 - [ ] Keep browser assertions semantic and interaction-oriented.
 - [ ] Keep WebKit coverage intentionally small.
 - [ ] Avoid milestone/ticket/correction filenames.
+- [ ] Do not grow the frozen legacy PostgreSQL acceptance harnesses; add focused integration files instead.
 - [ ] Run `./scripts/check-test-architecture.sh`.
 - [ ] Run the relevant unit tests and type/lint checks.
 - [ ] Run PostgreSQL/browser acceptance when the change touches those contracts.
