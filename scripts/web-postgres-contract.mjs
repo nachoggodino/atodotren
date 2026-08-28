@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0017_landing_live_metrics.sql");
+  assert.equal(migration.applied.at(-1), "0019_web_history_insights.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -70,6 +70,50 @@ try {
     const networkId = network.rows[0].id;
     await databaseAdmin.query(`INSERT INTO core.line (network_id, slug, public_code, name_es, name_en, color, text_color, display_order) VALUES ($1, 'c1', 'C1', 'C1', 'C1', '5AA1D8', 'FFFFFF', 1)`, [networkId]);
     await databaseAdmin.query(`INSERT INTO core.station (network_id, public_id, slug_es, slug_en, name_es, name_en) VALUES ($1, 'atocha', 'atocha', 'atocha', 'Atocha', 'Atocha')`, [networkId]);
+
+    const freshness = await databaseAdmin.query(`SELECT
+      api.live_vehicle_is_active(
+        '2026-08-25'::date,
+        '2026-08-25T11:59:00Z'::timestamptz,
+        extract(epoch FROM '2026-08-25T11:59:00Z'::timestamptz)::bigint,
+        'Europe/Madrid',
+        '2026-08-25T12:00:00Z'::timestamptz
+      ) AS fresh,
+      api.live_vehicle_is_active(
+        '2026-08-25'::date,
+        '2026-08-25T11:57:59Z'::timestamptz,
+        extract(epoch FROM '2026-08-25T11:59:00Z'::timestamptz)::bigint,
+        'Europe/Madrid',
+        '2026-08-25T12:00:00Z'::timestamptz
+      ) AS stale_capture,
+      api.live_vehicle_is_active(
+        '2026-08-25'::date,
+        '2026-08-25T11:59:00Z'::timestamptz,
+        extract(epoch FROM '2026-08-25T11:57:59Z'::timestamptz)::bigint,
+        'Europe/Madrid',
+        '2026-08-25T12:00:00Z'::timestamptz
+      ) AS stale_vehicle,
+      api.live_vehicle_is_active(
+        '2026-08-24'::date,
+        '2026-08-25T11:59:00Z'::timestamptz,
+        NULL::bigint,
+        'Europe/Madrid',
+        '2026-08-25T12:00:00Z'::timestamptz
+      ) AS wrong_service_date,
+      api.live_vehicle_is_active(
+        '2026-08-25'::date,
+        '2026-08-25T12:00:31Z'::timestamptz,
+        NULL::bigint,
+        'Europe/Madrid',
+        '2026-08-25T12:00:00Z'::timestamptz
+      ) AS future_capture`);
+    assert.deepEqual(freshness.rows[0], {
+      fresh: true,
+      stale_capture: false,
+      stale_vehicle: false,
+      wrong_service_date: false,
+      future_capture: false,
+    });
   } finally {
     await databaseAdmin.end();
   }
@@ -81,8 +125,19 @@ try {
       has_schema_privilege(current_user, 'api', 'USAGE') AS api_usage,
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
       has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select,
-      has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute`);
-    assert.deepEqual(privileges.rows[0], { api_usage: true, core_usage: false, api_line_select: true, landing_timeline_execute: true });
+      has_table_privilege(current_user, 'api.active_live_vehicle', 'SELECT') AS active_live_select,
+      has_table_privilege(current_user, 'api.history_segment_hour', 'SELECT') AS history_segment_select,
+      has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute,
+      has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute`);
+    assert.deepEqual(privileges.rows[0], {
+      api_usage: true,
+      core_usage: false,
+      api_line_select: true,
+      active_live_select: true,
+      history_segment_select: true,
+      landing_timeline_execute: true,
+      live_predicate_execute: true,
+    });
 
     await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
     await assert.rejects(web.query("SELECT * FROM ingest.live_vehicle_state"), /permission denied/);
@@ -98,11 +153,17 @@ try {
     const station = await web.query("SELECT * FROM api.catalog_search($1, 12)", ["Atocha"]);
     assert.equal(station.rows.some((row) => row.entity_kind === "station" && row.stable_id === "atocha"), true);
 
+    const activeVehicles = await web.query("SELECT * FROM api.active_live_vehicle");
+    assert.equal(activeVehicles.rowCount, 0);
+
+    const segments = await web.query("SELECT * FROM api.history_segment_hour WHERE network_slug = 'madrid' LIMIT 1");
+    assert.equal(segments.rowCount, 0);
+
     const landingTimeline = await web.query("SELECT * FROM api.landing_delay_timeline('madrid', '2026-08-25T12:00:00Z'::timestamptz)");
     assert.equal(landingTimeline.rowCount, 43);
-    assert.equal(landingTimeline.rows[0].accumulated_delay_seconds, "0");
-    assert.equal(landingTimeline.rows.every((row) => row.current_total_delay_seconds === "0"), true);
-    assert.equal(landingTimeline.rows.at(-1).accumulated_delay_seconds, null);
+    assert.equal(landingTimeline.rows[0].accumulated_journey_delay_seconds, "0");
+    assert.equal(landingTimeline.rows.every((row) => row.current_accumulated_journey_delay_seconds === "0"), true);
+    assert.equal(landingTimeline.rows.at(-1).accumulated_journey_delay_seconds, null);
 
     const outOfRange = new Date();
     outOfRange.setUTCDate(outOfRange.getUTCDate() - 31);

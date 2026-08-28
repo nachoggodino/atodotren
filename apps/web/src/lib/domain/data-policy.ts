@@ -32,8 +32,8 @@ export function liveResponseMeta(input: {
     ? "unavailable"
     : stale
       ? "stale"
-      : input.activeTrains === 0
-        ? input.expectedOvernight === true ? "overnight" : "unavailable"
+      : input.expectedOvernight === true && input.activeTrains === 0
+        ? "overnight"
         : "healthy";
   const freshness = input.sourceAt === null
     ? { state: "unknown" as const, sourceAt: null, staleAfterSeconds: LIVE_STALE_AFTER_SECONDS }

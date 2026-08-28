@@ -73,6 +73,11 @@ function directionField(row: RawPostgresRow, field: string, context: string): Di
   return directionValue(row[field], context, field);
 }
 
+function nullableDirectionField(row: RawPostgresRow, field: string, context: string): DirectionId | null {
+  const value = row[field];
+  return value === null || value === undefined ? null : directionValue(value, context, field);
+}
+
 function evidenceValue(value: unknown, context: string, field = "evidence_status"): EvidenceState {
   if (value === "reported_only" || value === "observed_presence" || value === "skipped" || value === "canceled" || value === "missing_evidence" || value === "pending") return value;
   return fail(context, field, value);
@@ -192,14 +197,58 @@ export interface LiveVehicleRow {
   readonly currentStationNameEn: string | null;
   readonly currentStatus: string;
   readonly latestStopDelay: number | null;
-  readonly vehicleTimestamp: string | null;
+  readonly vehicleSourceAt: string | null;
   readonly journeyId: string | null;
+  readonly patternId: string | null;
+  readonly direction: DirectionId | null;
+  readonly headsign: string | null;
+  readonly previousStationId: string | null;
+  readonly previousStationSlugEs: string | null;
+  readonly previousStationSlugEn: string | null;
+  readonly previousStationNameEs: string | null;
+  readonly previousStationNameEn: string | null;
+  readonly nextStationId: string | null;
+  readonly nextStationSlugEs: string | null;
+  readonly nextStationSlugEn: string | null;
+  readonly nextStationNameEs: string | null;
+  readonly nextStationNameEn: string | null;
+  readonly originStationId: string | null;
+  readonly originStationSlugEs: string | null;
+  readonly originStationSlugEn: string | null;
+  readonly originStationNameEs: string | null;
+  readonly originStationNameEn: string | null;
+  readonly destinationStationId: string | null;
+  readonly destinationStationSlugEs: string | null;
+  readonly destinationStationSlugEn: string | null;
+  readonly destinationStationNameEs: string | null;
+  readonly destinationStationNameEn: string | null;
+  readonly scheduledNextArrivalAt: string | null;
+  readonly reportedNextArrivalAt: string | null;
+  readonly previousReportedArrivalAt: string | null;
+  readonly previousObservedPresenceAt: string | null;
+  readonly latestUsableDelay: number | null;
+  readonly latestDelaySourceAt: string | null;
+}
+
+function prefixedStationFields(row: RawPostgresRow, prefix: string, context: string): Pick<StationCatalogRow, "id" | "slugEs" | "slugEn" | "nameEs" | "nameEn"> | null {
+  const id = nullableStringField(row, `${prefix}_station_id`, context);
+  if (id === null) return null;
+  return {
+    id,
+    slugEs: stringField(row, `${prefix}_station_slug_es`, context),
+    slugEn: stringField(row, `${prefix}_station_slug_en`, context),
+    nameEs: stringField(row, `${prefix}_station_name_es`, context),
+    nameEn: stringField(row, `${prefix}_station_name_en`, context),
+  };
 }
 
 export function parseLiveVehicleRow(row: RawPostgresRow): LiveVehicleRow {
-  const context = "api.live_vehicle";
-  const currentStationId = nullableStringField(row, "current_station_id", context);
-  const stationField = (field: string): string | null => currentStationId === null ? null : nullableStringField(row, field, context);
+  const context = "api.active_live_vehicle";
+  const current = prefixedStationFields(row, "current", context);
+  const previous = prefixedStationFields(row, "previous", context);
+  const next = prefixedStationFields(row, "next", context);
+  const origin = prefixedStationFields(row, "origin", context);
+  const destination = prefixedStationFields(row, "destination", context);
   return {
     stateKey: stringField(row, "state_key", context),
     capturedAt: timestampValue(row.captured_at, context, "captured_at"),
@@ -211,15 +260,44 @@ export function parseLiveVehicleRow(row: RawPostgresRow): LiveVehicleRow {
     lineNameEs: stringField(row, "line_name_es", context),
     lineNameEn: stringField(row, "line_name_en", context),
     currentStopSequence: nullableIntegerField(row, "current_stop_sequence", context),
-    currentStationId,
-    currentStationSlugEs: stationField("current_station_slug_es"),
-    currentStationSlugEn: stationField("current_station_slug_en"),
-    currentStationNameEs: stationField("current_station_name_es"),
-    currentStationNameEn: stationField("current_station_name_en"),
+    currentStationId: current?.id ?? null,
+    currentStationSlugEs: current?.slugEs ?? null,
+    currentStationSlugEn: current?.slugEn ?? null,
+    currentStationNameEs: current?.nameEs ?? null,
+    currentStationNameEn: current?.nameEn ?? null,
     currentStatus: stringField(row, "current_status", context),
     latestStopDelay: nullableIntegerField(row, "latest_stop_delay", context, true),
-    vehicleTimestamp: nullableTimestampField(row, "vehicle_timestamp", context),
+    vehicleSourceAt: nullableTimestampField(row, "vehicle_source_at", context),
     journeyId: row.journey_id === null || row.journey_id === undefined ? null : integerIdentifier(row.journey_id, context, "journey_id"),
+    patternId: nullableStringField(row, "pattern_id", context),
+    direction: nullableDirectionField(row, "direction", context),
+    headsign: nullableStringField(row, "headsign", context),
+    previousStationId: previous?.id ?? null,
+    previousStationSlugEs: previous?.slugEs ?? null,
+    previousStationSlugEn: previous?.slugEn ?? null,
+    previousStationNameEs: previous?.nameEs ?? null,
+    previousStationNameEn: previous?.nameEn ?? null,
+    nextStationId: next?.id ?? null,
+    nextStationSlugEs: next?.slugEs ?? null,
+    nextStationSlugEn: next?.slugEn ?? null,
+    nextStationNameEs: next?.nameEs ?? null,
+    nextStationNameEn: next?.nameEn ?? null,
+    originStationId: origin?.id ?? null,
+    originStationSlugEs: origin?.slugEs ?? null,
+    originStationSlugEn: origin?.slugEn ?? null,
+    originStationNameEs: origin?.nameEs ?? null,
+    originStationNameEn: origin?.nameEn ?? null,
+    destinationStationId: destination?.id ?? null,
+    destinationStationSlugEs: destination?.slugEs ?? null,
+    destinationStationSlugEn: destination?.slugEn ?? null,
+    destinationStationNameEs: destination?.nameEs ?? null,
+    destinationStationNameEn: destination?.nameEn ?? null,
+    scheduledNextArrivalAt: nullableTimestampField(row, "scheduled_next_arrival_at", context),
+    reportedNextArrivalAt: nullableTimestampField(row, "reported_next_arrival_at", context),
+    previousReportedArrivalAt: nullableTimestampField(row, "previous_reported_arrival_at", context),
+    previousObservedPresenceAt: nullableTimestampField(row, "previous_observed_presence_at", context),
+    latestUsableDelay: nullableIntegerField(row, "latest_usable_delay", context, true),
+    latestDelaySourceAt: nullableTimestampField(row, "latest_delay_source_at", context),
   };
 }
 

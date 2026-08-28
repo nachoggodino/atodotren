@@ -3,14 +3,15 @@ import { createFixtureAdapter } from "@/lib/fixtures/scenarios";
 import { layoutSchematicPatterns, pointForTrain } from "@/lib/domain/schematic";
 
 describe("schematic geometry", () => {
-  it("positions forward and reverse trains from their own ordered patterns", async () => {
+  it("positions forward and reverse trains from their own ordered patterns when progress is known", async () => {
     const line = await createFixtureAdapter("reverse-branch").liveLine("c1");
     expect(line).not.toBeNull();
     const plotted = layoutSchematicPatterns(line!.patterns);
     const reverse = line!.trains.find((train) => train.direction?.id === 1 && train.position.kind === "between_stations");
     expect(reverse).toBeDefined();
-    const point = pointForTrain(reverse!, plotted);
-    expect(point?.patternId).toBe(reverse?.patternId);
+    if (reverse?.position.kind !== "between_stations") throw new Error("Expected reverse between-stations fixture");
+    const point = pointForTrain({ ...reverse, position: { ...reverse.position, progress: 0.5 } }, plotted);
+    expect(point?.patternId).toBe(reverse.patternId);
     expect(point?.x).toBeTypeOf("number");
   });
 
@@ -31,6 +32,12 @@ describe("schematic geometry", () => {
     const between = line!.trains.find((train) => train.position.kind === "between_stations");
     expect(between).toBeDefined();
     if (between?.position.kind !== "between_stations") throw new Error("Expected between-stations fixture");
-    expect(pointForTrain({ ...between, position: { ...between.position, progress: null } }, plotted)).toBeNull();
+    const midpoint = pointForTrain({ ...between, position: { ...between.position, progress: null } }, plotted);
+    expect(midpoint).not.toBeNull();
+    const plottedPattern = plotted.find((candidate) => candidate.pattern.id === midpoint?.patternId);
+    const from = plottedPattern?.stopByStation.get(between.position.fromStationId);
+    const to = plottedPattern?.stopByStation.get(between.position.toStationId);
+    expect(midpoint?.x).toBe(((from?.x ?? 0) + (to?.x ?? 0)) / 2);
+    expect(midpoint?.y).toBe(((from?.y ?? 0) + (to?.y ?? 0)) / 2);
   });
 });

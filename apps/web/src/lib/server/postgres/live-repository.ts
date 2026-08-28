@@ -57,7 +57,7 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
     const values: unknown[] = [MADRID_NETWORK.slug];
     if (lineSlug !== undefined) { values.push(lineSlug); clauses.push(`line_slug = $${values.length}`); }
     if (stationId !== undefined) { values.push(stationId); clauses.push(`current_station_id = $${values.length}`); }
-    return (await client.query(`SELECT * FROM api.live_vehicle WHERE ${clauses.join(" AND ")} ORDER BY captured_at DESC, state_key`, values)).map(parseLiveVehicleRow);
+    return (await client.query(`SELECT * FROM api.active_live_vehicle WHERE ${clauses.join(" AND ")} ORDER BY captured_at DESC, state_key`, values)).map(parseLiveVehicleRow);
   }
 
   async function comparison(view: "history_line_hour" | "history_station_hour", idColumn: "line_slug" | "station_id", id: string, date: string, hour: number): Promise<Capability<Comparison>> {

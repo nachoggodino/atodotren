@@ -22,7 +22,7 @@ function failSource(scenario: FixtureScenario): void {
 
 function networkStats(scenario: FixtureScenario): SummaryStats {
   if (scenario === "partial") return { ...baseStats, observed: 1390, missing: 1450 };
-  if (scenario === "outage") return { ...baseStats, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, missing: baseStats.scheduled };
+  if (scenario === "outage") return { ...baseStats, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, p90DelaySeconds: null, missing: baseStats.scheduled };
   return baseStats;
 }
 
@@ -30,8 +30,9 @@ function fixtureLandingOverview(scenario: FixtureScenario): LandingOverviewRespo
   const stats = networkStats(scenario);
   const lines = linePerformance(scenario);
   const activeTrains = lines.reduce((sum, line) => sum + line.activeTrains, 0);
-  const activeDelaySeconds = scenario === "outage" || scenario === "overnight" ? 0 : activeTrains * 247;
-  const dayDelaySeconds = Math.max(0, (stats.meanDelaySeconds ?? 0) * stats.observed);
+  const activeDelaySeconds = scenario === "outage" || scenario === "overnight" || scenario === "stale" ? 0 : activeTrains * 247;
+  const completedJourneyContributions = scenario === "outage" ? 0 : 184 * 196;
+  const dayDelaySeconds = completedJourneyContributions + activeDelaySeconds;
   const startsAt = Date.parse(`${FIXTURE_TODAY}T03:00:00.000Z`);
   const now = Date.parse(FIXTURE_NOW);
   const lastObservedIndex = Math.max(1, Math.min(42, Math.floor((now - startsAt) / (30 * 60_000))));
@@ -131,6 +132,7 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
     },
     async matrix(lineSlug, serviceDate): Promise<MatrixResult> {
       failSource(scenario);
+      if (scenario === "matrix-error") throw new Error("Deterministic matrix-only fixture failure");
       if (normalizedLineAlias(lineSlug) !== "c1") return { status: "unavailable", reason: "no-data" };
       if (serviceDate !== FIXTURE_TODAY) return { status: "unavailable", reason: "retention" };
       return { status: "available", matrix: directionalFixtureMatrix(scenario) };

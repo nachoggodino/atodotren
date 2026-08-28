@@ -172,17 +172,84 @@ function vehicleRows(serviceDate: string, capturedAt: string): RawPostgresRow[] 
     line_name_es: "C1",
     line_name_en: "C1",
     current_stop_sequence: 2,
-    current_station_id: "atocha",
-    current_station_slug_es: "atocha",
-    current_station_slug_en: "atocha",
-    current_station_name_es: "Atocha",
-    current_station_name_en: "Atocha",
     latest_stop_delay: 180,
-    vehicle_timestamp: capturedAt,
+    vehicle_source_at: capturedAt,
+    origin_station_id: "chamartin",
+    origin_station_slug_es: "chamartin",
+    origin_station_slug_en: "chamartin",
+    origin_station_name_es: "Chamartín",
+    origin_station_name_en: "Chamartín",
+    destination_station_id: "atocha",
+    destination_station_slug_es: "atocha",
+    destination_station_slug_en: "atocha",
+    destination_station_name_es: "Atocha",
+    destination_station_name_en: "Atocha",
+    scheduled_next_arrival_at: `${serviceDate}T08:05:00Z`,
+    reported_next_arrival_at: null,
+    previous_reported_arrival_at: `${serviceDate}T08:00:30Z`,
+    previous_observed_presence_at: `${serviceDate}T08:00:20Z`,
+    latest_usable_delay: 180,
+    latest_delay_source_at: capturedAt,
   };
   return [
-    { ...base, state_key: "train-stopped", source_trip_id: "trip-101", vehicle_id: "101", current_status: "STOPPED_AT", journey_id: 101 },
-    { ...base, state_key: "train-moving", source_trip_id: "trip-102", vehicle_id: "102", current_status: "IN_TRANSIT", journey_id: 102 },
+    {
+      ...base,
+      state_key: "train-stopped",
+      source_trip_id: "trip-101",
+      vehicle_id: "101",
+      current_status: "STOPPED_AT",
+      journey_id: 101,
+      pattern_id: "c1-main-0",
+      direction: 0,
+      headsign: "Atocha",
+      current_station_id: "atocha",
+      current_station_slug_es: "atocha",
+      current_station_slug_en: "atocha",
+      current_station_name_es: "Atocha",
+      current_station_name_en: "Atocha",
+      previous_station_id: "chamartin",
+      previous_station_slug_es: "chamartin",
+      previous_station_slug_en: "chamartin",
+      previous_station_name_es: "Chamartín",
+      previous_station_name_en: "Chamartín",
+      next_station_id: null,
+    },
+    {
+      ...base,
+      state_key: "train-moving",
+      source_trip_id: "trip-102",
+      vehicle_id: "102",
+      current_status: "IN_TRANSIT_TO",
+      journey_id: 102,
+      pattern_id: "c1-main-0",
+      direction: 0,
+      headsign: "Atocha",
+      current_station_id: null,
+      previous_station_id: "chamartin",
+      previous_station_slug_es: "chamartin",
+      previous_station_slug_en: "chamartin",
+      previous_station_name_es: "Chamartín",
+      previous_station_name_en: "Chamartín",
+      next_station_id: "atocha",
+      next_station_slug_es: "atocha",
+      next_station_slug_en: "atocha",
+      next_station_name_es: "Atocha",
+      next_station_name_en: "Atocha",
+    },
+    {
+      ...base,
+      state_key: "train-unknown",
+      source_trip_id: "trip-103",
+      vehicle_id: "103",
+      current_status: "UNKNOWN",
+      journey_id: 103,
+      pattern_id: null,
+      direction: null,
+      headsign: null,
+      current_station_id: null,
+      previous_station_id: null,
+      next_station_id: null,
+    },
   ];
 }
 
@@ -228,12 +295,17 @@ function postgresHarness(): AdapterHarness {
           if (text.includes("api.catalog_search")) return [{ entity_kind: "station", stable_id: "atocha", slug_es: "atocha", slug_en: "atocha", public_code: null, name_es: "Atocha", name_en: "Atocha" }];
           if (text.includes("api.schematic_pattern_stop")) return topologyRows();
           if (text.includes("api.live_health")) return scenario === "outage" ? [] : [{ latest_successful_poll_at: capturedAt }];
-          if (text.includes("api.live_vehicle")) return vehicleRows(date, capturedAt);
+          if (text.includes("api.active_live_vehicle")) return vehicleRows(date, capturedAt);
           if (text.includes("api.service_day_state")) {
             const dates = Array.isArray(values[0]) ? values[0] as string[] : [date];
             return dates.map((serviceDate) => ({ service_date: serviceDate, aggregate_algorithm_version: scenario === "mixed" ? "v2" : "v1", status: "verified", finalized_at: `${serviceDate}T23:00:00Z` }));
           }
           if (text.includes("api.recent_line_matrix")) return matrixRows(date);
+          if (text.includes("SELECT history.station_id, catalog.name_es AS station_name")) return [{ station_id: "atocha", station_name: "Atocha", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
+          if (text.includes("history.scheduled_hour::text AS hour_id")) return [{ hour_id: "8", hour_label: "08:00", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
+          if (text.includes("extract(dow FROM history.service_date)::integer AS weekday")) return [{ weekday: 1, scheduled_hour: 8, scheduled_opportunities: 200, valid_delay_observations: 150, signed_delay_sum: 9000 }];
+          if (text.includes("AS entity_id") && text.includes("AS entity_label")) return [{ entity_id: "c1", entity_label: "C1", scheduled_opportunities: 200, valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
+          if (text.includes("api.history_segment_hour")) return [{ segment_id: "seg-1", direction: 0, segment_label: "Chamartín → Atocha", valid_delay_observations: 150, signed_delay_sum: 3000 }];
           if (text.includes("GROUP BY history.line_slug")) return [{ line_slug: "c1", public_code: "C1", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
           if (text.includes("WITH filtered")) return [aggregateRow(date, scenario)];
           if (text.includes("SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations") && (text.includes("api.history_line_hour") || text.includes("api.history_station_hour"))) {

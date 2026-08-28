@@ -34,7 +34,7 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
   return (
     <div
       aria-label={label}
-      className={`grid grid-cols-2 overflow-hidden border border-border bg-muted-soft ${compact ? "rounded-lg p-0.5" : "rounded-xl p-1"}`}
+      className={compact ? "grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-muted-soft p-0.5" : "grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-muted-soft p-1"}
       data-testid={testId}
       role="radiogroup"
     >
@@ -51,7 +51,9 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
               value={String(option.value)}
             />
             <span
-              className={`flex min-w-0 items-center justify-center font-bold transition-[background-color,color,box-shadow,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-inset ${compact ? "min-h-7 gap-1 rounded-md px-1.5 text-[7px]" : "min-h-10 gap-2 rounded-lg px-3 text-sm"} ${checked ? "bg-surface-strong text-primary shadow-sm" : "text-muted group-hover:text-foreground"}`}
+              className={compact
+                ? `flex min-h-6 min-w-0 items-center justify-center gap-1 px-1 text-[7px] font-bold transition-[color,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${checked ? "text-primary underline decoration-2 underline-offset-4" : "text-muted group-hover:text-foreground"}`
+                : `flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition-[background-color,color,box-shadow,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-inset ${checked ? "bg-surface-strong text-primary shadow-sm" : "text-muted group-hover:text-foreground"}`}
             >
               {option.icon}
               <span className="truncate">{option.label}</span>

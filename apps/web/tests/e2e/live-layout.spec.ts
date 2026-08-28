@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("live network uses the compact status hierarchy and interactive two-column cards", async ({ page }) => {
   await page.goto("/es/live");
 
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("En directo");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Directo");
   const networkContext = page.getByTestId("live-context-title");
   await expect(networkContext).toHaveText("Todas las líneas");
   await expect(networkContext).toHaveAttribute("data-context-tone", "neutral");
@@ -36,7 +36,7 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await statButtons.nth(0).click();
   const punctualityHelp = page.getByText("Una parada se considera puntual cuando su retraso es de 2 minutos o menos respecto a la hora prevista.");
   await expect(punctualityHelp).toBeVisible();
-  await page.getByRole("heading", { level: 1, name: "En directo" }).click();
+  await page.getByRole("heading", { level: 1, name: "Directo" }).click();
   await expect(punctualityHelp).toBeHidden();
 
   const lines = page.getByTestId("live-line-grid");
@@ -62,21 +62,21 @@ test("live network uses the compact status hierarchy and interactive two-column 
   await expect(page.locator(".sr-only table").filter({ hasText: "Distribución de retrasos" })).toContainText("Paradas");
 });
 
-test("live detail headers keep the context badge inline with the title", async ({ page }) => {
+test("live detail headers align the context badge with the title baseline", async ({ page }) => {
   await page.goto("/es/live");
   await page.goto("/es/live/line/c1");
   const heading = page.getByRole("heading", { level: 1 });
   const lineContext = page.getByTestId("live-context-title");
-  await expect(heading).toHaveText("En directo");
+  await expect(heading).toHaveText("Directo");
   await expect(heading).toHaveClass(/text-\[31px\]/);
   await expect(lineContext).toHaveText("Línea C1");
   await expect(lineContext).toHaveAttribute("data-context-tone", "line");
+  await expect(lineContext.locator("..")).toHaveClass(/items-baseline/);
   const headingBox = await heading.boundingBox();
   const contextBox = await lineContext.boundingBox();
   expect(headingBox).not.toBeNull();
   expect(contextBox).not.toBeNull();
   expect(contextBox!.x).toBeGreaterThan(headingBox!.x + headingBox!.width);
-  expect(Math.abs((headingBox!.y + headingBox!.height / 2) - (contextBox!.y + contextBox!.height / 2))).toBeLessThan(4);
   await expect(page.getByTestId("live-title-icon")).toHaveCount(0);
   const lineBack = page.getByRole("button", { name: "Volver" });
   await expect(lineBack).toBeVisible();
@@ -89,10 +89,11 @@ test("live detail headers keep the context badge inline with the title", async (
 
   await page.goto("/es/live/station/atocha");
   const stationHeading = page.getByRole("heading", { level: 1 });
-  await expect(stationHeading).toHaveText("En directo");
+  await expect(stationHeading).toHaveText("Directo");
   const stationContext = page.getByTestId("live-context-title");
   await expect(stationContext).toHaveText("Atocha");
   await expect(stationContext).toHaveAttribute("data-context-tone", "neutral");
+  await expect(stationContext.locator("..")).toHaveClass(/items-baseline/);
   const stationHeadingBox = await stationHeading.boundingBox();
   const stationContextBox = await stationContext.boundingBox();
   expect(stationHeadingBox).not.toBeNull();

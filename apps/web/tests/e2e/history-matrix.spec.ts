@@ -14,7 +14,7 @@ test("historical filters are URL-addressable and the matrix exposes keyboard det
   await cell.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
-  await expect(page.getByText(/✓ ≤2m/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="punctual"]').first()).toHaveText("✓");
   if (testInfo.project.name.startsWith("desktop")) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: "test-results/screenshots/history-matrix-desktop.png", fullPage: true });
@@ -38,32 +38,48 @@ test("@webkit history filters and matrix basics", async ({ page }) => {
 
 test("current-day cancellation and missing-evidence fixtures remain distinct", async ({ page }) => {
   await page.goto("/en/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=cancellations");
-  await expect(page.getByText(/× canceled/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="canceled"]').first()).toHaveText("×");
   await expect(page.locator('[data-state="canceled"]').first()).toBeVisible();
   await page.goto("/en/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=missing");
-  await expect(page.getByText(/— missing evidence/)).toBeVisible();
+  await expect(page.locator('.matrix-legend-swatch[data-kind="missing"]').first()).toHaveText("—");
   await expect(page.locator('[data-state="missing_evidence"]').first()).toBeVisible();
 });
 
-test("@webkit large matrix stays complete, responsive, scrollable and sticky", async ({ page }, testInfo) => {
+test("matrix failure stays isolated from the historical page", async ({ page }) => {
+  await page.goto("/en/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=matrix-error");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("C1");
+  await expect(page.getByText("The detailed matrix could not be loaded safely. Try again later.")).toBeVisible();
+  await expect(page.getByText("Temporal evolution")).toBeVisible();
+});
+
+test("@webkit large matrix keeps a bounded DOM while remaining scrollable and interactive", async ({ page }, testInfo) => {
   const started = Date.now();
   await page.goto("/es/history/line/c1?from=2026-08-24&to=2026-08-24&scenario=large-matrix");
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
+  await expect(matrix.getByTestId("matrix-virtual-column").first()).toBeVisible();
   const renderedMs = Date.now() - started;
-  await expect(matrix.getByRole("button")).toHaveCount(2880);
-  expect(await matrix.locator("thead").evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
-  expect(await matrix.locator("tbody th").first().evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+
+  const initialColumns = await matrix.getByTestId("matrix-virtual-column").allTextContents();
+  const initialButtonCount = await matrix.getByRole("button").count();
+  expect(initialColumns.length).toBeGreaterThan(0);
+  expect(initialColumns.length).toBeLessThan(30);
+  expect(initialButtonCount).toBeGreaterThan(0);
+  expect(initialButtonCount).toBeLessThan(1000);
+  expect(await matrix.locator(".sticky.top-0").first().evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+  expect(await matrix.locator(".sticky.left-0").first().evaluate((element) => getComputedStyle(element).position)).toBe("sticky");
+
   const scroll = await matrix.evaluate((element) => {
     element.scrollTop = Math.min(600, element.scrollHeight);
-    element.scrollLeft = Math.min(900, element.scrollWidth);
+    element.scrollLeft = Math.min(1600, element.scrollWidth);
     return { top: element.scrollTop, left: element.scrollLeft, height: element.scrollHeight, width: element.scrollWidth };
   });
   expect(scroll.top).toBeGreaterThan(0);
   expect(scroll.left).toBeGreaterThan(0);
+  await expect.poll(async () => (await matrix.getByTestId("matrix-virtual-column").allTextContents()).join("|")).not.toBe(initialColumns.join("|"));
 
   const interactionStarted = Date.now();
-  const visibleCell = matrix.getByRole("button").nth(1000);
+  const visibleCell = matrix.getByRole("button").first();
   await visibleCell.focus();
   await visibleCell.press("Enter");
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
@@ -72,7 +88,7 @@ test("@webkit large matrix stays complete, responsive, scrollable and sticky", a
   expect(renderedMs).toBeLessThan(30_000);
   expect(interactionMs).toBeLessThan(5_000);
   await testInfo.attach("large-matrix-profile.json", {
-    body: Buffer.from(JSON.stringify({ project: testInfo.project.name, renderedMs, interactionMs, ...scroll }, null, 2)),
+    body: Buffer.from(JSON.stringify({ project: testInfo.project.name, renderedMs, interactionMs, initialColumns: initialColumns.length, initialButtonCount, ...scroll }, null, 2)),
     contentType: "application/json",
   });
 });

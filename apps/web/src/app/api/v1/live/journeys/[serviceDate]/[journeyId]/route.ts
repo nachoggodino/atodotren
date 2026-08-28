@@ -26,6 +26,7 @@ export async function GET(request: Request, { params }: { readonly params: Promi
       punctuality: observed === 0 ? null : train.delaySeconds! <= PUNCTUALITY_THRESHOLD_SECONDS ? 1 : 0,
       meanDelaySeconds: train.delaySeconds,
       medianDelaySeconds: train.delaySeconds,
+      p90DelaySeconds: train.delaySeconds,
       canceled: train.state === "canceled" ? 1 : 0,
       missing: train.state === "missing_evidence" ? 1 : 0,
       distribution: train.delaySeconds === null ? distributionFromCounts({}) : distributionFromCounts({ [delayBucketForSeconds(train.delaySeconds)]: 1 }),

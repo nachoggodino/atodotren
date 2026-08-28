@@ -76,13 +76,13 @@ export function pointForTrain(train: TrainDetail, patterns: readonly PlottedPatt
     const stop = pattern.stopByStation.get(train.position.stationId);
     return stop === undefined ? null : { x: stop.x, y: stop.y, patternId: pattern.pattern.id };
   }
-  if (train.position.progress === null) return null;
   const from = pattern.stopByStation.get(train.position.fromStationId);
   const to = pattern.stopByStation.get(train.position.toStationId);
   if (from === undefined || to === undefined) return null;
+  const progress = train.position.progress ?? 0.5;
   return {
-    x: from.x + (to.x - from.x) * train.position.progress,
-    y: from.y + (to.y - from.y) * train.position.progress,
+    x: from.x + (to.x - from.x) * progress,
+    y: from.y + (to.y - from.y) * progress,
     patternId: pattern.pattern.id,
   };
 }
