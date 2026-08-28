@@ -85,6 +85,9 @@ export POSTGRES_CONTRACT_TELEGRAM_PASSWORD="${telegram_password}"
 export POSTGRES_CONTRACT_WEB_PASSWORD="${web_password}"
 
 if [[ "${contract_mode}" == 'compat' ]]; then
+  # The focused compatibility contract imports the migration implementation
+  # directly, so compile only the database package instead of the entire test suite.
+  npm run build --workspace @atodotren/db
   node scripts/postgres-compat-contract.mjs
   echo "PostgreSQL compatibility contract passed for ${postgres_image}."
   exit 0
