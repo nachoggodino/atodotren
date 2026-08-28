@@ -99,13 +99,13 @@ export function EntitySearch({
             {loading ? <span aria-label={messages.common.loading} className="absolute right-3 top-1/2 size-3.5 -translate-y-1/2 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
           </div>
         ) : (
-          <div className="flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15" data-testid="landing-search-field">
+          <div className="flex min-h-[3.2rem] items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15" data-testid="landing-search-field">
             <Search aria-hidden="true" className="size-5 shrink-0 text-primary" />
             <Ariakit.Combobox
               id={inputId}
               autoComplete="off"
               autoSelect="always"
-              className="landing-search-input min-w-0 flex-1 appearance-none border-0 bg-transparent py-4 text-base shadow-none outline-none ring-0 placeholder:text-muted/65 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:text-lg"
+              className="landing-search-input min-w-0 flex-1 appearance-none border-0 bg-transparent py-3 text-base shadow-none outline-none ring-0 placeholder:text-muted/65 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:text-lg"
               placeholder={messages.landing.searchPlaceholder}
             />
             {loading ? <span aria-label={messages.common.loading} className="size-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
