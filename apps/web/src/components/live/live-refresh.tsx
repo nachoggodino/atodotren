@@ -30,7 +30,7 @@ export function LiveRefresh({ messages }: { readonly messages: Messages }) {
       window.clearTimeout(timer);
       timer = null;
     };
-    const scheduleNext = () => {
+    const scheduleNext = (): void => {
       clearTimer();
       timer = window.setTimeout(() => {
         timer = null;

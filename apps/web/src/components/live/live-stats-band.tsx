@@ -32,7 +32,7 @@ export function LiveStatsBand({ stats, lang, messages }: { readonly stats: Summa
   };
   return (
     <div className="grid grid-cols-2 gap-px rounded-2xl bg-border" data-testid="live-stats-grid">
-      {summaryMetricItems(stats, lang, messages).map((metric) => <LiveMetricCard {...metric} {...details[metric.key]} key={metric.key} />)}
+      {summaryMetricItems(stats, lang, messages).map(({ key, ...metric }) => <LiveMetricCard {...metric} {...details[key]} key={key} />)}
     </div>
   );
 }

@@ -83,12 +83,11 @@ test("live navigation opens destinations at the top", async ({ page }, testInfo)
 test("browser back restores the previous page scroll position", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "History scroll restoration only needs one Chromium viewport.");
   await page.goto("/es/live");
-  const lineLink = page.getByTestId("live-line-grid").locator(":scope > a").last();
-  await lineLink.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollTo(0, Math.min(400, document.documentElement.scrollHeight - window.innerHeight)));
   const previousScroll = await page.evaluate(() => window.scrollY);
   expect(previousScroll).toBeGreaterThan(0);
 
-  await lineLink.click();
+  await page.getByTestId("live-line-grid").locator(":scope > a").last().click();
   await expect(page).toHaveURL(/\/es\/live\/line\//);
   await page.goBack();
   await expect(page).toHaveURL(/\/es\/live$/);
