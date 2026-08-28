@@ -11,7 +11,12 @@ fail() {
 while IFS= read -r path; do
   [[ -z "$path" ]] && continue
   fail "chronological/catch-all test filename is forbidden: ${path}"
-done < <(find tests apps/web/tests -type f \( -name 'milestone*.test.ts' -o -name '*corrections.test.ts' -o -name 'misc*.test.ts' -o -name 'regression*.test.ts' \) -print)
+done < <(find tests apps/web/tests -type f \(
+  -name 'milestone*.test.ts' -o -name 'milestone*.spec.ts' -o
+  -name '*corrections.test.ts' -o -name '*corrections.spec.ts' -o
+  -name 'misc*.test.ts' -o -name 'misc*.spec.ts' -o
+  -name 'regression*.test.ts' -o -name 'regression*.spec.ts'
+\) -print)
 
 browser_forbidden='\.toHaveCSS\(|\.toHaveClass\(|boundingBox\(|getComputedStyle\('
 if matches="$(grep -RInE --include='*.spec.ts' "$browser_forbidden" apps/web/tests/e2e || true)"; [[ -n "$matches" ]]; then
@@ -20,7 +25,7 @@ if matches="$(grep -RInE --include='*.spec.ts' "$browser_forbidden" apps/web/tes
 fi
 
 repository_grep="readFile\\([[:space:]]*['\"](package\\.json|compose(\\.smoke)?\\.ya?ml|migrations/)"
-if matches="$(grep -RInE --include='*.test.ts' "$repository_grep" tests/unit || true)"; [[ -n "$matches" ]]; then
+if matches="$(grep -RInE --include='*.test.ts' "$repository_grep" tests/unit apps/web/tests/unit || true)"; [[ -n "$matches" ]]; then
   printf '%s\n' "$matches" >&2
   fail 'unit tests must not grep tracked package/Compose/migration source; use repository contracts or integration tests.'
 fi
