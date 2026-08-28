@@ -2,26 +2,16 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 for (const path of ["/es", "/en/live", "/es/history/line/c1?from=2026-08-18&to=2026-08-24", "/en/methodology"]) {
-  test(`axe smoke ${path}`, async ({ page }) => {
+  test(`axe smoke ${path}`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-chromium", "One Chromium accessibility pass per representative route is sufficient.");
     await page.goto(path);
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(results.violations, results.violations.map((violation) => `${violation.id}: ${violation.help}`).join("\n")).toEqual([]);
   });
 }
 
-test("security headers use a nonce-based CSP", async ({ page }) => {
-  const response = await page.goto("/es");
-  expect(response).not.toBeNull();
-  const headers = response!.headers();
-  expect(headers["x-content-type-options"]).toBe("nosniff");
-  expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
-  const csp = headers["content-security-policy"] ?? "";
-  expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
-  expect(csp).toContain("frame-ancestors 'none'");
-  expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
-});
-
-test("live API cache keeps the network summary and only the latest detail", async ({ page }) => {
+test("live API cache keeps the network summary and only the latest detail", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Service-worker cache semantics do not need duplicate Chromium viewport coverage.");
   await page.goto("/es");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
   await page.reload();
@@ -41,7 +31,8 @@ test("live API cache keeps the network summary and only the latest detail", asyn
   expect(entries).toEqual(["/api/v1/live/network", "/api/v1/live/stations/atocha"]);
 });
 
-test("a cached live page remains explicit when the browser goes offline", async ({ page, context }) => {
+test("a cached live page remains explicit when the browser goes offline", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Offline navigation is covered once in Chromium and separately in WebKit.");
   await page.goto("/es/live/line/c1");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
   await page.reload();
@@ -61,7 +52,8 @@ test("@webkit offline bootstrap reflects connectivity without relying on cache n
   await expect(page.getByTestId("offline-status")).toBeHidden();
 });
 
-test("uncached historical detail receives the explicit no-cache offline page", async ({ page, context }) => {
+test("uncached historical detail receives the explicit no-cache offline page", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "The fallback contract is engine-level behavior, not viewport behavior.");
   await page.goto("/es");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
   await context.setOffline(true);

@@ -30,6 +30,8 @@ jobs:
           fetch-depth: 0
       - name: Check patch whitespace
         run: git diff --check "$FRONTEND_BASE"...HEAD
+      - name: Check test architecture
+        run: ./scripts/check-test-architecture.sh
       - name: Prove accepted migrations are immutable
         shell: bash
         run: |
@@ -166,9 +168,18 @@ jobs:
         env:
           WEB_DATA_MODE: fixture
           WEB_ALLOW_FIXTURE_PRODUCTION: "true"
+      - name: Upload reusable production web build
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-production-build
+          path: |
+            apps/web/.next
+            !apps/web/.next/cache
+          include-hidden-files: true
+          retention-days: 1
 
   postgres-contract:
-    name: PostgreSQL ${{ matrix.postgres }} worker + public web contracts
+    name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.label }}
     runs-on: ubuntu-latest
     needs:
       - verify
@@ -176,9 +187,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres:
-          - postgres:16.14-bookworm
-          - postgres:18.4-bookworm
+        include:
+          - postgres: postgres:16.14-bookworm
+            mode: compat
+            label: compatibility
+          - postgres: postgres:18.4-bookworm
+            mode: full
+            label: full acceptance
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v7
@@ -186,7 +201,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}'
+      - run: ./scripts/postgres-contract.sh '${{ matrix.postgres }}' '${{ matrix.mode }}'
 
   web-browser:
     name: Playwright / ${{ matrix.label }}
@@ -215,6 +230,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Restore production web build
+        uses: actions/download-artifact@v7
+        with:
+          name: web-production-build
+          path: apps/web/.next
       - name: Install ${{ matrix.browser }} browser runtime
         shell: bash
         run: |
@@ -226,6 +246,8 @@ jobs:
           fi
       - name: Run ${{ matrix.label }} acceptance tests
         run: npm run test:e2e --workspace @atodotren/web -- --project='${{ matrix.project }}'
+        env:
+          PLAYWRIGHT_SKIP_BUILD: "true"
       - name: Upload ${{ matrix.label }} inspection artifacts
         if: always()
         uses: actions/upload-artifact@v6
