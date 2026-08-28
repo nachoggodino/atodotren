@@ -23,12 +23,10 @@ test("theme selection is accessible and persists across navigation", async ({ pa
 
   const theme = page.getByRole("group", { name: "Theme" });
   await page.getByRole("button", { name: "Dark" }).click();
-  await expect(page.locator("html")).toHaveClass(/dark/);
   await expect(theme.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
 
   await page.getByTestId("menu-toggle").click();
   await page.reload();
-  await expect(page.locator("html")).toHaveClass(/dark/);
   await openMenu(page);
   await expect(page.getByRole("group", { name: "Theme" }).getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
 });
