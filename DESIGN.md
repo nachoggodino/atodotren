@@ -51,7 +51,7 @@ Default transitions are 140-240ms. The floating navigation drawer expands in pla
 
 ## Shell
 
-The floating sticky shell adapts the interaction quality of Termómetro de Madrid without copying its product structure: in-place expansion, inert hidden menu content, focus restoration, mobile hide-on-scroll/reveal, route context, language/theme controls and a global auto-refresh switch. Navigation preserves normal browser/Next scroll behavior so forward navigation starts at its destination and browser Back can restore prior scroll position.
+The floating sticky shell adapts the interaction quality of Termómetro de Madrid without copying its product structure: in-place expansion, inert hidden menu content, focus restoration, mobile hide-on-scroll/reveal, route context, language/theme controls and a global auto-refresh switch. A narrow route-scroll coordinator preserves the intended browser semantics across App Router transitions: pathname-changing forward navigation starts at the top, while Back/Forward restores the last recorded position for the destination route instead of globally resetting every route change.
 
 ## Brand assets
 

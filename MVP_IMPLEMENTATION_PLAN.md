@@ -274,7 +274,7 @@ Target WCAG 2.2 AA:
 - responsive mobile/desktop layouts;
 - longer English copy tested alongside Spanish.
 
-The floating navigation adapts the proven Termómetro interaction architecture: in-place expansion, hamburger morph and mobile hide-on-scroll/reveal, without copying its reporting or Supabase coupling. Normal browser/Next navigation owns scroll restoration rather than a global route effect.
+The floating navigation adapts the proven Termómetro interaction architecture: in-place expansion, hamburger morph and mobile hide-on-scroll/reveal, without copying its reporting or Supabase coupling. A small shell-owned scroll coordinator records route positions so pathname-changing forward navigation starts at the top while browser Back/Forward restores the destination route's previous position.
 
 ## 16. Verification strategy
 

@@ -12,7 +12,7 @@ test("historical filters are URL-addressable and matrix detail is keyboard opera
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
   await expect(matrix).toHaveAttribute("role", "grid");
-  expect(await matrix.getByRole("gridcell").count()).toBeGreaterThan(0);
+  await expect(matrix.getByRole("gridcell").first()).toBeAttached();
   const cell = matrix.getByRole("button").first();
   await cell.focus();
   await page.keyboard.press("Enter");

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import type { Lang, SearchResponse, SearchResult } from "@/lib/domain/contracts";
+import { announceForwardRouteNavigation } from "@/lib/navigation-events";
 import type { Messages } from "@/messages/types";
 
 const SEARCH_DEBOUNCE_MS = 160;
@@ -54,6 +55,7 @@ export function EntitySearch({
   const navigateToResult = (result: SearchResult, mode: "live" | "history") => {
     setOpen(false);
     onNavigate?.();
+    announceForwardRouteNavigation();
     router.push(routeFor(result, lang, mode));
   };
 
