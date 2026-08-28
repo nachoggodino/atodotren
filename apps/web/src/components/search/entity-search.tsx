@@ -109,19 +109,21 @@ export function EntitySearch({
             return (
               <div className="relative border-b border-border last:border-b-0" key={`${result.kind}-${result.id}`}>
                 <Ariakit.ComboboxItem
-                  className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"
+                  className={compact
+                    ? "flex w-full cursor-pointer items-center px-3 py-2.5 pr-[4.75rem] text-left text-sm transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"
+                    : "flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"}
                   onClick={() => navigateToResult(result, "live")}
                   resetValueOnSelect={false}
                   setValueOnClick={false}
                   value={`${result.kind}:${result.id}`}
                 >
-                  {result.kind === "line" ? <TrainFront aria-hidden="true" className="size-5 shrink-0 text-primary" /> : <MapPin aria-hidden="true" className="size-5 shrink-0 text-primary" />}
+                  {!compact ? (result.kind === "line" ? <TrainFront aria-hidden="true" className="size-5 shrink-0 text-primary" /> : <MapPin aria-hidden="true" className="size-5 shrink-0 text-primary" />) : null}
                   <strong className="min-w-0 flex-1 truncate">{label}</strong>
                 </Ariakit.ComboboxItem>
-                <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+                <div className={compact ? "absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1" : "absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5"}>
                   <Link
                     aria-label={`${messages.landing.liveAction}: ${label}`}
-                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-positive)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-positive)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1"
+                    className={`${compact ? "size-8" : "size-9"} grid place-items-center rounded-lg text-[var(--landing-positive)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-positive)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1`}
                     href={routeFor(result, lang, "live")}
                     onClick={(event) => {
                       event.preventDefault();
@@ -134,7 +136,7 @@ export function EntitySearch({
                   </Link>
                   <Link
                     aria-label={`${messages.landing.historyAction}: ${label}`}
-                    className="grid size-9 place-items-center rounded-lg text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1"
+                    className={`${compact ? "size-8" : "size-9"} grid place-items-center rounded-lg text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1`}
                     href={routeFor(result, lang, "history")}
                     onClick={(event) => {
                       event.preventDefault();
