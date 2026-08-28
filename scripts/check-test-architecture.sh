@@ -19,7 +19,7 @@ if matches="$(grep -RInE --include='*.spec.ts' "$browser_forbidden" apps/web/tes
   fail 'Playwright must assert user/browser behavior, not CSS classes, computed styles or pixel geometry.'
 fi
 
-repository_grep='readFile\([[:space:]]*["'"'](package\.json|compose(\.smoke)?\.ya?ml|migrations/)'
+repository_grep="readFile\\([[:space:]]*['\"](package\\.json|compose(\\.smoke)?\\.ya?ml|migrations/)"
 if matches="$(grep -RInE --include='*.test.ts' "$repository_grep" tests/unit || true)"; [[ -n "$matches" ]]; then
   printf '%s\n' "$matches" >&2
   fail 'unit tests must not grep tracked package/Compose/migration source; use repository contracts or integration tests.'
