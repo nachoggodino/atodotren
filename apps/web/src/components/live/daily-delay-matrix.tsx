@@ -175,10 +175,16 @@ export function DailyDelayMatrix({ matrix, lang, messages }: { readonly matrix: 
                     if (cell === undefined) return <span aria-hidden="true" className="size-[26px]" key={station.id} />;
                     const stationRef = stationById.get(cell.stationId) ?? station;
                     const active = selected?.cell.journeyId === cell.journeyId && selected.cell.stationId === cell.stationId;
+                    const cornerClass = [
+                      virtualRow.index === 0 && index === 0 ? "rounded-tl-md" : "",
+                      virtualRow.index === 0 && index === stations.length - 1 ? "rounded-tr-md" : "",
+                      virtualRow.index === journeys.length - 1 && index === 0 ? "rounded-bl-md" : "",
+                      virtualRow.index === journeys.length - 1 && index === stations.length - 1 ? "rounded-br-md" : "",
+                    ].filter(Boolean).join(" ");
                     return (
                       <Ariakit.PopoverDisclosure
                         aria-label={`${stationRef.name[lang]}, ${formatMadridTime(cell.scheduledAt, lang)}, ${matrixStateLabel(cell, messages)}, ${formatDelay(cell.delaySeconds, lang)}`}
-                        className="relative size-[26px] touch-manipulation outline-none transition-[filter,opacity] hover:brightness-110 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0"
+                        className={`relative size-[26px] touch-manipulation outline-none transition-[filter,opacity] hover:brightness-110 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 ${cornerClass}`}
                         data-kind={matrixCellPresentation(cell).kind}
                         data-selected={active ? "true" : "false"}
                         key={station.id}
