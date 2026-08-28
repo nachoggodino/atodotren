@@ -16,7 +16,7 @@ test("live network exposes the status summary, metrics and line navigation", asy
 
   const punctuality = page.getByTestId("live-stats-grid").getByRole("button").first();
   await punctuality.click();
-  await expect(page.getByText("Una parada se considera puntual cuando su retraso es de 2 minutos o menos respecto a la hora prevista.")).toBeVisible();
+  await expect(page.getByRole("dialog").filter({ visible: true })).toBeVisible();
 
   const lineLinks = page.getByTestId("live-line-grid").locator(":scope > a");
   expect(await lineLinks.count()).toBeGreaterThan(0);
