@@ -21,7 +21,7 @@ function stationDelay(delaySeconds: number | null, lang: Lang): string {
 
 function destinationLabel(train: TrainDetail, lang: Lang, messages: Messages): string {
   const station = train.destination ?? train.direction?.to;
-  if (station !== null) return station.name[lang];
+  if (station != null) return station.name[lang];
   const headsign = train.headsign?.[lang] ?? train.direction?.headsign?.[lang];
   return headsign ?? messages.common.unavailable;
 }
