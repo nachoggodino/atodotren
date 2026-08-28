@@ -24,7 +24,7 @@ export function LiveLineVisualization({ patterns, trains, matrixResult, lineColo
 
   return (
     <div data-testid="live-line-visualization">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted" data-testid="live-active-trains"><TrainFront aria-hidden="true" className="size-4" /><span>{trains.length} {messages.live.activeTrains}</span></div>
+      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-muted" data-testid="live-active-trains"><TrainFront aria-hidden="true" className="size-4 text-[var(--landing-positive)]" /><span>{trains.length} {messages.live.activeTrains}</span></div>
       <SegmentedRadio
         label={messages.live.viewMode}
         name="live-line-view"
