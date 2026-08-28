@@ -1,4 +1,4 @@
-import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, SummaryStats, TrainDetail, TrainPosition } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
