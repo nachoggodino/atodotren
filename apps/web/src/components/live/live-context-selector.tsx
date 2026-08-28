@@ -31,7 +31,7 @@ export function LiveContextSelector({
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
       <Ariakit.PopoverDisclosure
-        className="inline-flex min-w-0 appearance-none border-0 bg-transparent p-0"
+        className="inline-flex min-w-0 appearance-none border-0 bg-transparent p-0 transition-[transform,opacity] duration-100 active:scale-95 active:opacity-70"
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
         title={subtitle}
