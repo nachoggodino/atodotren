@@ -127,16 +127,24 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
             <div className="relative flex min-h-16 items-center gap-3 px-4">
               <Link
                 aria-label={messages.nav.home}
-                className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md text-primary transition-[transform,opacity] duration-100 active:scale-[.96] active:opacity-70"
+                className="grid size-11 shrink-0 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
                 href={`/${lang}`}
                 onClick={closeForNavigation}
               >
-                <BrandSymbol className="h-[1.4rem]" /><BrandWordmark />
+                <BrandSymbol className="h-[1.4rem]" />
               </Link>
               <span className="hidden items-center gap-1.5 text-xs font-semibold text-muted sm:flex">
                 <ContextIcon aria-hidden="true" className={`size-4 shrink-0 ${context.iconClassName}`} />
                 {context.label}
               </span>
+              <Link
+                aria-label={messages.nav.home}
+                className="absolute left-1/2 flex -translate-x-1/2 items-center rounded-md text-primary transition-[transform,opacity] duration-100 active:scale-[.96] active:opacity-70"
+                href={`/${lang}`}
+                onClick={closeForNavigation}
+              >
+                <BrandWordmark />
+              </Link>
               <Ariakit.Disclosure
                 ref={menuButtonRef}
                 data-testid="menu-toggle"
