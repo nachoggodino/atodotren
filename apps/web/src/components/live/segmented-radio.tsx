@@ -52,7 +52,7 @@ export function SegmentedRadio<T extends SegmentedRadioValue>({
             />
             <span
               className={compact
-                ? `flex min-h-6 min-w-0 items-center justify-center gap-1 px-1 text-[9px] font-bold transition-[color,transform,opacity] [&_svg]:size-3 group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${checked ? "text-primary underline decoration-2 underline-offset-4" : "text-muted group-hover:text-foreground"}`
+                ? `flex min-h-6 min-w-0 items-center justify-center gap-1 pl-2 pr-1 text-[9px] font-bold transition-[color,transform,opacity] [&_svg]:size-3 group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${checked ? "text-primary underline decoration-2 underline-offset-4" : "text-muted group-hover:text-foreground"}`
                 : `flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold transition-[background-color,color,box-shadow,transform,opacity] group-active:scale-[.98] group-active:opacity-75 peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-inset ${checked ? "bg-surface-strong text-primary shadow-sm" : "text-muted group-hover:text-foreground"}`}
             >
               {option.icon}
