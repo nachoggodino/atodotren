@@ -27,10 +27,22 @@ fi
 
 while IFS= read -r path; do
   lines="$(wc -l < "$path")"
-  if (( lines > 1200 )); then
-    fail "unit test file is an extreme monolith (${lines} lines): ${path}"
+  if (( lines > 600 )); then
+    fail "unit test file is too broad (${lines} lines): ${path}"
   fi
 done < <(find tests/unit apps/web/tests/unit -type f -name '*.test.ts' -print)
+
+while IFS= read -r path; do
+  lines="$(wc -l < "$path")"
+  case "$path" in
+    tests/integration/postgres.test.ts) max_lines=1750 ;;
+    tests/integration/aggregation-retention.test.ts) max_lines=1325 ;;
+    *) max_lines=800 ;;
+  esac
+  if (( lines > max_lines )); then
+    fail "integration test file exceeded its architecture budget (${lines} > ${max_lines} lines): ${path}"
+  fi
+done < <(find tests/integration -type f -name '*.test.ts' -print)
 
 while IFS= read -r path; do
   lines="$(wc -l < "$path")"
