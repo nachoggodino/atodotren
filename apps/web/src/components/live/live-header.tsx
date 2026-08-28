@@ -2,36 +2,30 @@
 
 import { ArrowLeft, Radio } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type { CSSProperties } from "react";
-import { lineBadgeTextColor } from "@/components/line-badge";
+import type { Lang } from "@/lib/domain/contracts";
+import type { Messages } from "@/messages/types";
+import { LiveContextSelector } from "./live-context-selector";
 
 export function LiveHeader({
   title,
   subtitle,
   backLabel,
   contextColor,
+  lang,
+  messages,
 }: {
   readonly title: string;
   readonly subtitle: string;
   readonly backLabel?: string;
   readonly contextColor?: string;
+  readonly lang: Lang;
+  readonly messages: Messages;
 }) {
   const router = useRouter();
-  const contextStyle: CSSProperties | undefined = contextColor === undefined
-    ? undefined
-    : { backgroundColor: contextColor, color: lineBadgeTextColor(contextColor) };
   const heading = (
     <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
       <h1 className="shrink-0 whitespace-nowrap text-[31px] font-black tracking-[-.045em] sm:text-[43px]">{title}</h1>
-      <span
-        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
-        data-context-tone={contextColor === undefined ? "neutral" : "line"}
-        data-testid="live-context-title"
-        style={contextStyle}
-        title={subtitle}
-      >
-        {subtitle}
-      </span>
+      <LiveContextSelector contextColor={contextColor} lang={lang} messages={messages} subtitle={subtitle} />
     </div>
   );
 

@@ -124,16 +124,16 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
       <header className={`sticky top-0 z-50 transition-transform duration-200 ${hidden ? "-translate-y-[120%]" : "translate-y-0"}`}>
         <div className="page-shell pt-3 sm:pt-4">
           <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-float)] backdrop-blur-xl">
-            <div className="flex min-h-16 items-center gap-3 px-4">
+            <div className="relative flex min-h-16 items-center gap-3 px-4">
               <Link
                 aria-label={messages.nav.home}
-                className="flex items-center gap-2 rounded-md text-primary transition-[transform,opacity] duration-100 active:scale-[.96] active:opacity-70"
+                className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md text-primary transition-[transform,opacity] duration-100 active:scale-[.96] active:opacity-70"
                 href={`/${lang}`}
                 onClick={closeForNavigation}
               >
                 <BrandSymbol className="h-[1.4rem]" /><BrandWordmark />
               </Link>
-              <span className="hidden items-center gap-1.5 border-l border-border pl-3 text-xs font-semibold text-muted sm:flex">
+              <span className="hidden items-center gap-1.5 text-xs font-semibold text-muted sm:flex">
                 <ContextIcon aria-hidden="true" className={`size-4 shrink-0 ${context.iconClassName}`} />
                 {context.label}
               </span>
@@ -141,7 +141,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                 ref={menuButtonRef}
                 data-testid="menu-toggle"
                 aria-label={open ? messages.nav.close : messages.nav.menu}
-                className="ml-auto grid size-11 place-items-center rounded-lg transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
+                className="ml-auto grid size-11 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
               >
                 <span className="relative block h-4 w-5" aria-hidden="true">
                   <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />

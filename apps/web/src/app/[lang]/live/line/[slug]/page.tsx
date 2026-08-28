@@ -33,7 +33,7 @@ export default async function LiveLinePage({ params, searchParams }: { readonly 
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader backLabel={messages.common.back} contextColor={data.context.color} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
+      <LiveHeader backLabel={messages.common.back} contextColor={data.context.color} lang={lang} messages={messages} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
       <div className="mt-5"><DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" /><LiveRefresh messages={messages} /></div>
       <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
       <section className="mt-9"><LiveLineVisualization patterns={data.patterns} trains={data.trains} matrixResult={matrixResult} lineColor={data.context.color} lang={lang} messages={messages} /></section>

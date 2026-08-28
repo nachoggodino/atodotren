@@ -19,7 +19,15 @@ function resultLabel(result: SearchResult, lang: Lang): string {
   return result.code ? `${result.code} · ${result.name[lang]}` : result.name[lang];
 }
 
-export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
+export function EntitySearch({
+  lang,
+  messages,
+  onNavigate,
+}: {
+  readonly lang: Lang;
+  readonly messages: Messages;
+  readonly onNavigate?: () => void;
+}) {
   const inputId = useId();
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -42,6 +50,7 @@ export function EntitySearch({ lang, messages }: { readonly lang: Lang; readonly
 
   const navigateToResult = (result: SearchResult, mode: "live" | "history") => {
     setOpen(false);
+    onNavigate?.();
     router.push(routeFor(result, lang, mode), { scroll: false });
   };
 
