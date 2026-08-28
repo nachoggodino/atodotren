@@ -11,7 +11,7 @@ test("live network exposes the status summary, metrics and line navigation", asy
   const stats = page.getByTestId("live-stats-grid").getByRole("button");
   await expect(stats).toHaveCount(4);
   for (const label of ["Puntualidad", "Cobertura", "Media", "Mediana"]) {
-    await expect(page.getByTestId("live-stats-grid").getByRole("button", { name: new RegExp(label) })).toBeVisible();
+    await expect(page.getByTestId("live-stats-grid").getByRole("button", { name: new RegExp(`^${label}(?:\\s|$)`) })).toBeVisible();
   }
 
   const punctuality = page.getByTestId("live-stats-grid").getByRole("button").first();
@@ -26,7 +26,8 @@ test("live network exposes the status summary, metrics and line navigation", asy
 
 test("live line and station details expose context and working back navigation", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Detail navigation semantics only need one Chromium viewport.");
-  await page.goto("/es/live/line/c1");
+  await page.goto("/es/live");
+  await page.getByTestId("live-line-grid").locator(':scope > a[href$="/live/line/c1"]').click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Directo");
   await expect(page.getByTestId("live-context-title")).toHaveText("Línea C1");
   const lineBack = page.getByRole("button", { name: "Volver" });
