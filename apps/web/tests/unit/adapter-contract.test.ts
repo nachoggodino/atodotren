@@ -57,6 +57,9 @@ function publicDataAdapterContract(name: string, harness: AdapterHarness) {
       expect(line?.trains.some((train) => train.position.kind === "unknown")).toBe(true);
       expect(line?.trains.every((train) => ["reported_only", "observed_presence", "skipped", "canceled", "missing_evidence", "pending"].includes(train.state))).toBe(true);
       expect(line?.trains.every((train) => train.position.basis !== "unavailable" || train.position.kind === "unknown")).toBe(true);
+      expect(station?.trains.length).toBeGreaterThan(0);
+      expect(station?.trains.length).toBeLessThanOrEqual(10);
+      expect(station?.trains.every((train) => train.scheduledArrivalAt !== null)).toBe(true);
     });
 
     it("keeps history filters, rankings, finalization and normalized distributions aligned", async () => {
@@ -253,6 +256,17 @@ function vehicleRows(serviceDate: string, capturedAt: string): RawPostgresRow[] 
   ];
 }
 
+function stationArrivalRows(serviceDate: string, capturedAt: string): RawPostgresRow[] {
+  const movingTrain = vehicleRows(serviceDate, capturedAt).find((row) => row.current_status === "IN_TRANSIT_TO");
+  if (movingTrain === undefined) return [];
+  return [{
+    ...movingTrain,
+    target_station_id: "atocha",
+    station_scheduled_arrival_at: `${serviceDate}T08:10:00Z`,
+    station_expected_arrival_at: `${serviceDate}T08:13:00Z`,
+  }];
+}
+
 function matrixRows(serviceDate: string): RawPostgresRow[] {
   return ["chamartin", "atocha"].map((stationId, index) => ({
     service_date: serviceDate,
@@ -295,6 +309,7 @@ function postgresHarness(): AdapterHarness {
           if (text.includes("api.catalog_search")) return [{ entity_kind: "station", stable_id: "atocha", slug_es: "atocha", slug_en: "atocha", public_code: null, name_es: "Atocha", name_en: "Atocha" }];
           if (text.includes("api.schematic_pattern_stop")) return topologyRows();
           if (text.includes("api.live_health")) return scenario === "outage" ? [] : [{ latest_successful_poll_at: capturedAt }];
+          if (text.includes("api.upcoming_station_live_vehicle")) return stationArrivalRows(date, capturedAt);
           if (text.includes("api.active_live_vehicle")) return vehicleRows(date, capturedAt);
           if (text.includes("api.service_day_state")) {
             const dates = Array.isArray(values[0]) ? values[0] as string[] : [date];
