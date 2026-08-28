@@ -47,6 +47,7 @@ test("@webkit search keyboard selection opens the live result and header menu re
   const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
   await search.fill("C-1");
   await expect(search).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[role="option"][data-active-item]').filter({ hasText: "C1" }).first()).toBeVisible();
   await search.press("Enter");
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
 
