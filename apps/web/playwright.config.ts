@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const webkitOnly = /@webkit/;
+const webServerCommand = process.env.PLAYWRIGHT_SKIP_BUILD === "true"
+  ? "npm run start -- --hostname 127.0.0.1 --port 3100"
+  : "npm run build && npm run start -- --hostname 127.0.0.1 --port 3100";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -10,7 +13,7 @@ export default defineConfig({
   reporter: process.env.CI ? [["github"], ["html", { open: "never", outputFolder: "playwright-report" }]] : "list",
   use: { baseURL: "http://127.0.0.1:3100", trace: "retain-on-failure", screenshot: "only-on-failure" },
   webServer: {
-    command: "npm run build && npm run start -- --hostname 127.0.0.1 --port 3100",
+    command: webServerCommand,
     url: "http://127.0.0.1:3100/es",
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
