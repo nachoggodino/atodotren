@@ -40,8 +40,8 @@ done < <(find tests/unit apps/web/tests/unit -type f -name '*.test.ts' -print)
 while IFS= read -r path; do
   lines="$(wc -l < "$path")"
   case "$path" in
-    tests/integration/postgres.test.ts) max_lines=1750 ;;
-    tests/integration/aggregation-retention.test.ts) max_lines=1325 ;;
+    tests/integration/postgres.test.ts) max_lines=1719 ;;
+    tests/integration/aggregation-retention.test.ts) max_lines=1292 ;;
     *) max_lines=800 ;;
   esac
   if (( lines > max_lines )); then
