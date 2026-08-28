@@ -23,10 +23,12 @@ export function EntitySearch({
   lang,
   messages,
   onNavigate,
+  compact = false,
 }: {
   readonly lang: Lang;
   readonly messages: Messages;
   readonly onNavigate?: () => void;
+  readonly compact?: boolean;
 }) {
   const inputId = useId();
   const router = useRouter();
@@ -83,11 +85,21 @@ export function EntitySearch({
   return (
     <Ariakit.ComboboxProvider value={query} setValue={onQueryChange} open={open} setOpen={setOpen}>
       <div className="relative">
-        <Ariakit.ComboboxLabel className="mb-3 block text-sm font-bold" htmlFor={inputId}>{messages.landing.searchLabel}</Ariakit.ComboboxLabel>
-        <div className="flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15" data-testid="landing-search-field">
-          <Search aria-hidden="true" className="size-5 shrink-0 text-primary" />
-          <Ariakit.Combobox id={inputId} autoComplete="off" autoSelect="always" className="landing-search-input min-w-0 flex-1 appearance-none border-0 bg-transparent py-4 text-base shadow-none outline-none ring-0 placeholder:text-muted/65 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:text-lg" placeholder={messages.landing.searchPlaceholder} />
-          {loading ? <span aria-label={messages.common.loading} className="size-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" /> : null}
+        <Ariakit.ComboboxLabel className={compact ? "mb-2 block text-xs font-bold" : "mb-3 block text-sm font-bold"} htmlFor={inputId}>{messages.landing.searchLabel}</Ariakit.ComboboxLabel>
+        <div className={compact
+          ? "flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface-strong px-3 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15"
+          : "flex min-h-16 items-center gap-3 rounded-2xl border border-border bg-surface-strong px-4 shadow-sm transition focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15"} data-testid="landing-search-field">
+          <Search aria-hidden="true" className={compact ? "size-4 shrink-0 text-primary" : "size-5 shrink-0 text-primary"} />
+          <Ariakit.Combobox
+            id={inputId}
+            autoComplete="off"
+            autoSelect="always"
+            className={compact
+              ? "landing-search-input min-w-0 flex-1 appearance-none border-0 bg-transparent py-2.5 text-sm shadow-none outline-none ring-0 placeholder:text-muted/65 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+              : "landing-search-input min-w-0 flex-1 appearance-none border-0 bg-transparent py-4 text-base shadow-none outline-none ring-0 placeholder:text-muted/65 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:text-lg"}
+            placeholder={messages.landing.searchPlaceholder}
+          />
+          {loading ? <span aria-label={messages.common.loading} className={compact ? "size-3.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none" : "size-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary motion-reduce:animate-none"} /> : null}
         </div>
         <Ariakit.ComboboxPopover gutter={6} sameWidth className="z-[80] overflow-hidden rounded-2xl border border-border bg-surface-strong shadow-[var(--shadow-float)]">
           {failed ? <p className="px-4 py-4 text-sm text-danger" role="status">{messages.landing.searchError}</p> : null}
