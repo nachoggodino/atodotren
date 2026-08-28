@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0019_web_history_insights.sql");
+  assert.equal(migration.applied.at(-1), "0020_web_station_arrivals.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -126,6 +126,7 @@ try {
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
       has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select,
       has_table_privilege(current_user, 'api.active_live_vehicle', 'SELECT') AS active_live_select,
+      has_table_privilege(current_user, 'api.upcoming_station_live_vehicle', 'SELECT') AS station_arrival_select,
       has_table_privilege(current_user, 'api.history_segment_hour', 'SELECT') AS history_segment_select,
       has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute,
       has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute`);
@@ -134,6 +135,7 @@ try {
       core_usage: false,
       api_line_select: true,
       active_live_select: true,
+      station_arrival_select: true,
       history_segment_select: true,
       landing_timeline_execute: true,
       live_predicate_execute: true,
@@ -155,6 +157,8 @@ try {
 
     const activeVehicles = await web.query("SELECT * FROM api.active_live_vehicle");
     assert.equal(activeVehicles.rowCount, 0);
+    const upcomingStationVehicles = await web.query("SELECT * FROM api.upcoming_station_live_vehicle");
+    assert.equal(upcomingStationVehicles.rowCount, 0);
 
     const segments = await web.query("SELECT * FROM api.history_segment_hour WHERE network_slug = 'madrid' LIMIT 1");
     assert.equal(segments.rowCount, 0);

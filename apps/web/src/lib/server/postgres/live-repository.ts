@@ -12,6 +12,7 @@ import type { TopologyRepository } from "./topology-repository";
 
 const COMPARISON_LOOKBACK_DAYS = 56;
 const COMPARISON_MIN_SAMPLE = 30;
+const STATION_ARRIVAL_LIMIT = 10;
 
 function strictAggregate(value: unknown, field: string): number {
   const parsed = Number(value);
@@ -39,6 +40,14 @@ function lineAggregateMap(rows: readonly RawPostgresRow[]): ReadonlyMap<string, 
   return result;
 }
 
+function parseStationArrivalVehicle(row: RawPostgresRow) {
+  return parseLiveVehicleRow({
+    ...row,
+    scheduled_next_arrival_at: row.station_scheduled_arrival_at,
+    reported_next_arrival_at: null,
+  });
+}
+
 export interface LiveRepository {
   network(now?: Date): Promise<LiveNetworkResponse>;
   line(slug: string, now?: Date): Promise<LiveContextResponse | null>;
@@ -52,12 +61,22 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
     return parseHealthTimestamp(rows[0]);
   }
 
-  async function vehicles(lineSlug?: string, stationId?: string) {
+  async function vehicles(lineSlug?: string) {
     const clauses = ["network_slug = $1"];
     const values: unknown[] = [MADRID_NETWORK.slug];
     if (lineSlug !== undefined) { values.push(lineSlug); clauses.push(`line_slug = $${values.length}`); }
-    if (stationId !== undefined) { values.push(stationId); clauses.push(`current_station_id = $${values.length}`); }
     return (await client.query(`SELECT * FROM api.active_live_vehicle WHERE ${clauses.join(" AND ")} ORDER BY captured_at DESC, state_key`, values)).map(parseLiveVehicleRow);
+  }
+
+  async function upcomingStationVehicles(stationId: string) {
+    const rows = await client.query(
+      `SELECT * FROM api.upcoming_station_live_vehicle
+       WHERE network_slug = $1 AND target_station_id = $2
+       ORDER BY station_expected_arrival_at, state_key
+       LIMIT $3`,
+      [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT],
+    );
+    return rows.map(parseStationArrivalVehicle);
   }
 
   async function comparison(view: "history_line_hour" | "history_station_hour", idColumn: "line_slug" | "station_id", id: string, date: string, hour: number): Promise<Capability<Comparison>> {
@@ -118,7 +137,7 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       const date = currentMadridDate(now);
       const [rows, health, vehicleRows, lines, dayMetadata, usual] = await Promise.all([
         client.query("SELECT * FROM api.history_station_hour WHERE network_slug = $1 AND station_id = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, station.id, date]),
-        sourceAt(), vehicles(undefined, station.id), catalog.lines(), metadata.forDates([date], now),
+        sourceAt(), upcomingStationVehicles(station.id), catalog.lines(), metadata.forDates([date], now),
         comparison("history_station_hour", "station_id", station.id, date, madridHour(now)),
       ]);
       const aggregates = rows.map((row) => parseAggregateRow(row, "api.history_station_hour"));

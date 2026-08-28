@@ -50,7 +50,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migrated.applied.at(-1), "0019_web_history_insights.sql");
+  assert.equal(migrated.applied.at(-1), "0020_web_station_arrivals.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -85,23 +85,26 @@ try {
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
       has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS line_select,
       has_table_privilege(current_user, 'api.active_live_vehicle', 'SELECT') AS live_select,
+      has_table_privilege(current_user, 'api.upcoming_station_live_vehicle', 'SELECT') AS station_arrival_select,
       has_table_privilege(current_user, 'api.history_segment_hour', 'SELECT') AS history_select`);
     assert.deepEqual(privileges.rows[0], {
       api_usage: true,
       core_usage: false,
       line_select: true,
       live_select: true,
+      station_arrival_select: true,
       history_select: true,
     });
     await web.query("SELECT * FROM api.line_catalog LIMIT 1");
     await web.query("SELECT * FROM api.active_live_vehicle LIMIT 1");
+    await web.query("SELECT * FROM api.upcoming_station_live_vehicle LIMIT 1");
     await web.query("SELECT * FROM api.history_segment_hour LIMIT 1");
     await assert.rejects(web.query("SELECT * FROM core.line LIMIT 1"), /permission denied/);
   } finally {
     await web.end();
   }
 
-  console.log(JSON.stringify({ postgres_compat_contract: true, migrations_latest: "0019_web_history_insights.sql" }));
+  console.log(JSON.stringify({ postgres_compat_contract: true, migrations_latest: "0020_web_station_arrivals.sql" }));
 } finally {
   try {
     await admin.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [databaseName]);
