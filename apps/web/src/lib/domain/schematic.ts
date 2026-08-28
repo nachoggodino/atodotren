@@ -9,6 +9,7 @@ export interface PlottedPattern {
   readonly pattern: SchematicPattern;
   readonly stops: readonly PlottedStop[];
   readonly stopByStation: ReadonlyMap<string, PlottedStop>;
+  readonly destinationLabelY: number;
 }
 
 export interface TrainPoint {
@@ -21,6 +22,7 @@ const STOP_SPACING = 88;
 const PATTERN_SPACING = 108;
 const ORIGIN_X = 58;
 const ORIGIN_Y = 52;
+const DESTINATION_LABEL_OFFSET_Y = 24;
 
 export function layoutSchematicPatterns(patterns: readonly SchematicPattern[]): readonly PlottedPattern[] {
   return patterns.map((pattern, patternIndex) => {
@@ -31,7 +33,12 @@ export function layoutSchematicPatterns(patterns: readonly SchematicPattern[]): 
         x: ORIGIN_X + stopIndex * STOP_SPACING,
         y: ORIGIN_Y + patternIndex * PATTERN_SPACING,
       }));
-    return { pattern, stops, stopByStation: new Map(stops.map((stop) => [stop.station.id, stop])) };
+    return {
+      pattern,
+      stops,
+      stopByStation: new Map(stops.map((stop) => [stop.station.id, stop])),
+      destinationLabelY: (stops[0]?.y ?? ORIGIN_Y) - DESTINATION_LABEL_OFFSET_Y,
+    };
   });
 }
 
