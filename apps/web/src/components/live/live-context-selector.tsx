@@ -36,7 +36,7 @@ export function LiveContextSelector({
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
       <Ariakit.PopoverDisclosure
-        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-0.5 text-[11px] font-black uppercase leading-4 tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary ${pressed ? "scale-[.97] opacity-75 brightness-95" : ""} ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-0.5 text-[11px] font-[950] uppercase leading-4 tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary ${pressed ? "scale-[.97] opacity-75 brightness-95" : ""} ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
         onPointerDown={() => {
