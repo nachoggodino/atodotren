@@ -1,4 +1,4 @@
-import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, StationLiveInsights, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
@@ -34,6 +34,30 @@ function fixtureStationTrains(scenario: FixtureScenario, stationId: string): rea
     })
     .sort((left, right) => Date.parse(left.probableArrivalAt ?? left.scheduledArrivalAt ?? FIXTURE_NOW) - Date.parse(right.probableArrivalAt ?? right.scheduledArrivalAt ?? FIXTURE_NOW))
     .slice(0, STATION_ARRIVAL_LIMIT);
+}
+
+function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats): StationLiveInsights {
+  if (scenario === "outage") {
+    return {
+      delayTrend: [],
+      linePunctuality: [],
+      cadence: { sample: 0, regularity: null, medianScheduledHeadwaySeconds: null, medianObservedHeadwaySeconds: null, medianDeviationSeconds: null },
+    };
+  }
+  const hours = [6, 7, 8, 9, 10, 11, 12];
+  const delayTrend = hours.map((hour, index) => ({
+    hour,
+    sample: 28 + index * 3,
+    meanDelaySeconds: stats.meanDelaySeconds === null ? null : Math.max(0, stats.meanDelaySeconds + (index - 3) * 18),
+    medianDelaySeconds: stats.medianDelaySeconds === null ? null : Math.max(0, stats.medianDelaySeconds + (index - 3) * 12),
+  }));
+  const c1 = fixtureLines.find((line) => line.slug === "c1") ?? fixtureLines[0];
+  const linePunctuality = c1 === undefined ? [] : [{ line: c1, sample: stats.observed, punctuality: stats.punctuality }];
+  return {
+    delayTrend,
+    linePunctuality,
+    cadence: { sample: 18, regularity: 14 / 18, medianScheduledHeadwaySeconds: 600, medianObservedHeadwaySeconds: 660, medianDeviationSeconds: 75 },
+  };
 }
 
 function failSource(scenario: FixtureScenario): void {
@@ -130,7 +154,7 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
       if (station === undefined) return null;
       const trains = fixtureStationTrains(scenario, station.id);
       const stats = scenario === "partial" ? { ...baseStats, scheduled: 310, observed: 168, missing: 142 } : { ...baseStats, scheduled: 310, observed: 281, missing: 29 };
-      return { meta: liveMeta(scenario, stats, trains.length), context: station, stats, comparison: comparison(scenario, 2), patterns: [], trains };
+      return { meta: liveMeta(scenario, stats, trains.length), context: station, stats, comparison: comparison(scenario, 2), patterns: [], trains, stationInsights: fixtureStationInsights(scenario, stats) };
     },
     async journey(serviceDate, journeyId) {
       failSource(scenario);

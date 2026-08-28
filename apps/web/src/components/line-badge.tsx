@@ -11,8 +11,8 @@ export function lineBadgeTextColor(background: string): "#000000" | "#ffffff" {
   return luminance > 0.179 ? "#000000" : "#ffffff";
 }
 
-export function LineBadge({ code, color, className = "", variant = "default" }: { readonly code: string; readonly color: string; readonly className?: string; readonly variant?: "default" | "compact" }) {
+export function LineBadge({ code, color, className = "", variant = "default" }: { readonly code: string; readonly color: string; readonly className?: string; readonly variant?: "default" | "compact" | "station" }) {
   const style: CSSProperties = { backgroundColor: color, color: lineBadgeTextColor(color) };
-  const sizing = variant === "compact" ? "size-7 rounded text-[10px]" : "size-10 rounded-md text-sm";
+  const sizing = variant === "compact" ? "size-7 rounded text-[10px]" : variant === "station" ? "size-11 rounded-md text-sm" : "size-10 rounded-md text-sm";
   return <span className={`grid shrink-0 place-items-center font-black ${sizing} ${className}`} style={style}>{code}</span>;
 }

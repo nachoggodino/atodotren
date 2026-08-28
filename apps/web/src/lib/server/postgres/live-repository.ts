@@ -1,4 +1,4 @@
-import type { Capability, Comparison, LinePerformance, LineRef, LiveContextResponse, LiveNetworkResponse } from "@/lib/domain/contracts";
+import type { Capability, Comparison, LinePerformance, LineRef, LiveContextResponse, LiveNetworkResponse, LiveStationResponse, StationCadenceSummary, StationDelayTrendPoint, StationLinePunctuality } from "@/lib/domain/contracts";
 import { algorithmProvenance, liveResponseMeta } from "@/lib/domain/data-policy";
 import { currentMadridDate, madridHour } from "@/lib/domain/dates";
 import { fallbackLineColor, MADRID_NETWORK } from "@/lib/domain/network";
@@ -6,18 +6,49 @@ import type { CatalogRepository } from "./catalog-repository";
 import type { PostgresClient, RawPostgresRow } from "./client";
 import { liveTrainFromRow } from "./mappers/train";
 import type { MetadataRepository } from "./metadata-repository";
-import { parseAggregateRow, parseHealthTimestamp, parseLiveVehicleRow } from "./row-parser";
+import { parseAggregateRow, parseHealthTimestamp, parseLiveVehicleRow, type AggregateRow } from "./row-parser";
 import { emptySummaryStats, summaryFromAggregateRows } from "./stats";
 import type { TopologyRepository } from "./topology-repository";
 
 const COMPARISON_LOOKBACK_DAYS = 56;
 const COMPARISON_MIN_SAMPLE = 30;
 const STATION_ARRIVAL_LIMIT = 10;
+const STATION_CALL_LIMIT = 6000;
+const CADENCE_MIN_SAMPLE = 4;
+const CADENCE_ABSOLUTE_TOLERANCE_SECONDS = 120;
+const CADENCE_RELATIVE_TOLERANCE = 0.2;
+const CADENCE_MIN_HEADWAY_SECONDS = 60;
+const CADENCE_MAX_HEADWAY_SECONDS = 7200;
+const CADENCE_MAX_OBSERVED_HEADWAY_SECONDS = 10800;
 
 function strictAggregate(value: unknown, field: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`Invalid ${field} aggregate`);
   return parsed;
+}
+
+function strictHour(value: unknown): number {
+  const hour = strictAggregate(value, "station hour");
+  if (hour > 23) throw new Error("Invalid station hour aggregate");
+  return hour;
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value === "") throw new Error(`Invalid ${field}`);
+  return value;
+}
+
+function nullableSignedInteger(value: unknown, field: string): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid ${field}`);
+  return parsed;
+}
+
+function timestampMillis(value: unknown, field: string): number {
+  const date = value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  if (date === null || Number.isNaN(date.getTime())) throw new Error(`Invalid ${field}`);
+  return date.getTime();
 }
 
 function comparisonFromRow(row: RawPostgresRow | undefined): Capability<Comparison> {
@@ -41,17 +72,110 @@ function lineAggregateMap(rows: readonly RawPostgresRow[]): ReadonlyMap<string, 
 }
 
 function parseStationArrivalVehicle(row: RawPostgresRow) {
-  return parseLiveVehicleRow({
-    ...row,
-    scheduled_next_arrival_at: row.station_scheduled_arrival_at,
-    reported_next_arrival_at: null,
+  return parseLiveVehicleRow({ ...row, scheduled_next_arrival_at: row.station_scheduled_arrival_at, reported_next_arrival_at: null });
+}
+
+interface StationAggregateRecord {
+  readonly lineSlug: string;
+  readonly hour: number;
+  readonly aggregate: AggregateRow;
+}
+
+function stationAggregateRecords(rows: readonly RawPostgresRow[]): readonly StationAggregateRecord[] {
+  return rows.map((row) => ({ lineSlug: requiredString(row.line_slug, "station line history identity"), hour: strictHour(row.scheduled_hour), aggregate: parseAggregateRow(row, "api.history_station_hour") }));
+}
+
+function stationDelayTrend(records: readonly StationAggregateRecord[]): readonly StationDelayTrendPoint[] {
+  const byHour = new Map<number, AggregateRow[]>();
+  for (const record of records) byHour.set(record.hour, [...(byHour.get(record.hour) ?? []), record.aggregate]);
+  return [...byHour.entries()].sort(([left], [right]) => left - right).map(([hour, aggregates]) => {
+    const stats = summaryFromAggregateRows(aggregates);
+    return { hour, sample: stats.observed, meanDelaySeconds: stats.meanDelaySeconds, medianDelaySeconds: stats.medianDelaySeconds };
   });
+}
+
+function stationLinePunctuality(records: readonly StationAggregateRecord[], lines: readonly LineRef[]): readonly StationLinePunctuality[] {
+  const byLine = new Map<string, AggregateRow[]>();
+  for (const record of records) byLine.set(record.lineSlug, [...(byLine.get(record.lineSlug) ?? []), record.aggregate]);
+  return lines.flatMap((line) => {
+    const aggregates = byLine.get(line.slug);
+    if (aggregates === undefined) return [];
+    const stats = summaryFromAggregateRows(aggregates);
+    return [{ line, sample: stats.observed, punctuality: stats.punctuality }];
+  });
+}
+
+function median(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] ?? null;
+  const left = sorted[middle - 1];
+  const right = sorted[middle];
+  return left === undefined || right === undefined ? null : Math.round((left + right) / 2);
+}
+
+interface StationCall {
+  readonly group: string;
+  readonly scheduledAt: number;
+  readonly delaySeconds: number | null;
+  readonly usable: boolean;
+}
+
+function parseStationCall(row: RawPostgresRow): StationCall {
+  const lineSlug = requiredString(row.line_slug, "station cadence line");
+  const direction = Number(row.direction);
+  if (direction !== 0 && direction !== 1) throw new Error("Invalid station cadence direction");
+  const delaySeconds = nullableSignedInteger(row.selected_delay_seconds, "station cadence delay");
+  const evidence = requiredString(row.evidence_status, "station cadence evidence");
+  return {
+    group: `${lineSlug}:${direction}`,
+    scheduledAt: timestampMillis(row.scheduled_arrival_at, "station cadence scheduled arrival"),
+    delaySeconds,
+    usable: delaySeconds !== null && (evidence === "reported_only" || evidence === "observed_presence"),
+  };
+}
+
+function stationCadence(rows: readonly RawPostgresRow[]): StationCadenceSummary {
+  const groups = new Map<string, StationCall[]>();
+  for (const row of rows) {
+    const call = parseStationCall(row);
+    groups.set(call.group, [...(groups.get(call.group) ?? []), call]);
+  }
+  const scheduledHeadways: number[] = [];
+  const observedHeadways: number[] = [];
+  const deviations: number[] = [];
+  let regular = 0;
+  for (const calls of groups.values()) {
+    calls.sort((left, right) => left.scheduledAt - right.scheduledAt);
+    for (let index = 1; index < calls.length; index += 1) {
+      const previous = calls[index - 1];
+      const current = calls[index];
+      if (previous === undefined || current === undefined || !previous.usable || !current.usable || previous.delaySeconds === null || current.delaySeconds === null) continue;
+      const scheduledHeadway = Math.round((current.scheduledAt - previous.scheduledAt) / 1000);
+      const observedHeadway = scheduledHeadway + current.delaySeconds - previous.delaySeconds;
+      if (scheduledHeadway < CADENCE_MIN_HEADWAY_SECONDS || scheduledHeadway > CADENCE_MAX_HEADWAY_SECONDS || observedHeadway <= 0 || observedHeadway > CADENCE_MAX_OBSERVED_HEADWAY_SECONDS) continue;
+      const deviation = Math.abs(observedHeadway - scheduledHeadway);
+      scheduledHeadways.push(scheduledHeadway);
+      observedHeadways.push(observedHeadway);
+      deviations.push(deviation);
+      if (deviation <= Math.max(CADENCE_ABSOLUTE_TOLERANCE_SECONDS, scheduledHeadway * CADENCE_RELATIVE_TOLERANCE)) regular += 1;
+    }
+  }
+  const sample = deviations.length;
+  return {
+    sample,
+    regularity: sample < CADENCE_MIN_SAMPLE ? null : regular / sample,
+    medianScheduledHeadwaySeconds: median(scheduledHeadways),
+    medianObservedHeadwaySeconds: median(observedHeadways),
+    medianDeviationSeconds: median(deviations),
+  };
 }
 
 export interface LiveRepository {
   network(now?: Date): Promise<LiveNetworkResponse>;
   line(slug: string, now?: Date): Promise<LiveContextResponse | null>;
-  station(slug: string, now?: Date): Promise<LiveContextResponse | null>;
+  station(slug: string, now?: Date): Promise<LiveStationResponse | null>;
 }
 
 export function createLiveRepository(client: PostgresClient, catalog: CatalogRepository, metadata: MetadataRepository, topology: TopologyRepository): LiveRepository {
@@ -69,28 +193,12 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
   }
 
   async function upcomingStationVehicles(stationId: string) {
-    const rows = await client.query(
-      `SELECT * FROM api.upcoming_station_live_vehicle
-       WHERE network_slug = $1 AND target_station_id = $2
-       ORDER BY station_expected_arrival_at, state_key
-       LIMIT $3`,
-      [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT],
-    );
+    const rows = await client.query(`SELECT * FROM api.upcoming_station_live_vehicle WHERE network_slug = $1 AND target_station_id = $2 ORDER BY station_expected_arrival_at, state_key LIMIT $3`, [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT]);
     return rows.map(parseStationArrivalVehicle);
   }
 
   async function comparison(view: "history_line_hour" | "history_station_hour", idColumn: "line_slug" | "station_id", id: string, date: string, hour: number): Promise<Capability<Comparison>> {
-    const rows = await client.query(
-      `SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations,
-        sum(punctual_count)::bigint AS punctual_count,
-        sum(signed_delay_sum)::bigint AS signed_delay_sum
-       FROM api.${view}
-       WHERE network_slug = $1 AND ${idColumn} = $2
-         AND service_date < $3::date AND service_date >= $3::date - $4::integer
-         AND extract(dow FROM service_date) = extract(dow FROM $3::date)
-         AND scheduled_hour = $5`,
-      [MADRID_NETWORK.slug, id, date, COMPARISON_LOOKBACK_DAYS, hour],
-    );
+    const rows = await client.query(`SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations, sum(punctual_count)::bigint AS punctual_count, sum(signed_delay_sum)::bigint AS signed_delay_sum FROM api.${view} WHERE network_slug = $1 AND ${idColumn} = $2 AND service_date < $3::date AND service_date >= $3::date - $4::integer AND extract(dow FROM service_date) = extract(dow FROM $3::date) AND scheduled_hour = $5`, [MADRID_NETWORK.slug, id, date, COMPARISON_LOOKBACK_DAYS, hour]);
     return comparisonFromRow(rows[0]);
   }
 
@@ -120,10 +228,7 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       if (line === null) return null;
       const date = currentMadridDate(now);
       const [vehicleRows, health, summaryRows, patterns, dayMetadata, usual] = await Promise.all([
-        vehicles(slug), sourceAt(),
-        client.query("SELECT * FROM api.history_line_day WHERE network_slug = $1 AND line_slug = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, slug, date]),
-        topology.patterns(slug), metadata.forDates([date], now),
-        comparison("history_line_hour", "line_slug", slug, date, madridHour(now)),
+        vehicles(slug), sourceAt(), client.query("SELECT * FROM api.history_line_day WHERE network_slug = $1 AND line_slug = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, slug, date]), topology.patterns(slug), metadata.forDates([date], now), comparison("history_line_hour", "line_slug", slug, date, madridHour(now)),
       ]);
       if (summaryRows.length > 1) throw new Error(`Duplicate current line aggregate for ${slug}`);
       const aggregates = summaryRows.map((row) => parseAggregateRow(row, "api.history_line_day"));
@@ -135,16 +240,18 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       const station = await catalog.station(slug);
       if (station === null) return null;
       const date = currentMadridDate(now);
-      const [rows, health, vehicleRows, lines, dayMetadata, usual] = await Promise.all([
+      const [rows, health, vehicleRows, lines, dayMetadata, usual, stationCalls] = await Promise.all([
         client.query("SELECT * FROM api.history_station_hour WHERE network_slug = $1 AND station_id = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, station.id, date]),
-        sourceAt(), upcomingStationVehicles(station.id), catalog.lines(), metadata.forDates([date], now),
-        comparison("history_station_hour", "station_id", station.id, date, madridHour(now)),
+        sourceAt(), upcomingStationVehicles(station.id), catalog.lines(), metadata.forDates([date], now), comparison("history_station_hour", "station_id", station.id, date, madridHour(now)),
+        client.query("SELECT * FROM api.recent_station_calls($1, $2::date, $3)", [station.id, date, STATION_CALL_LIMIT]),
       ]);
-      const aggregates = rows.map((row) => parseAggregateRow(row, "api.history_station_hour"));
-      const stats = summaryFromAggregateRows(aggregates);
+      const records = stationAggregateRecords(rows);
+      const aggregates = records.map((record) => record.aggregate);
+      const stats = aggregates.length === 0 ? emptySummaryStats() : summaryFromAggregateRows(aggregates);
       const lineMap = new Map(lines.map((line) => [line.slug, line]));
       const trains = vehicleRows.map((row) => liveTrainFromRow(row, lineMap.get(row.lineSlug) ?? ({ id: `line-${row.lineSlug}`, slug: row.lineSlug, code: row.publicCode, name: { es: row.lineNameEs, en: row.lineNameEn }, color: fallbackLineColor(row.lineSlug) } satisfies LineRef)));
-      return { meta: liveResponseMeta({ stats, sourceAt: health, activeTrains: trains.length, serviceDate: date, finalization: dayMetadata.finalization, provenance: algorithmProvenance(aggregates.flatMap((row) => row.algorithmVersions)), precision: "mixed", now }), context: station, stats, comparison: usual, patterns: [], trains };
+      const stationInsights = { delayTrend: stationDelayTrend(records), linePunctuality: stationLinePunctuality(records, lines), cadence: stationCadence(stationCalls) };
+      return { meta: liveResponseMeta({ stats, sourceAt: health, activeTrains: trains.length, serviceDate: date, finalization: dayMetadata.finalization, provenance: algorithmProvenance(aggregates.flatMap((row) => row.algorithmVersions)), precision: "mixed", now }), context: station, stats, comparison: usual, patterns: [], trains, stationInsights };
     },
   };
 }
