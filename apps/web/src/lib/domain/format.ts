@@ -1,7 +1,7 @@
 import type { Lang } from "./contracts";
 export { delayBand } from "./delay-policy";
 
-export function formatDelay(seconds: number | null, lang: Lang): string {
+function formatDelayWithMinuteUnit(seconds: number | null, lang: Lang, minuteUnit: string): string {
   if (seconds === null) return "—";
   const sign = seconds < 0 ? "−" : seconds > 0 ? "+" : "";
   const absolute = Math.abs(seconds);
@@ -11,7 +11,15 @@ export function formatDelay(seconds: number | null, lang: Lang): string {
   const number = new Intl.NumberFormat(locale, { useGrouping: false });
   if (minutes === 0) return `${sign}${number.format(remainder)} s`;
   const secondsPart = new Intl.NumberFormat(locale, { minimumIntegerDigits: 2, useGrouping: false }).format(remainder);
-  return `${sign}${number.format(minutes)} min ${secondsPart} s`;
+  return `${sign}${number.format(minutes)} ${minuteUnit} ${secondsPart} s`;
+}
+
+export function formatDelay(seconds: number | null, lang: Lang): string {
+  return formatDelayWithMinuteUnit(seconds, lang, "min");
+}
+
+export function formatCompactDelay(seconds: number | null, lang: Lang): string {
+  return formatDelayWithMinuteUnit(seconds, lang, "m");
 }
 
 export function formatDuration(seconds: number, lang: Lang): string {

@@ -1,45 +1,31 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { BarChart3, BookOpen, House, Moon, Radio, Sun } from "lucide-react";
+import { BarChart3, BookOpen, House, Radio } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useTheme } from "next-themes";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
+import { AppHeaderControls } from "./app-header-controls";
 import { BrandSymbol, BrandWordmark } from "./brand-mark";
-import { useAutoRefresh } from "./auto-refresh-provider";
 
 const HOME_ICON_CLASS = "text-primary";
 const LIVE_ICON_CLASS = "text-[var(--landing-positive)]";
 const HISTORY_ICON_CLASS = "text-[var(--landing-highlight)]";
 const METHODOLOGY_ICON_CLASS = "text-[var(--nav-methodology)]";
+const DESKTOP_BREAKPOINT_PX = 640;
+const HEADER_REVEAL_TOP_PX = 96;
+const HEADER_REVEAL_SCROLL_DELTA_PX = -12;
+const HEADER_HIDE_SCROLL_DELTA_PX = 28;
 
-function localizedHref(pathname: string, lang: Lang, search: string): string {
-  const localizedPath = pathname.replace(/^\/(es|en)(?=\/|$)/, `/${lang}`) || `/${lang}`;
-  return search === "" ? localizedPath : `${localizedPath}?${search}`;
-}
+type NavSection = "home" | "live" | "history" | "methodology";
 
-function routeContext(pathname: string, messages: Messages) {
-  if (pathname.includes("/history")) return { label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS };
-  if (pathname.includes("/live")) return { label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS };
-  if (pathname.includes("/methodology")) return { label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS };
-  return { label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS };
-}
-
-function subscribeToAppliedTheme(onStoreChange: () => void): () => void {
-  const observer = new MutationObserver(onStoreChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-  return () => observer.disconnect();
-}
-
-function getAppliedTheme(): "light" | "dark" {
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
-}
-
-function getServerTheme(): "light" {
-  return "light";
+function activeNavSection(pathname: string): NavSection {
+  if (pathname.includes("/history")) return "history";
+  if (pathname.includes("/live")) return "live";
+  if (pathname.includes("/methodology")) return "methodology";
+  return "home";
 }
 
 export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly messages: Messages }) {
@@ -50,9 +36,6 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const [hidden, setHidden] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousY = useRef(0);
-  const { setTheme } = useTheme();
-  const currentTheme = useSyncExternalStore(subscribeToAppliedTheme, getAppliedTheme, getServerTheme);
-  const refresh = useAutoRefresh();
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -66,14 +49,14 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   useEffect(() => {
     previousY.current = window.scrollY;
     const onScroll = () => {
-      if (window.innerWidth >= 640 || open) {
+      if (window.innerWidth >= DESKTOP_BREAKPOINT_PX || open) {
         setHidden(false);
         return;
       }
       const y = window.scrollY;
       const delta = y - previousY.current;
-      if (y < 96 || delta < -12) setHidden(false);
-      else if (delta > 28) setHidden(true);
+      if (y < HEADER_REVEAL_TOP_PX || delta < HEADER_REVEAL_SCROLL_DELTA_PX) setHidden(false);
+      else if (delta > HEADER_HIDE_SCROLL_DELTA_PX) setHidden(true);
       previousY.current = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -93,21 +76,19 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   }, [open]);
 
   const links = [
-    { href: `/${lang}`, label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS },
-    { href: `/${lang}/live`, label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS },
-    { href: `/${lang}/history`, label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS },
-    { href: `/${lang}/methodology`, label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS },
+    { section: "home", href: `/${lang}`, label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS },
+    { section: "live", href: `/${lang}/live`, label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS },
+    { section: "history", href: `/${lang}/history`, label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS },
+    { section: "methodology", href: `/${lang}/methodology`, label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS },
   ] as const;
+  const context = links.find((item) => item.section === activeNavSection(pathname)) ?? links[0];
+  const ContextIcon = context.Icon;
 
   const setOpen = (next: boolean) => {
     setOpenPathname(next ? pathname : null);
     if (next) setHidden(false);
   };
-
   const closeForNavigation = () => setOpenPathname(null);
-  const search = searchParams.toString();
-  const context = routeContext(pathname, messages);
-  const ContextIcon = context.Icon;
 
   return (
     <Ariakit.DisclosureProvider open={open} setOpen={setOpen}>
@@ -171,54 +152,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                       </Link>
                     ))}
                   </nav>
-                  <div className="grid gap-4 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">{messages.nav.theme}</span>
-                      <div aria-label={messages.nav.theme} className="relative flex h-9 w-[4.5rem] items-center justify-between rounded-full border border-border bg-muted-soft p-px" role="group">
-                        <span
-                          aria-hidden="true"
-                          className={`pointer-events-none absolute left-px top-1/2 size-8 -translate-y-1/2 rounded-full bg-primary/10 shadow-sm transition-transform duration-200 ease-out motion-reduce:transition-none ${currentTheme === "dark" ? "translate-x-9" : "translate-x-0"}`}
-                          data-testid="theme-thumb"
-                        />
-                        <button aria-label={messages.nav.light} aria-pressed={currentTheme === "light"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("light")} type="button"><Sun className="size-4" /></button>
-                        <button aria-label={messages.nav.dark} aria-pressed={currentTheme === "dark"} className="relative z-10 grid size-8 place-items-center rounded-full transition-[transform,opacity] duration-100 active:scale-75 active:opacity-65" onClick={() => setTheme("dark")} type="button"><Moon className="size-4" /></button>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">{messages.nav.refresh}</span>
-                      <button
-                        aria-checked={refresh.enabled}
-                        aria-label={messages.nav.refresh}
-                        className={`relative h-7 w-12 shrink-0 rounded-full border transition-[background-color,border-color,transform,opacity] duration-100 active:scale-90 active:opacity-75 ${refresh.enabled ? "border-primary bg-primary" : "border-border bg-muted-soft"}`}
-                        onClick={() => refresh.setEnabled(!refresh.enabled)}
-                        role="switch"
-                        type="button"
-                      >
-                        <span aria-hidden="true" className={`absolute left-[3px] top-1/2 size-5 -translate-y-1/2 rounded-full bg-surface shadow-sm transition-transform ${refresh.enabled ? "translate-x-5" : "translate-x-0"}`} />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold">{messages.nav.language}</span>
-                      <div aria-label={messages.nav.language} className="flex rounded-md border border-border p-0.5" role="group">
-                        <Link
-                          aria-current={lang === "es" ? "true" : undefined}
-                          className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-[background-color,transform,opacity] duration-100 active:scale-90 active:opacity-70 ${lang === "es" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
-                          href={localizedHref(pathname, "es", search)}
-                          onClick={closeForNavigation}
-                        >
-                          ESP
-                        </Link>
-                        <Link
-                          aria-current={lang === "en" ? "true" : undefined}
-                          className={`min-w-10 rounded-sm px-2 py-1.5 text-center text-xs font-bold transition-[background-color,transform,opacity] duration-100 active:scale-90 active:opacity-70 ${lang === "en" ? "bg-muted-soft text-primary" : "hover:bg-muted-soft"}`}
-                          href={localizedHref(pathname, "en", search)}
-                          onClick={closeForNavigation}
-                        >
-                          ENG
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
+                  <AppHeaderControls lang={lang} messages={messages} pathname={pathname} search={searchParams.toString()} onNavigate={closeForNavigation} />
                 </div>
               </div>
             </Ariakit.DisclosureContent>

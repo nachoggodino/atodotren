@@ -10,11 +10,7 @@ import type { Lang } from "@/lib/domain/contracts";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
-const QUICK_LINES = Object.entries(MADRID_NETWORK.lineColors).map(([slug, color]) => ({
-  slug,
-  code: slug.toUpperCase(),
-  color,
-}));
+const QUICK_LINES = MADRID_NETWORK.lines;
 
 export function LiveContextSelector({
   subtitle,

@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { DelayDistribution } from "@/components/charts/delay-distribution";
-import { DataMeta } from "@/components/feedback/data-meta";
-import { LiveHeader } from "@/components/live/live-header";
 import { LiveLineVisualization } from "@/components/live/live-line-visualization";
-import { LiveRefresh } from "@/components/live/live-refresh";
-import { StatsBand } from "@/components/live/stats-band";
+import { LivePageSummary } from "@/components/live/live-page-summary";
 import { formatDelay } from "@/lib/domain/format";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
@@ -33,9 +30,7 @@ export default async function LiveLinePage({ params, searchParams }: { readonly 
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LiveHeader backLabel={messages.common.back} contextColor={data.context.color} lang={lang} messages={messages} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
-      <div className="mt-5"><DataMeta meta={data.meta} lang={lang} messages={messages} variant="live" /><LiveRefresh messages={messages} /></div>
-      <div className="mt-6"><StatsBand stats={data.stats} lang={lang} messages={messages} variant="live" /></div>
+      <LivePageSummary backLabel={messages.common.back} contextColor={data.context.color} meta={data.meta} stats={data.stats} lang={lang} messages={messages} subtitle={`${messages.common.line} ${data.context.name[lang]}`} title={messages.nav.live} />
       <section className="mt-9"><LiveLineVisualization patterns={data.patterns} trains={data.trains} matrixResult={matrixResult} lineColor={data.context.color} lang={lang} messages={messages} /></section>
       <section className="mt-10 grid gap-8 border-t border-border pt-8 lg:grid-cols-2">
         <div><h2 className="text-2xl font-black">{messages.history.distribution}</h2><DelayDistribution values={data.stats.distribution} messages={messages} /></div>

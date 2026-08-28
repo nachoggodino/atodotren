@@ -4,6 +4,7 @@ import { HistoryFiltersForm } from "@/components/history/history-filters";
 import { HistoryLayout } from "@/components/history/history-layout";
 import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
 import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
+import { humanizeSlug } from "@/lib/domain/slugs";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getHistoryStation } from "@/lib/server/services";
@@ -11,15 +12,11 @@ import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
 
-function contextFromSlug(slug: string): string {
-  return slug.split("-").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
-}
-
 export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string; slug: string }> }): Promise<Metadata> {
   const { lang, slug } = await params;
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
-  const context = contextFromSlug(slug);
+  const context = humanizeSlug(slug);
   return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/history/station/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyStationDescription, context) });
 }
 
