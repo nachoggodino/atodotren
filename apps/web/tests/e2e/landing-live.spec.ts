@@ -47,9 +47,10 @@ test("live context selector exposes line navigation and defaults search results 
   await page.getByTestId("live-context-title").click();
   const selector = page.getByTestId("live-context-selector");
   await expect(selector).toBeVisible();
-  await expect(selector.getByRole("link", { name: "Línea C1" })).toHaveAttribute("href", "/es/live/line/c1");
+  const c1Link = selector.getByRole("link", { name: "Línea C1", exact: true });
+  await expect(c1Link).toHaveAttribute("href", "/es/live/line/c1");
 
-  await selector.getByRole("link", { name: "Línea C1" }).click();
+  await c1Link.click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
   await page.getByTestId("live-context-title").click();
 
