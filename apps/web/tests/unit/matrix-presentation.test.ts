@@ -14,12 +14,12 @@ describe("matrix cell presentation", () => {
     expect(present("pending", 30)).toEqual({ kind: "pending", symbol: "…" });
   });
 
-  it("uses one shared delay policy for live and historical matrices", () => {
+  it("maps representative usable delays through the shared delay policy", () => {
     expect(present("reported_only", null)).toEqual({ kind: "missing", symbol: "—" });
     expect(present("observed_presence", -1)).toEqual({ kind: "early", symbol: "−" });
-    expect(present("reported_only", 120)).toEqual({ kind: "punctual", symbol: "✓" });
-    expect(present("reported_only", 121)).toEqual({ kind: "mild", symbol: "+" });
-    expect(present("reported_only", 301)).toEqual({ kind: "delayed", symbol: "+" });
-    expect(present("reported_only", 601)).toEqual({ kind: "severe", symbol: "!!" });
+    expect(present("reported_only", 60)).toEqual({ kind: "punctual", symbol: "✓" });
+    expect(present("reported_only", 180)).toEqual({ kind: "mild", symbol: "+" });
+    expect(present("reported_only", 420)).toEqual({ kind: "delayed", symbol: "+" });
+    expect(present("reported_only", 900)).toEqual({ kind: "severe", symbol: "!!" });
   });
 });
