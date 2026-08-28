@@ -56,7 +56,7 @@ function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats):
   return {
     delayTrend,
     linePunctuality,
-    cadence: { sample: 18, regularity: 14 / 18, medianScheduledHeadwaySeconds: 600, medianObservedHeadwaySeconds: 660, medianDeviationSeconds: 75 },
+    cadence: { sample: 5, regularity: 1, medianScheduledHeadwaySeconds: 600, medianObservedHeadwaySeconds: 630, medianDeviationSeconds: 30 },
   };
 }
 
