@@ -36,7 +36,7 @@ export function LiveContextSelector({
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
       <Ariakit.PopoverDisclosure
-        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary ${pressed ? "scale-[.97] opacity-75 brightness-95" : ""} ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-0.5 text-[11px] font-black uppercase leading-4 tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary ${pressed ? "scale-[.97] opacity-75 brightness-95" : ""} ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
         onPointerDown={() => {
@@ -60,7 +60,7 @@ export function LiveContextSelector({
           {QUICK_LINES.map((line) => (
             <Link
               aria-label={`${messages.common.line} ${line.code}`}
-              className="grid aspect-square min-w-0 place-items-center rounded-md text-xs font-black transition-[filter,transform,opacity] duration-100 hover:brightness-95 active:scale-95 active:opacity-75 focus-visible:outline-offset-2"
+              className="grid aspect-square min-w-0 place-items-center rounded-md px-0.5 font-mono text-[13px] font-black leading-none tracking-[-.1em] whitespace-nowrap transition-[filter,transform,opacity] duration-100 hover:brightness-95 active:scale-95 active:opacity-75 focus-visible:outline-offset-2"
               href={`/${lang}/live/line/${line.slug}`}
               key={line.slug}
               onClick={() => setOpen(false)}
