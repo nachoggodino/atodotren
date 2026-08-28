@@ -35,14 +35,18 @@ export function LiveContextSelector({
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
       <Ariakit.PopoverDisclosure
-        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+        className="inline-flex min-w-0 appearance-none border-0 bg-transparent p-0"
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
-        style={contextStyle}
         title={subtitle}
         type="button"
       >
-        {subtitle}
+        <span
+          className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+          style={contextStyle}
+        >
+          {subtitle}
+        </span>
       </Ariakit.PopoverDisclosure>
 
       <Ariakit.Popover
