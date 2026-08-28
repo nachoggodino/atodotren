@@ -28,6 +28,34 @@ test("landing search exposes live and history actions and opens the selected liv
   await expect(page.getByTestId("schematic-map")).toBeVisible();
 });
 
+test("live context selector exposes every line and defaults search results to live", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Context selection behavior needs one Chromium acceptance path.");
+  await page.goto("/es/live");
+
+  await page.getByTestId("live-context-title").click();
+  const selector = page.getByTestId("live-context-selector");
+  await expect(selector).toBeVisible();
+  for (const code of ["C1", "C2", "C3", "C4", "C5", "C7", "C8", "C10"]) {
+    await expect(selector.getByRole("link", { name: `Línea ${code}` })).toHaveAttribute("href", `/es/live/line/${code.toLowerCase()}`);
+  }
+
+  await selector.getByRole("link", { name: "Línea C1" }).click();
+  await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
+  await page.getByTestId("live-context-title").click();
+
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
+  await search.fill("Atocha");
+  const station = page.getByRole("option").filter({ hasText: "Atocha" }).first();
+  await expect(station).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Ver hoy: Atocha/ }).first()).toHaveAttribute("href", /\/es\/live\/station\/atocha$/);
+  await expect(page.getByRole("link", { name: /^Ver histórico: Atocha/ }).first()).toHaveAttribute("href", /\/es\/history\/station\/atocha$/);
+
+  await station.click();
+  await expect(page).toHaveURL(/\/es\/live\/station\/atocha$/);
+  await page.getByTestId("live-context-title").click();
+  await expect(page.getByTestId("live-context-selector")).toBeVisible();
+});
+
 test("live navigation opens destinations at the top", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Scroll restoration does not need duplicate Chromium viewport coverage.");
   await page.goto("/es");
