@@ -105,22 +105,44 @@ done
 cp -al node_modules "${legacy_worktree}/node_modules"
 (
   cd "${legacy_worktree}"
+  legacy_partition_watcher_pid=''
 
-  # One legacy integration fixture chooses the next weekday from current_date,
-  # while migration 0004 intentionally pre-creates realtime partitions only
-  # through current_date + 2. On Fridays that fixture selects Monday (+3), so
-  # run this historical harness with an equivalent adjacent local date rather
-  # than making the immutable migration or production partition policy broader.
+  # A frozen legacy fixture chooses the next weekday from current_date. On a
+  # Friday that is Monday (+3), while immutable migration 0004 deliberately
+  # pre-creates only current_date +/- 2. Keep production policy unchanged and
+  # prepare the one additional permitted fixture partition in disposable test
+  # databases as soon as each historical migration has created the helper.
   if [[ "$(date -u +%u)" == '5' ]]; then
-    utc_hour="$(date -u +%H)"
-    if (( 10#${utc_hour} >= 10 )); then
-      export PGOPTIONS='-c TimeZone=Pacific/Kiritimati'
-    else
-      export PGOPTIONS='-c TimeZone=Pacific/Pago_Pago'
-    fi
+    (
+      while true; do
+        databases="$(docker exec \
+          --env PGPASSWORD="${admin_password}" \
+          "${container_name}" psql -h 127.0.0.1 -U postgres -d postgres -Atqc \
+          "SELECT datname FROM pg_database WHERE datname LIKE 'atodotren_%' AND datallowconn" 2>/dev/null || true)"
+        while IFS= read -r database; do
+          [[ -z "${database}" ]] && continue
+          docker exec \
+            --env PGPASSWORD="${admin_password}" \
+            "${container_name}" psql -h 127.0.0.1 -U postgres -d "${database}" -Atqc \
+            "SELECT ingest.ensure_realtime_partitions(current_date + 3)" \
+            >/dev/null 2>&1 || true
+        done <<< "${databases}"
+        sleep 0.2
+      done
+    ) &
+    legacy_partition_watcher_pid=$!
   fi
 
+  set +e
   npm run test:integration
+  integration_status=$?
+  set -e
+
+  if [[ -n "${legacy_partition_watcher_pid}" ]]; then
+    kill "${legacy_partition_watcher_pid}" >/dev/null 2>&1 || true
+    wait "${legacy_partition_watcher_pid}" >/dev/null 2>&1 || true
+  fi
+  exit "${integration_status}"
 )
 git worktree remove --force "${legacy_worktree}" >/dev/null
 legacy_worktree=''
