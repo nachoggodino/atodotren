@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0020_web_station_arrivals.sql");
+  assert.equal(migration.applied.at(-1), "0021_web_station_cadence.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -129,7 +129,8 @@ try {
       has_table_privilege(current_user, 'api.upcoming_station_live_vehicle', 'SELECT') AS station_arrival_select,
       has_table_privilege(current_user, 'api.history_segment_hour', 'SELECT') AS history_segment_select,
       has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute,
-      has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute`);
+      has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute,
+      has_function_privilege(current_user, 'api.recent_station_calls(text,date,integer)', 'EXECUTE') AS station_calls_execute`);
     assert.deepEqual(privileges.rows[0], {
       api_usage: true,
       core_usage: false,
@@ -139,6 +140,7 @@ try {
       history_segment_select: true,
       landing_timeline_execute: true,
       live_predicate_execute: true,
+      station_calls_execute: true,
     });
 
     await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
@@ -159,6 +161,8 @@ try {
     assert.equal(activeVehicles.rowCount, 0);
     const upcomingStationVehicles = await web.query("SELECT * FROM api.upcoming_station_live_vehicle");
     assert.equal(upcomingStationVehicles.rowCount, 0);
+    const recentStationCalls = await web.query("SELECT * FROM api.recent_station_calls('atocha', (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Madrid')::date, 6000)");
+    assert.equal(recentStationCalls.rowCount, 0);
 
     const segments = await web.query("SELECT * FROM api.history_segment_hour WHERE network_slug = 'madrid' LIMIT 1");
     assert.equal(segments.rowCount, 0);

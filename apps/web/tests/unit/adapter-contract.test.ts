@@ -60,6 +60,15 @@ function publicDataAdapterContract(name: string, harness: AdapterHarness) {
       expect(station?.trains.length).toBeGreaterThan(0);
       expect(station?.trains.length).toBeLessThanOrEqual(10);
       expect(station?.trains.every((train) => train.scheduledArrivalAt !== null)).toBe(true);
+      expect(station?.stationInsights.delayTrend.length).toBeGreaterThan(0);
+      expect(station?.stationInsights.linePunctuality).toHaveLength(1);
+      expect(station?.stationInsights.cadence).toMatchObject({
+        sample: 5,
+        regularity: 1,
+        medianScheduledHeadwaySeconds: 600,
+        medianObservedHeadwaySeconds: 630,
+        medianDeviationSeconds: 30,
+      });
     });
 
     it("keeps history filters, rankings, finalization and normalized distributions aligned", async () => {
@@ -267,6 +276,17 @@ function stationArrivalRows(serviceDate: string, capturedAt: string): RawPostgre
   }];
 }
 
+function stationCallRows(serviceDate: string): RawPostgresRow[] {
+  const delays = [60, 90, 120, 120, 150, 180];
+  return delays.map((delay, index) => ({
+    line_slug: "c1",
+    direction: 0,
+    scheduled_arrival_at: `${serviceDate}T08:${String(index * 10).padStart(2, "0")}:00Z`,
+    selected_delay_seconds: delay,
+    evidence_status: "reported_only",
+  }));
+}
+
 function matrixRows(serviceDate: string): RawPostgresRow[] {
   return ["chamartin", "atocha"].map((stationId, index) => ({
     service_date: serviceDate,
@@ -315,6 +335,7 @@ function postgresHarness(): AdapterHarness {
             const dates = Array.isArray(values[0]) ? values[0] as string[] : [date];
             return dates.map((serviceDate) => ({ service_date: serviceDate, aggregate_algorithm_version: scenario === "mixed" ? "v2" : "v1", status: "verified", finalized_at: `${serviceDate}T23:00:00Z` }));
           }
+          if (text.includes("api.recent_station_calls")) return stationCallRows(date);
           if (text.includes("api.recent_line_matrix")) return matrixRows(date);
           if (text.includes("SELECT history.station_id, catalog.name_es AS station_name")) return [{ station_id: "atocha", station_name: "Atocha", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
           if (text.includes("history.scheduled_hour::text AS hour_id")) return [{ hour_id: "8", hour_label: "08:00", valid_delay_observations: 150, punctual_count: 120, signed_delay_sum: 9000 }];
@@ -328,7 +349,7 @@ function postgresHarness(): AdapterHarness {
           }
           if (text.includes("api.history_network_day")) return [aggregateRow(date, scenario)];
           if (text.includes("api.history_line_day")) return [{ line_slug: "c1", ...aggregateRow(date, scenario) }];
-          if (text.includes("api.history_station_hour")) return [aggregateRow(date, scenario)];
+          if (text.includes("api.history_station_hour")) return [{ line_slug: "c1", scheduled_hour: 8, ...aggregateRow(date, scenario) }];
           if (text.includes("api.line_catalog")) {
             const slug = typeof values[1] === "string" ? values[1] : null;
             return slug === null || slug === "c1" ? [lineRow("c1")] : [];

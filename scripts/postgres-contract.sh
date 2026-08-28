@@ -24,6 +24,7 @@ web_migrations=(
   migrations/0018_web_live_freshness.sql
   migrations/0019_web_history_insights.sql
   migrations/0020_web_station_arrivals.sql
+  migrations/0021_web_station_cadence.sql
 )
 
 if ! command -v docker >/dev/null 2>&1; then
