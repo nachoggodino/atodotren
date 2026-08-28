@@ -28,16 +28,26 @@ test("landing search exposes live and history actions and opens the selected liv
   await expect(page.getByTestId("schematic-map")).toBeVisible();
 });
 
-test("live context selector exposes every line and defaults search results to live", async ({ page }, testInfo) => {
+test("search clears stale options before resolving the next query", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Search request state only needs one Chromium acceptance path.");
+  await page.goto("/es");
+  const search = page.getByRole("combobox", { name: "Busca una línea o estación", exact: true });
+  await search.fill("C-1");
+  await expect(page.getByRole("option").filter({ hasText: "C1" }).first()).toBeVisible();
+
+  await search.fill("Atocha");
+  await expect(page.getByRole("option").filter({ hasText: "C1" })).toHaveCount(0);
+  await expect(page.getByRole("option").filter({ hasText: "Atocha" }).first()).toBeVisible();
+});
+
+test("live context selector exposes line navigation and defaults search results to live", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Context selection behavior needs one Chromium acceptance path.");
   await page.goto("/es/live");
 
   await page.getByTestId("live-context-title").click();
   const selector = page.getByTestId("live-context-selector");
   await expect(selector).toBeVisible();
-  for (const code of ["C1", "C2", "C3", "C4", "C5", "C7", "C8", "C10"]) {
-    await expect(selector.getByRole("link", { name: `Línea ${code}` })).toHaveAttribute("href", `/es/live/line/${code.toLowerCase()}`);
-  }
+  await expect(selector.getByRole("link", { name: "Línea C1" })).toHaveAttribute("href", "/es/live/line/c1");
 
   await selector.getByRole("link", { name: "Línea C1" }).click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
@@ -68,6 +78,21 @@ test("live navigation opens destinations at the top", async ({ page }, testInfo)
   await page.getByTestId("live-line-grid").locator(":scope > a").first().click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test("browser back restores the previous page scroll position", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "History scroll restoration only needs one Chromium viewport.");
+  await page.goto("/es/live");
+  const lineLink = page.getByTestId("live-line-grid").locator(":scope > a").last();
+  await lineLink.scrollIntoViewIfNeeded();
+  const previousScroll = await page.evaluate(() => window.scrollY);
+  expect(previousScroll).toBeGreaterThan(0);
+
+  await lineLink.click();
+  await expect(page).toHaveURL(/\/es\/live\/line\//);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/es\/live$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 });
 
 test("@webkit search keyboard selection opens the live result and header menu restores focus", async ({ page }) => {

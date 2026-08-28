@@ -28,14 +28,6 @@ function routeContext(pathname: string, messages: Messages) {
   return { label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS };
 }
 
-function scrollToTopImmediately() {
-  const root = document.documentElement;
-  const previousBehavior = root.style.scrollBehavior;
-  root.style.scrollBehavior = "auto";
-  window.scrollTo(0, 0);
-  root.style.scrollBehavior = previousBehavior;
-}
-
 function subscribeToAppliedTheme(onStoreChange: () => void): () => void {
   const observer = new MutationObserver(onStoreChange);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
@@ -63,12 +55,10 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const refresh = useAutoRefresh();
 
   useEffect(() => {
-    scrollToTopImmediately();
     const frame = window.requestAnimationFrame(() => {
       setOpenPathname(null);
       setHidden(false);
-      scrollToTopImmediately();
-      previousY.current = 0;
+      previousY.current = window.scrollY;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pathname]);

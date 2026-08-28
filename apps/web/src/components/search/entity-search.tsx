@@ -41,19 +41,20 @@ export function EntitySearch({
   const onQueryChange = (value: string) => {
     setQuery(value);
     setFailed(false);
+    setResults([]);
     if (value.trim() === "") {
-      setResults([]);
       setLoading(false);
       setOpen(false);
       return;
     }
+    setLoading(true);
     setOpen(true);
   };
 
   const navigateToResult = (result: SearchResult, mode: "live" | "history") => {
     setOpen(false);
     onNavigate?.();
-    router.push(routeFor(result, lang, mode), { scroll: false });
+    router.push(routeFor(result, lang, mode));
   };
 
   useEffect(() => {
@@ -61,8 +62,6 @@ export function EntitySearch({
     if (trimmed === "") return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setFailed(false);
       try {
         const response = await fetch(`/api/v1/catalog/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
