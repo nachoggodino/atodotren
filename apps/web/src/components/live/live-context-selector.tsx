@@ -28,6 +28,7 @@ export function LiveContextSelector({
   readonly messages: Messages;
 }) {
   const [open, setOpen] = useState(false);
+  const [pressed, setPressed] = useState(false);
   const contextStyle: CSSProperties | undefined = contextColor === undefined
     ? undefined
     : { backgroundColor: contextColor, color: lineBadgeTextColor(contextColor) };
@@ -35,9 +36,13 @@ export function LiveContextSelector({
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
       <Ariakit.PopoverDisclosure
-        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 active:scale-[.97] active:opacity-75 focus-visible:ring-2 focus-visible:ring-primary ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
+        className={`min-w-0 -translate-y-1 truncate rounded-md px-2.5 py-1 text-xs font-black uppercase tracking-[.08em] outline-none transition-[filter,transform,opacity] duration-100 hover:brightness-95 focus-visible:ring-2 focus-visible:ring-primary ${pressed ? "scale-[.97] opacity-75 brightness-95" : ""} ${contextColor === undefined ? "bg-[var(--live-context-neutral)] text-[var(--live-context-neutral-foreground)]" : ""}`}
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
         data-testid="live-context-title"
+        onPointerDown={() => {
+          setPressed(true);
+          window.setTimeout(() => setPressed(false), 120);
+        }}
         style={contextStyle}
         title={subtitle}
         type="button"
