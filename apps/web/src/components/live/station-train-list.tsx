@@ -4,7 +4,7 @@ import * as Ariakit from "@ariakit/react";
 import { TrainFront } from "lucide-react";
 import type { Lang, StationUpcomingTrain } from "@/lib/domain/contracts";
 import { formatCompactDelay, formatDelay, formatMadridTime } from "@/lib/domain/format";
-import { delayStatusLevel } from "@/lib/domain/live-status";
+import { delayStatusLevel, liveStatusColor } from "@/lib/domain/live-status";
 import { preferredLineTextColor } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
@@ -37,7 +37,7 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
   const eta = remainingMinutes(arrivalAt, generatedAt, lang);
   const destination = destinationLabel(train, lang, messages);
   const buttonTextColor = preferredLineTextColor(train.line.slug);
-  const delayTone = delayStatusLevel(train.delaySeconds);
+  const delayColor = liveStatusColor(delayStatusLevel(train.delaySeconds));
   return (
     <Ariakit.PopoverProvider placement="top">
       <Ariakit.PopoverDisclosure
@@ -54,7 +54,7 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
             <span className="truncate text-sm opacity-80">{station?.name[lang] ?? messages.live.positionUnavailable}</span>
           </span>
           <span className="mt-1 flex items-center gap-1.5 text-[.68rem] font-bold uppercase tracking-wide opacity-90">
-            <span aria-hidden="true" className="delay-severity-dot size-[.55rem] shrink-0 rounded-full" data-tone={delayTone} />
+            <span aria-hidden="true" className="size-[.55rem] shrink-0 rounded-full" data-testid="station-train-delay-dot" style={{ backgroundColor: delayColor }} />
             <span>{messages.live.delay}: {stationDelay(train.delaySeconds, lang)}</span>
           </span>
         </span>
