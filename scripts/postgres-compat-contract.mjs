@@ -50,7 +50,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migrated.applied.at(-1), "0021_web_station_metrics.sql");
+  assert.equal(migrated.applied.at(-1), "0022_web_station_added_delay.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -107,7 +107,7 @@ try {
     await web.end();
   }
 
-  console.log(JSON.stringify({ postgres_compat_contract: true, migrations_latest: "0021_web_station_metrics.sql" }));
+  console.log(JSON.stringify({ postgres_compat_contract: true, migrations_latest: "0022_web_station_added_delay.sql" }));
 } finally {
   try {
     await admin.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [databaseName]);
