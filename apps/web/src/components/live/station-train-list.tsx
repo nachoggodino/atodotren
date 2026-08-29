@@ -5,7 +5,7 @@ import { TrainFront } from "lucide-react";
 import type { Lang, StationUpcomingTrain } from "@/lib/domain/contracts";
 import { formatCompactDelay, formatDelay, formatMadridTime } from "@/lib/domain/format";
 import { delayStatusLevel } from "@/lib/domain/live-status";
-import { MADRID_LINE_TEXT_COLOR } from "@/lib/domain/network";
+import { lineSurfaceColor, MADRID_LINE_TEXT_COLOR } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
 function remainingMinutes(arrivalAt: string | null, generatedAt: string, lang: Lang): string {
@@ -43,7 +43,7 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
         aria-label={`${train.id}, ${messages.live.towards} ${destination}, ${messages.live.arrivalIn} ${eta}`}
         className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-4 py-4 text-left outline-none transition-[filter,transform] duration-100 hover:brightness-95 active:scale-[.99] focus-visible:ring-2 focus-visible:ring-foreground/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-5"
         data-testid="station-train-row"
-        style={{ backgroundColor: train.line.color, color: MADRID_LINE_TEXT_COLOR }}
+        style={{ backgroundColor: lineSurfaceColor(train.line.slug), color: MADRID_LINE_TEXT_COLOR }}
         type="button"
       >
         <span className="min-w-0">
