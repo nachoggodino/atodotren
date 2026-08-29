@@ -55,7 +55,7 @@ The floating sticky shell adapts the interaction quality of Termómetro de Madri
 
 ## Brand assets
 
-The supplied final andén infinito SVG is the canonical geometry. The in-app mark uses `currentColor`, so it resolves to `#7A3B4A` in light mode and `#C98A98` in dark mode. The favicon uses the tightly cropped mark in the light primary accent. PWA icons use the same cropped mark in `#7A3B4A` on `#F6E4E2`, with a separate maskable-safe variant.
+The supplied final andén infinito SVG is the canonical geometry. The in-app mark uses `currentColor`, so it resolves to `#7A3B4A` in light mode and `#C98A98` in dark mode. The favicon uses the tightly cropped mark in the light primary accent. Installed-app artwork is intentionally inverted for launcher legibility: Android PWA and Apple touch icons use the canonical mark in white on the solid `#7A3B4A` primary accent. The regular Android icon uses the largest practical inset, while the maskable variant keeps the full mark inside the platform safe zone. Navbar and favicon treatments remain unchanged.
 
 ## Accessibility
 
