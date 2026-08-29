@@ -98,7 +98,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
             <div className="relative flex min-h-16 items-center gap-3 px-4">
               <Link
                 aria-label={messages.nav.home}
-                className="ml-5 grid size-11 shrink-0 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
+                className="grid size-11 shrink-0 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
                 href={`/${lang}`}
                 onClick={closeForNavigation}
               >
