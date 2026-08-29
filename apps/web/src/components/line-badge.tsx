@@ -1,14 +1,8 @@
 import type { CSSProperties } from "react";
+import { MADRID_LINE_TEXT_COLOR } from "@/lib/domain/network";
 
-export function lineBadgeTextColor(background: string): "#000000" | "#ffffff" {
-  const hex = background.replace(/^#/, "");
-  if (!/^[0-9a-f]{6}$/i.test(hex)) return "#000000";
-  const channels = [0, 2, 4].map((offset) => {
-    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
-  const luminance = 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
-  return luminance > 0.179 ? "#000000" : "#ffffff";
+export function lineBadgeTextColor(_background: string): typeof MADRID_LINE_TEXT_COLOR {
+  return MADRID_LINE_TEXT_COLOR;
 }
 
 export function LineBadge({ code, color, className = "", variant = "default" }: { readonly code: string; readonly color: string; readonly className?: string; readonly variant?: "default" | "compact" }) {
