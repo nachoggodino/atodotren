@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { lineBadgeTextColor } from "@/components/line-badge";
 import type { Lang, LinePerformance } from "@/lib/domain/contracts";
+import { MADRID_LINE_TEXT_COLOR } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 import { summaryMetricItems } from "./summary-metrics";
 
@@ -11,7 +11,6 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
       {lines.map((line) => {
         const stats = line.stats.status === "available" ? line.stats.value : null;
         const metrics = summaryMetricItems(stats, lang, messages, true);
-        const lineTextColor = lineBadgeTextColor(line.color);
 
         return (
           <Link
@@ -22,7 +21,7 @@ export function LineList({ lines, lang, messages }: { readonly lines: readonly L
             <div
               className="flex h-8 min-w-0 items-center justify-between rounded-md px-2.5 text-[.6rem] font-bold tracking-[-.01em] sm:h-9 sm:text-xs"
               data-testid="live-line-header"
-              style={{ backgroundColor: line.color, color: lineTextColor }}
+              style={{ backgroundColor: line.color, color: MADRID_LINE_TEXT_COLOR }}
             >
               <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 <strong className="shrink-0 text-[.72rem] font-black sm:text-sm">{line.code}</strong>
