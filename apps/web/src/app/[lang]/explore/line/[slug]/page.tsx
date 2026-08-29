@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: { readonly params: Promise<{ 
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
   const context = slug.toUpperCase();
-  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/history/line/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyLineDescription, context) });
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/explore/line/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyLineDescription, context) });
 }
 
 function matrixView(result: MatrixResult, lang: "es" | "en", messages: ReturnType<typeof getMessages>) {
@@ -27,7 +27,7 @@ function matrixView(result: MatrixResult, lang: "es" | "en", messages: ReturnTyp
   return <p className={`border-y border-border py-8 text-sm ${result.status === "failed" ? "text-danger" : "text-muted"}`}>{matrixResultMessage(result, messages)}</p>;
 }
 
-export default async function HistoryLinePage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
+export default async function ExploreLinePage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
   const [{ lang, slug }, query] = await Promise.all([params, searchParams]);
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);

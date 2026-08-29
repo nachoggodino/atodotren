@@ -13,7 +13,7 @@ test("localized station slugs and document language follow the selected locale",
   await expect(page).toHaveURL(/\/en\/live\/station\/airport-t4$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
-  await page.goto("/es/history/station/aeropuerto-t4?from=2026-08-18&to=2026-08-24");
+  await page.goto("/es/explore/station/aeropuerto-t4?from=2026-08-18&to=2026-08-24");
   await switchToEnglish(page);
-  await expect(page).toHaveURL(/\/en\/history\/station\/airport-t4\?from=2026-08-18&to=2026-08-24$/);
+  await expect(page).toHaveURL(/\/en\/explore\/station\/airport-t4\?from=2026-08-18&to=2026-08-24$/);
 });

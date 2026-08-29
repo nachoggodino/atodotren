@@ -15,10 +15,10 @@ export async function generateMetadata({ params }: { readonly params: Promise<{ 
   const { lang } = await params;
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
-  return localizedPageMetadata({ lang, paths: sharedLocalizedPath("/history"), title: copy.historyNetworkTitle, description: copy.historyNetworkDescription });
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath("/explore"), title: copy.historyNetworkTitle, description: copy.historyNetworkDescription });
 }
 
-export default async function HistoryPage({ params, searchParams }: { readonly params: Promise<{ lang: string }>; readonly searchParams: Promise<PageSearchParams> }) {
+export default async function ExplorePage({ params, searchParams }: { readonly params: Promise<{ lang: string }>; readonly searchParams: Promise<PageSearchParams> }) {
   const [{ lang }, query] = await Promise.all([params, searchParams]);
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);

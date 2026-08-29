@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, Database, Gauge, Radio, type LucideIcon } from "lucide-react";
+import { Archive, CheckCircle2, Clock3, Database, Gauge, Radio, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Lang, ResponseMeta } from "@/lib/domain/contracts";
 import { formatMadridTime, formatPercent } from "@/lib/domain/format";
@@ -11,6 +11,14 @@ function finalizationLabel(meta: ResponseMeta, messages: Messages): string {
     case "finalized": return messages.common.finalized;
     case "processing": return messages.common.processing;
     case "unknown": return messages.common.finalizationUnknown;
+  }
+}
+
+function finalizationStatusLevel(meta: ResponseMeta): LiveStatusLevel {
+  switch (meta.finalization.state) {
+    case "finalized": return "good";
+    case "processing": return "warning";
+    case "unknown": return "unknown";
   }
 }
 
@@ -31,7 +39,7 @@ function LiveMetaItem({ icon: Icon, tone, children }: { readonly icon: LucideIco
   );
 }
 
-export function DataMeta({ meta, lang, messages, variant = "default" }: { readonly meta: ResponseMeta; readonly lang: Lang; readonly messages: Messages; readonly variant?: "default" | "live" }) {
+export function DataMeta({ meta, lang, messages, variant = "default" }: { readonly meta: ResponseMeta; readonly lang: Lang; readonly messages: Messages; readonly variant?: "default" | "live" | "explore" }) {
   const sourceAt = meta.source.freshness.sourceAt;
 
   if (variant === "live") {
@@ -41,6 +49,17 @@ export function DataMeta({ meta, lang, messages, variant = "default" }: { readon
         <LiveMetaItem icon={Clock3} tone={freshnessStatusLevel(meta.source.freshness.state)}>{messages.common.updated}: {formatMadridTime(sourceAt, lang, true)}</LiveMetaItem>
         <LiveMetaItem icon={Gauge} tone={coverageStatusLevel(meta.coverage.ratio)}>{messages.common.coverage}: {formatPercent(meta.coverage.ratio)}</LiveMetaItem>
         <LiveMetaItem icon={Database} tone={precisionStatusLevel(meta.precision)}>{messages.common.precision}: {precisionLabel(meta.precision, messages)}</LiveMetaItem>
+      </div>
+    );
+  }
+
+  if (variant === "explore") {
+    return (
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs sm:grid-cols-4" aria-label={messages.common.dataMetadata} data-testid="explore-data-meta">
+        <LiveMetaItem icon={Archive} tone={sourceStatusLevel(meta.source.status)}>{sourceStatusLabel(meta.source.status, messages)}</LiveMetaItem>
+        <LiveMetaItem icon={CheckCircle2} tone={finalizationStatusLevel(meta)}>{finalizationLabel(meta, messages)}</LiveMetaItem>
+        <LiveMetaItem icon={Gauge} tone={coverageStatusLevel(meta.coverage.ratio)}>{messages.common.coverage}: {formatPercent(meta.coverage.ratio)}</LiveMetaItem>
+        <LiveMetaItem icon={Database} tone={precisionStatusLevel(meta.precision)}>{messages.common.precision}: {precisionLabel(meta.precision, messages)} · {provenanceLabel(meta, messages)}</LiveMetaItem>
       </div>
     );
   }

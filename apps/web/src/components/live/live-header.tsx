@@ -1,10 +1,12 @@
 "use client";
 
-import { ArrowLeft, Radio } from "lucide-react";
+import { ArrowLeft, BarChart3, Radio } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Lang } from "@/lib/domain/contracts";
 import type { Messages } from "@/messages/types";
 import { LiveContextSelector } from "./live-context-selector";
+
+type HeaderMode = "live" | "explore";
 
 export function LiveHeader({
   title,
@@ -13,6 +15,7 @@ export function LiveHeader({
   contextColor,
   lang,
   messages,
+  mode = "live",
 }: {
   readonly title: string;
   readonly subtitle: string;
@@ -20,26 +23,30 @@ export function LiveHeader({
   readonly contextColor?: string;
   readonly lang: Lang;
   readonly messages: Messages;
+  readonly mode?: HeaderMode;
 }) {
   const router = useRouter();
   const heading = (
     <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
       <h1 className="shrink-0 whitespace-nowrap text-[31px] font-black tracking-[-.045em] sm:text-[43px]">{title}</h1>
-      <LiveContextSelector contextColor={contextColor} lang={lang} messages={messages} subtitle={subtitle} />
+      <LiveContextSelector contextColor={contextColor} lang={lang} messages={messages} mode={mode} subtitle={subtitle} />
     </div>
   );
 
+  const TitleIcon = mode === "explore" ? BarChart3 : Radio;
+  const iconClass = mode === "explore" ? "text-[var(--landing-highlight)]" : "text-[var(--landing-positive)]";
+  const backActiveClass = mode === "explore" ? "active:text-[var(--landing-highlight)]" : "active:text-[var(--landing-positive)]";
   const leading = backLabel === undefined
     ? (
       <span className="-ml-2 mt-0.5 grid size-11 shrink-0 place-items-center" aria-hidden="true">
-        <Radio className="size-7 text-[var(--landing-positive)]" data-testid="live-title-icon" />
+        <TitleIcon className={`size-7 ${iconClass}`} data-testid={`${mode}-title-icon`} />
       </span>
     )
     : (
       <button
         aria-label={backLabel}
-        className="-ml-2 mt-0.5 grid size-11 shrink-0 place-items-center text-muted transition-[color,transform,opacity] duration-100 hover:text-foreground active:-translate-x-1 active:scale-90 active:text-[var(--landing-positive)] active:opacity-65"
-        data-testid="live-back-button"
+        className={`-ml-2 mt-0.5 grid size-11 shrink-0 place-items-center text-muted transition-[color,transform,opacity] duration-100 hover:text-foreground active:-translate-x-1 active:scale-90 active:opacity-65 ${backActiveClass}`}
+        data-testid={`${mode}-back-button`}
         onClick={() => router.back()}
         type="button"
       >

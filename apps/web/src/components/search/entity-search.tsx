@@ -10,8 +10,9 @@ import { announceForwardRouteNavigation } from "@/lib/navigation-events";
 import type { Messages } from "@/messages/types";
 
 const SEARCH_DEBOUNCE_MS = 160;
+type SearchMode = "live" | "explore";
 
-function routeFor(result: SearchResult, lang: Lang, mode: "live" | "history"): string {
+function routeFor(result: SearchResult, lang: Lang, mode: SearchMode): string {
   const slug = result.kind === "line" ? result.slug.es : result.slug[lang];
   return `/${lang}/${mode}/${result.kind}/${slug}`;
 }
@@ -25,11 +26,13 @@ export function EntitySearch({
   messages,
   onNavigate,
   compact = false,
+  defaultMode = "live",
 }: {
   readonly lang: Lang;
   readonly messages: Messages;
   readonly onNavigate?: () => void;
   readonly compact?: boolean;
+  readonly defaultMode?: SearchMode;
 }) {
   const inputId = useId();
   const router = useRouter();
@@ -52,7 +55,7 @@ export function EntitySearch({
     setOpen(true);
   };
 
-  const navigateToResult = (result: SearchResult, mode: "live" | "history") => {
+  const navigateToResult = (result: SearchResult, mode: SearchMode) => {
     setOpen(false);
     onNavigate?.();
     announceForwardRouteNavigation();
@@ -123,7 +126,7 @@ export function EntitySearch({
                   className={compact
                     ? "flex w-full cursor-pointer items-center px-3 py-2.5 pr-[4.75rem] text-left text-sm transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"
                     : "flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 pr-[6.5rem] text-left transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75 data-[active-item]:bg-muted-soft"}
-                  onClick={() => navigateToResult(result, "live")}
+                  onClick={() => navigateToResult(result, defaultMode)}
                   resetValueOnSelect={false}
                   setValueOnClick={false}
                   value={`${result.kind}:${result.id}`}
@@ -146,15 +149,15 @@ export function EntitySearch({
                     <Radio className="size-4" />
                   </Link>
                   <Link
-                    aria-label={`${messages.landing.historyAction}: ${label}`}
+                    aria-label={`${messages.landing.exploreAction}: ${label}`}
                     className={`${compact ? "size-8" : "size-9"} grid place-items-center rounded-lg text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-[color-mix(in_srgb,var(--landing-highlight)_10%,transparent)] active:scale-90 active:opacity-70 focus-visible:outline-offset-1`}
-                    href={routeFor(result, lang, "history")}
+                    href={routeFor(result, lang, "explore")}
                     onClick={(event) => {
                       event.preventDefault();
-                      navigateToResult(result, "history");
+                      navigateToResult(result, "explore");
                     }}
                     onPointerDown={(event) => event.stopPropagation()}
-                    title={messages.landing.historyAction}
+                    title={messages.landing.exploreAction}
                   >
                     <BarChart3 className="size-4" />
                   </Link>
