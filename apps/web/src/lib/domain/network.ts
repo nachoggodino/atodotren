@@ -28,7 +28,3 @@ export const MADRID_NETWORK = {
 export function fallbackLineColor(slug: string): string {
   return MADRID_NETWORK.lineColors[slug] ?? MADRID_NETWORK.fallbackLineColor;
 }
-
-export function preferredLineTextColor(_slug: string): typeof MADRID_LINE_TEXT_COLOR {
-  return MADRID_LINE_TEXT_COLOR;
-}
