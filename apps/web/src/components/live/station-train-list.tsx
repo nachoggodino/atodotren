@@ -4,8 +4,8 @@ import * as Ariakit from "@ariakit/react";
 import { TrainFront } from "lucide-react";
 import type { Lang, StationUpcomingTrain } from "@/lib/domain/contracts";
 import { formatCompactDelay, formatDelay, formatMadridTime } from "@/lib/domain/format";
-import { delayStatusLevel, liveStatusColor } from "@/lib/domain/live-status";
-import { preferredLineTextColor } from "@/lib/domain/network";
+import { delayStatusLevel } from "@/lib/domain/live-status";
+import { MADRID_LINE_TEXT_COLOR } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
 function remainingMinutes(arrivalAt: string | null, generatedAt: string, lang: Lang): string {
@@ -36,15 +36,14 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
   const arrivalAt = train.probableArrivalAt ?? train.scheduledArrivalAt;
   const eta = remainingMinutes(arrivalAt, generatedAt, lang);
   const destination = destinationLabel(train, lang, messages);
-  const buttonTextColor = preferredLineTextColor(train.line.slug);
-  const delayColor = liveStatusColor(delayStatusLevel(train.delaySeconds));
+  const delayTone = delayStatusLevel(train.delaySeconds);
   return (
     <Ariakit.PopoverProvider placement="top">
       <Ariakit.PopoverDisclosure
         aria-label={`${train.id}, ${messages.live.towards} ${destination}, ${messages.live.arrivalIn} ${eta}`}
         className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-4 py-4 text-left outline-none transition-[filter,transform] duration-100 hover:brightness-95 active:scale-[.99] focus-visible:ring-2 focus-visible:ring-foreground/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-5"
         data-testid="station-train-row"
-        style={{ backgroundColor: train.line.color, color: buttonTextColor }}
+        style={{ backgroundColor: train.line.color, color: MADRID_LINE_TEXT_COLOR }}
         type="button"
       >
         <span className="min-w-0">
@@ -53,8 +52,8 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
             <span aria-hidden="true" className="opacity-60">·</span>
             <span className="truncate text-sm opacity-80">{station?.name[lang] ?? messages.live.positionUnavailable}</span>
           </span>
-          <span className="mt-1 flex items-center gap-1.5 text-[.68rem] font-bold uppercase tracking-wide opacity-90">
-            <span aria-hidden="true" className="size-[.55rem] shrink-0 rounded-full" data-testid="station-train-delay-dot" style={{ backgroundColor: delayColor }} />
+          <span className="live-tone mt-1 flex items-center gap-1.5 text-[.68rem] font-bold uppercase tracking-wide opacity-90" data-tone={delayTone}>
+            <span aria-hidden="true" className="live-tone-dot size-[.55rem] shrink-0 rounded-full" />
             <span>{messages.live.delay}: {stationDelay(train.delaySeconds, lang)}</span>
           </span>
         </span>
