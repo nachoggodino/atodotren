@@ -62,7 +62,7 @@ export function LiveContextSelector({
               href={`/${lang}/live/line/${line.slug}`}
               key={line.slug}
               onClick={() => setOpen(false)}
-              style={{ backgroundColor: line.color, color: MADRID_LINE_TEXT_COLOR }}
+              style={{ backgroundColor: line.surfaceColor, color: MADRID_LINE_TEXT_COLOR }}
             >
               {line.code}
             </Link>
