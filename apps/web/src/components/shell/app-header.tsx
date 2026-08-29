@@ -14,6 +14,7 @@ const HOME_ICON_CLASS = "text-primary";
 const LIVE_ICON_CLASS = "text-[var(--landing-positive)]";
 const HISTORY_ICON_CLASS = "text-[var(--landing-highlight)]";
 const METHODOLOGY_ICON_CLASS = "text-[var(--nav-methodology)]";
+const HEADER_EDGE_CONTROL_CLASS = "grid h-11 shrink-0 place-items-center rounded-lg px-3 text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70";
 const DESKTOP_BREAKPOINT_PX = 640;
 const HEADER_REVEAL_TOP_PX = 96;
 const HEADER_REVEAL_SCROLL_DELTA_PX = -12;
@@ -98,7 +99,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
             <div className="relative flex min-h-16 items-center gap-3 px-4">
               <Link
                 aria-label={messages.nav.home}
-                className="grid size-11 shrink-0 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
+                className={HEADER_EDGE_CONTROL_CLASS}
                 href={`/${lang}`}
                 onClick={closeForNavigation}
               >
@@ -120,7 +121,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
                 ref={menuButtonRef}
                 data-testid="menu-toggle"
                 aria-label={open ? messages.nav.close : messages.nav.menu}
-                className="ml-auto grid size-11 place-items-center rounded-lg text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70"
+                className={`${HEADER_EDGE_CONTROL_CLASS} ml-auto`}
               >
                 <span className="relative block h-4 w-5" aria-hidden="true">
                   <span className={`absolute left-0 top-0 h-0.5 w-5 bg-current transition-transform ${open ? "translate-y-[7px] rotate-45" : ""}`} />
