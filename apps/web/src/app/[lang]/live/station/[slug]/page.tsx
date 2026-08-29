@@ -5,6 +5,7 @@ import { StationDelayTrend } from "@/components/charts/station-delay-trend";
 import { LivePageSummary } from "@/components/live/live-page-summary";
 import { StationTrainList } from "@/components/live/station-train-list";
 import { formatCompactDelay } from "@/lib/domain/format";
+import { delayStatusLevel, liveStatusColor } from "@/lib/domain/live-status";
 import { humanizeSlug } from "@/lib/domain/slugs";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
@@ -35,12 +36,14 @@ export default async function LiveStationPage({ params, searchParams }: { readon
   }
 
   const nextTrain = data.trains[0];
+  const accumulatedDelayLabel = `${messages.live.stationAccumulatedDelay} ${data.context.name[lang]}`;
+  const accumulatedDelayColor = liveStatusColor(delayStatusLevel(data.stationInsights.totalAddedDelaySeconds));
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
       <LivePageSummary {...(nextTrain === undefined ? {} : { contextColor: nextTrain.line.color })} backLabel={messages.common.back} context="station" meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
-      <section className="mt-10" data-testid="station-total-delay">
-        <p className="eyebrow">{messages.live.stationAccumulatedDelay} {data.context.name[lang]}</p>
-        <p className="metric-value mt-3 text-5xl font-black">{formatCompactDelay(data.stationInsights.totalAddedDelaySeconds, lang)}</p>
+      <section className="mt-10 min-w-0" data-testid="station-total-delay">
+        <p className="eyebrow block max-w-full truncate whitespace-nowrap" title={accumulatedDelayLabel}>{accumulatedDelayLabel}</p>
+        <p className="metric-value mt-3 text-5xl font-black" style={{ color: accumulatedDelayColor }}>{formatCompactDelay(data.stationInsights.totalAddedDelaySeconds, lang)}</p>
       </section>
       <section className="mt-10">
         <h2 className="text-2xl font-black">{messages.live.upcomingTrains}</h2>
