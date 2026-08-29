@@ -1,4 +1,5 @@
 import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, StationLiveInsights, StationUpcomingTrain, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import { distributionFromCounts } from "@/lib/domain/delay-policy";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
@@ -35,6 +36,40 @@ function fixtureStationTrains(scenario: FixtureScenario, stationId: string): rea
     })
     .sort((left, right) => Date.parse(left.probableArrivalAt ?? left.scheduledArrivalAt ?? FIXTURE_NOW) - Date.parse(right.probableArrivalAt ?? right.scheduledArrivalAt ?? FIXTURE_NOW))
     .slice(0, STATION_ARRIVAL_LIMIT);
+}
+
+function fixtureStationStats(scenario: FixtureScenario): SummaryStats {
+  const healthy: SummaryStats = {
+    ...baseStats,
+    scheduled: 310,
+    observed: 281,
+    punctuality: 219 / 281,
+    meanDelaySeconds: 178,
+    medianDelaySeconds: 110,
+    p90DelaySeconds: 462,
+    canceled: 4,
+    missing: 25,
+    distribution: distributionFromCounts({ early: 22, punctual: 197, "delay-2-5": 31, "delay-5-10": 18, "delay-10-15": 8, "delay-15-plus": 5 }),
+  };
+  if (scenario === "partial") {
+    return {
+      ...healthy,
+      observed: 168,
+      punctuality: 129 / 168,
+      meanDelaySeconds: 201,
+      medianDelaySeconds: 119,
+      p90DelaySeconds: 498,
+      missing: 138,
+      distribution: distributionFromCounts({ early: 13, punctual: 116, "delay-2-5": 18, "delay-5-10": 11, "delay-10-15": 6, "delay-15-plus": 4 }),
+    };
+  }
+  if (scenario === "outage" || scenario === "zero-observed") {
+    return { ...healthy, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, p90DelaySeconds: null, canceled: 0, missing: healthy.scheduled, distribution: distributionFromCounts({}) };
+  }
+  if (scenario === "zero-scheduled") {
+    return { ...healthy, scheduled: 0, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, p90DelaySeconds: null, canceled: 0, missing: 0, distribution: distributionFromCounts({}) };
+  }
+  return healthy;
 }
 
 function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats): StationLiveInsights {
@@ -145,7 +180,7 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
       const station = fixtureStations.find((candidate) => candidate.slug.es === slug || candidate.slug.en === slug || candidate.id === slug);
       if (station === undefined) return null;
       const trains = fixtureStationTrains(scenario, station.id);
-      const stats = scenario === "partial" ? { ...baseStats, scheduled: 310, observed: 168, missing: 142 } : { ...baseStats, scheduled: 310, observed: 281, missing: 29 };
+      const stats = fixtureStationStats(scenario);
       return { meta: liveMeta(scenario, stats, trains.length), context: station, stats, comparison: comparison(scenario, 2), patterns: [], trains, stationInsights: fixtureStationInsights(scenario, stats) };
     },
     async journey(serviceDate, journeyId) {
