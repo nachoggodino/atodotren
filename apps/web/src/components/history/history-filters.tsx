@@ -3,7 +3,7 @@
 import * as Ariakit from "@ariakit/react";
 import { ArrowRight, CalendarDays, Check, Filter } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { HistoryFilters } from "@/lib/domain/contracts";
 import { calendarDayOfWeek, calendarDaysInclusive, currentMadridDate, offsetCalendarDate } from "@/lib/domain/dates";
 import type { Messages } from "@/messages/types";
@@ -92,16 +92,6 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
   const [dateTo, setDateTo] = useState(filters.to);
   const [weekdayDraft, setWeekdayDraft] = useState(weekdayKey);
   const [hourDraft, setHourDraft] = useState(filters.hour === null ? "" : String(filters.hour));
-
-  useEffect(() => {
-    setDateFrom(filters.from);
-    setDateTo(filters.to);
-  }, [filters.from, filters.to]);
-
-  useEffect(() => {
-    setWeekdayDraft(weekdayKey);
-    setHourDraft(filters.hour === null ? "" : String(filters.hour));
-  }, [filters.hour, weekdayKey]);
 
   const navigate = (mutate: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
