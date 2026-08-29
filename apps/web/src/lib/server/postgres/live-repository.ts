@@ -1,6 +1,7 @@
 import type { Capability, Comparison, LinePerformance, LineRef, LiveContextResponse, LiveNetworkResponse, LiveStationResponse, StationDelayTrendPoint, StationRef, StationUpcomingTrain } from "@/lib/domain/contracts";
 import { algorithmProvenance, liveResponseMeta } from "@/lib/domain/data-policy";
 import { currentMadridDate, madridHour } from "@/lib/domain/dates";
+import { STATION_UPCOMING_TRAIN_LIMIT } from "@/lib/domain/live-policy";
 import { fallbackLineColor, MADRID_NETWORK } from "@/lib/domain/network";
 import type { CatalogRepository } from "./catalog-repository";
 import type { PostgresClient, RawPostgresRow } from "./client";
@@ -12,7 +13,6 @@ import type { TopologyRepository } from "./topology-repository";
 
 const COMPARISON_LOOKBACK_DAYS = 56;
 const COMPARISON_MIN_SAMPLE = 30;
-const STATION_ARRIVAL_LIMIT = 10;
 
 function strictInteger(value: unknown, field: string): number {
   const parsed = Number(value);
@@ -131,7 +131,7 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
   async function upcomingStationVehicles(stationId: string) {
     const rows = await client.query(
       "SELECT * FROM api.upcoming_station_live_vehicle WHERE network_slug = $1 AND target_station_id = $2 ORDER BY station_expected_arrival_at, state_key LIMIT $3",
-      [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT],
+      [MADRID_NETWORK.slug, stationId, STATION_UPCOMING_TRAIN_LIMIT],
     );
     return rows.map(parseStationArrivalVehicle);
   }
