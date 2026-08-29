@@ -26,5 +26,5 @@ export default async function ExplorePage({ params, searchParams }: { readonly p
   if (!parsed.ok) return <InvalidHistoryFilters messages={messages} />;
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
   const data = await getHistoryNetwork(parsed.filters, scenario);
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} directions={data.directions} lang={lang} messages={messages} />} />;
+  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} lang={lang} messages={messages} />} />;
 }

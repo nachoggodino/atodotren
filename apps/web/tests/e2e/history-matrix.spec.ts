@@ -1,14 +1,31 @@
 import { expect, test } from "@playwright/test";
 
-test("historical filters are URL-addressable and matrix detail is keyboard operable", async ({ page }) => {
+test("Explore filters are URL-addressable and matrix detail is keyboard operable", async ({ page }) => {
   await page.goto("/es/explore/line/c1?from=2026-08-18&to=2026-08-24");
   await expect(page.getByRole("heading", { level: 1, name: "Explorar" })).toBeVisible();
   await expect(page.getByTestId("explore-context-title")).toContainText("C1");
-  await page.getByLabel("Hora").selectOption("8");
-  await page.getByLabel("Dirección").selectOption("1");
-  await page.getByRole("button", { name: "Aplicar" }).click();
+
+  const dateButton = page.getByTestId("explore-date-filter");
+  await expect(dateButton).toContainText("18/08/2026");
+  await expect(dateButton).toContainText("24/08/2026");
+  await dateButton.click();
+  const datePopover = page.getByTestId("explore-date-popover");
+  await datePopover.getByLabel("Desde").fill("2026-08-19");
+  await expect(page).toHaveURL(/from=2026-08-18/);
+  await datePopover.getByTestId("explore-date-apply").click();
+  await expect(page).toHaveURL(/from=2026-08-19/);
+  await expect(page.getByTestId("explore-date-popover")).toBeHidden();
+
+  await page.getByTestId("explore-secondary-filter").click();
+  const filterPopover = page.getByTestId("explore-filter-popover");
+  await filterPopover.getByLabel("Día de la semana").selectOption("1");
+  await filterPopover.getByLabel("Tramo horario").selectOption("8");
+  await filterPopover.getByTestId("explore-filter-apply").click();
+  await expect(page).toHaveURL(/weekdays=1/);
   await expect(page).toHaveURL(/hour=8/);
-  await expect(page).toHaveURL(/direction=1/);
+  await expect(page).not.toHaveURL(/direction=/);
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lunes");
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("08h–09h");
 
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
@@ -18,6 +35,22 @@ test("historical filters are URL-addressable and matrix detail is keyboard opera
   await cell.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
+});
+
+test("date presets apply immediately and close their popover", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Preset navigation behavior only needs one Chromium acceptance path.");
+  await page.goto("/es/explore?from=2026-08-18&to=2026-08-24");
+  await page.getByTestId("explore-date-filter").click();
+  const popover = page.getByTestId("explore-date-popover");
+  await popover.getByRole("button", { name: "Últimos 7 días", exact: true }).click();
+  await expect(page.getByTestId("explore-date-popover")).toBeHidden();
+  await expect.poll(() => {
+    const url = new URL(page.url());
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    if (from === null || to === null) return Number.NaN;
+    return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+  }).toBe(6);
 });
 
 test("explore context selector keeps quick links and default search navigation inside Explore", async ({ page }, testInfo) => {
