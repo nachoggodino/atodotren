@@ -37,15 +37,6 @@ export function delayStatusLevel(seconds: number | null): LiveStatusLevel {
   }
 }
 
-export function liveStatusColor(level: LiveStatusLevel): string {
-  switch (level) {
-    case "good": return "var(--success)";
-    case "warning": return "var(--warning)";
-    case "bad": return "var(--danger)";
-    case "unknown": return "var(--unknown)";
-  }
-}
-
 export function sourceStatusLevel(status: SourceStatus): LiveStatusLevel {
   switch (status) {
     case "healthy": return "good";
