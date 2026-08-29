@@ -4,7 +4,7 @@ import { DelayDistribution } from "@/components/charts/delay-distribution";
 import { StationDelayTrend } from "@/components/charts/station-delay-trend";
 import { LivePageSummary } from "@/components/live/live-page-summary";
 import { StationTrainList } from "@/components/live/station-train-list";
-import { formatDuration } from "@/lib/domain/format";
+import { formatCompactDelay } from "@/lib/domain/format";
 import { humanizeSlug } from "@/lib/domain/slugs";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
@@ -40,7 +40,7 @@ export default async function LiveStationPage({ params, searchParams }: { readon
       <LivePageSummary {...(nextTrain === undefined ? {} : { contextColor: nextTrain.line.color })} backLabel={messages.common.back} context="station" meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
       <section className="mt-10" data-testid="station-total-delay">
         <p className="eyebrow">{messages.live.stationAccumulatedDelay} {data.context.name[lang]}</p>
-        <p className="metric-value mt-3 text-5xl font-black">{formatDuration(data.stationInsights.totalAddedDelaySeconds, lang)}</p>
+        <p className="metric-value mt-3 text-5xl font-black">{formatCompactDelay(data.stationInsights.totalAddedDelaySeconds, lang)}</p>
       </section>
       <section className="mt-10">
         <h2 className="text-2xl font-black">{messages.live.upcomingTrains}</h2>
