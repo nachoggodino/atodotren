@@ -1,5 +1,5 @@
 const CACHE_POLICY = Object.freeze({
-  version: "web-production-readiness-v2",
+  version: "web-production-readiness-v3",
   keepNetworkSummary: true,
   staticEntries: 128,
 });
