@@ -4,10 +4,9 @@ import * as Ariakit from "@ariakit/react";
 import Link from "next/link";
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import { lineBadgeTextColor } from "@/components/line-badge";
 import { EntitySearch } from "@/components/search/entity-search";
 import type { Lang } from "@/lib/domain/contracts";
-import { MADRID_NETWORK } from "@/lib/domain/network";
+import { MADRID_LINE_TEXT_COLOR, MADRID_NETWORK } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
 const QUICK_LINES = MADRID_NETWORK.lines;
@@ -27,7 +26,7 @@ export function LiveContextSelector({
   const [pressed, setPressed] = useState(false);
   const contextStyle: CSSProperties | undefined = contextColor === undefined
     ? undefined
-    : { backgroundColor: contextColor, color: lineBadgeTextColor(contextColor) };
+    : { backgroundColor: contextColor, color: MADRID_LINE_TEXT_COLOR };
 
   return (
     <Ariakit.PopoverProvider open={open} setOpen={setOpen} placement="bottom-start">
@@ -63,7 +62,7 @@ export function LiveContextSelector({
               href={`/${lang}/live/line/${line.slug}`}
               key={line.slug}
               onClick={() => setOpen(false)}
-              style={{ backgroundColor: line.color, color: lineBadgeTextColor(line.color) }}
+              style={{ backgroundColor: line.color, color: MADRID_LINE_TEXT_COLOR }}
             >
               {line.code}
             </Link>
