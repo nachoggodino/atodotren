@@ -4,7 +4,7 @@ import * as Ariakit from "@ariakit/react";
 import { ArrowRight, CalendarDays, Check, Filter } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { HistoryFilters, Lang } from "@/lib/domain/contracts";
+import type { HistoryFilters } from "@/lib/domain/contracts";
 import { calendarDayOfWeek, calendarDaysInclusive, currentMadridDate, offsetCalendarDate } from "@/lib/domain/dates";
 import type { Messages } from "@/messages/types";
 
@@ -81,7 +81,7 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
 
 const POPOVER_CLASS = "z-[80] w-[60vw] max-w-[48rem] min-w-[20rem] rounded-xl border border-border bg-surface-strong p-4 text-foreground shadow-[var(--shadow-float)] outline-none max-sm:w-[calc(100vw-1rem)] max-sm:min-w-0";
 
-export function HistoryFiltersForm({ filters, lang, messages }: { readonly filters: HistoryFilters; readonly lang: Lang; readonly messages: Messages }) {
+export function HistoryFiltersForm({ filters, messages }: { readonly filters: HistoryFilters; readonly messages: Messages }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
