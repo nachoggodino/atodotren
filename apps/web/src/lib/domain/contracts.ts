@@ -120,11 +120,21 @@ export interface TrainDetail {
   };
 }
 
+export interface StationUpcomingTrain extends TrainDetail {
+  readonly lastStoppedStation: StationRef | null;
+}
+
 export interface SchematicStop { readonly station: StationRef; readonly order: number }
 export interface SchematicPattern { readonly id: string; readonly branchSlug: string; readonly direction: DirectionDescriptor; readonly stops: readonly SchematicStop[]; readonly destination: StationRef | null }
 export interface Comparison { readonly punctuality: number | null; readonly meanDelaySeconds: number | null; readonly sample: number }
 export interface LiveNetworkResponse { readonly meta: ResponseMeta; readonly stats: SummaryStats; readonly lines: readonly LinePerformance[] }
 export interface LiveContextResponse { readonly meta: ResponseMeta; readonly context: LineRef | StationRef; readonly stats: SummaryStats; readonly comparison: Capability<Comparison>; readonly patterns: readonly SchematicPattern[]; readonly trains: readonly TrainDetail[] }
+export interface StationDelayTrendPoint { readonly hour: number; readonly sample: number; readonly meanDelaySeconds: number | null; readonly medianDelaySeconds: number | null }
+export interface StationLiveInsights {
+  readonly delayTrend: readonly StationDelayTrendPoint[];
+  readonly totalAddedDelaySeconds: number;
+}
+export type LiveStationResponse = Omit<LiveContextResponse, "context" | "trains"> & { readonly context: StationRef; readonly trains: readonly StationUpcomingTrain[]; readonly stationInsights: StationLiveInsights };
 
 export interface LandingDelayPoint { readonly at: string; readonly totalDelaySeconds: number | null }
 export interface LandingOverviewResponse {

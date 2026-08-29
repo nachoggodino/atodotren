@@ -1,19 +1,90 @@
-import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, SummaryStats, TrainPosition } from "@/lib/domain/contracts";
+import type { LandingOverviewResponse, MatrixResponse, MatrixResult, SearchResult, StationLiveInsights, StationUpcomingTrain, SummaryStats, TrainDetail } from "@/lib/domain/contracts";
+import { distributionFromCounts } from "@/lib/domain/delay-policy";
 import { MADRID_NETWORK } from "@/lib/domain/network";
 import { normalizeSearch, normalizedLineAlias, SEARCH_RESULT_LIMIT } from "@/lib/domain/search";
 import type { PublicDataAdapter } from "@/lib/server/data-adapter";
 import { fixtureLines, fixtureStationAliases, fixtureStations } from "./catalog";
 import { baseStats, c1Patterns, comparison, FIXTURE_NOW, FIXTURE_TODAY, fixtureTrains, historyResponse, isFixtureScenario, linePerformance, lineStats, liveMeta, matrixResponse, type FixtureScenario } from "./builders";
 
-function containsStation(position: TrainPosition, stationId: string): boolean {
-  switch (position.kind) {
-    case "at_station":
-      return position.stationId === stationId;
-    case "between_stations":
-      return position.fromStationId === stationId || position.toStationId === stationId;
-    case "unknown":
-      return position.stationHintId === stationId;
+const STATION_ARRIVAL_LIMIT = 10;
+
+function stationArrivalDistance(train: TrainDetail, stationId: string): number | null {
+  const pattern = c1Patterns("reverse-branch").find((candidate) => candidate.id === train.patternId);
+  if (pattern === undefined) return null;
+  const targetIndex = pattern.stops.findIndex((stop) => stop.station.id === stationId);
+  if (targetIndex < 0) return null;
+  const position = train.position;
+  if (position.kind === "unknown") return null;
+  if (position.kind === "at_station") {
+    const currentIndex = pattern.stops.findIndex((stop) => stop.station.id === position.stationId);
+    return currentIndex >= 0 && targetIndex > currentIndex ? targetIndex - currentIndex : null;
   }
+  const nextIndex = pattern.stops.findIndex((stop) => stop.station.id === position.toStationId);
+  return nextIndex >= 0 && targetIndex >= nextIndex ? targetIndex - nextIndex : null;
+}
+
+function fixtureStationTrains(scenario: FixtureScenario, stationId: string): readonly StationUpcomingTrain[] {
+  const now = Date.parse(FIXTURE_NOW);
+  return fixtureTrains(scenario)
+    .flatMap((train, index) => {
+      const distance = stationArrivalDistance(train, stationId);
+      if (distance === null) return [];
+      const scheduledArrivalAt = new Date(now + (3 + distance * 4 + index) * 60_000).toISOString();
+      const probableArrivalAt = train.delaySeconds === null ? null : new Date(Date.parse(scheduledArrivalAt) + train.delaySeconds * 1000).toISOString();
+      const lastStoppedStation = train.currentStation ?? (train.observedPastArrivalAt === null ? null : train.previousStation);
+      return [{ ...train, scheduledArrivalAt, probableArrivalAt, lastStoppedStation }];
+    })
+    .sort((left, right) => Date.parse(left.probableArrivalAt ?? left.scheduledArrivalAt ?? FIXTURE_NOW) - Date.parse(right.probableArrivalAt ?? right.scheduledArrivalAt ?? FIXTURE_NOW))
+    .slice(0, STATION_ARRIVAL_LIMIT);
+}
+
+function fixtureStationStats(scenario: FixtureScenario): SummaryStats {
+  const healthy: SummaryStats = {
+    ...baseStats,
+    scheduled: 310,
+    observed: 281,
+    punctuality: 219 / 281,
+    meanDelaySeconds: 178,
+    medianDelaySeconds: 110,
+    p90DelaySeconds: 462,
+    canceled: 4,
+    missing: 25,
+    distribution: distributionFromCounts({ early: 22, punctual: 197, "delay-2-5": 31, "delay-5-10": 18, "delay-10-15": 8, "delay-15-plus": 5 }),
+  };
+  if (scenario === "partial") {
+    return {
+      ...healthy,
+      observed: 168,
+      punctuality: 129 / 168,
+      meanDelaySeconds: 201,
+      medianDelaySeconds: 119,
+      p90DelaySeconds: 498,
+      missing: 138,
+      distribution: distributionFromCounts({ early: 13, punctual: 116, "delay-2-5": 18, "delay-5-10": 11, "delay-10-15": 6, "delay-15-plus": 4 }),
+    };
+  }
+  if (scenario === "outage" || scenario === "zero-observed") {
+    return { ...healthy, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, p90DelaySeconds: null, canceled: 0, missing: healthy.scheduled, distribution: distributionFromCounts({}) };
+  }
+  if (scenario === "zero-scheduled") {
+    return { ...healthy, scheduled: 0, observed: 0, punctuality: null, meanDelaySeconds: null, medianDelaySeconds: null, p90DelaySeconds: null, canceled: 0, missing: 0, distribution: distributionFromCounts({}) };
+  }
+  return healthy;
+}
+
+function fixtureStationInsights(scenario: FixtureScenario, stats: SummaryStats): StationLiveInsights {
+  if (scenario === "outage") return { delayTrend: [], totalAddedDelaySeconds: 0 };
+  const hours = [6, 7, 8, 9, 10, 11, 12];
+  const delayTrend = hours.map((hour, index) => ({
+    hour,
+    sample: 28 + index * 3,
+    meanDelaySeconds: stats.meanDelaySeconds === null ? null : Math.max(0, stats.meanDelaySeconds + (index - 3) * 18),
+    medianDelaySeconds: stats.medianDelaySeconds === null ? null : Math.max(0, stats.medianDelaySeconds + (index - 3) * 12),
+  }));
+  return {
+    delayTrend,
+    totalAddedDelaySeconds: scenario === "partial" ? -95 : 615,
+  };
 }
 
 function failSource(scenario: FixtureScenario): void {
@@ -108,9 +179,9 @@ export function createFixtureAdapter(rawScenario: string): PublicDataAdapter {
       failSource(scenario);
       const station = fixtureStations.find((candidate) => candidate.slug.es === slug || candidate.slug.en === slug || candidate.id === slug);
       if (station === undefined) return null;
-      const trains = fixtureTrains(scenario).filter((item) => containsStation(item.position, station.id));
-      const stats = scenario === "partial" ? { ...baseStats, scheduled: 310, observed: 168, missing: 142 } : { ...baseStats, scheduled: 310, observed: 281, missing: 29 };
-      return { meta: liveMeta(scenario, stats, trains.length), context: station, stats, comparison: comparison(scenario, 2), patterns: [], trains };
+      const trains = fixtureStationTrains(scenario, station.id);
+      const stats = fixtureStationStats(scenario);
+      return { meta: liveMeta(scenario, stats, trains.length), context: station, stats, comparison: comparison(scenario, 2), patterns: [], trains, stationInsights: fixtureStationInsights(scenario, stats) };
     },
     async journey(serviceDate, journeyId) {
       failSource(scenario);

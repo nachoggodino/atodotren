@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0019_web_history_insights.sql");
+  assert.equal(migration.applied.at(-1), "0022_web_station_added_delay.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
@@ -126,17 +126,21 @@ try {
       has_schema_privilege(current_user, 'core', 'USAGE') AS core_usage,
       has_table_privilege(current_user, 'api.line_catalog', 'SELECT') AS api_line_select,
       has_table_privilege(current_user, 'api.active_live_vehicle', 'SELECT') AS active_live_select,
+      has_table_privilege(current_user, 'api.upcoming_station_live_vehicle', 'SELECT') AS station_arrival_select,
       has_table_privilege(current_user, 'api.history_segment_hour', 'SELECT') AS history_segment_select,
       has_function_privilege(current_user, 'api.landing_delay_timeline(text,timestamptz)', 'EXECUTE') AS landing_timeline_execute,
-      has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute`);
+      has_function_privilege(current_user, 'api.live_vehicle_is_active(date,timestamptz,bigint,text,timestamptz)', 'EXECUTE') AS live_predicate_execute,
+      has_function_privilege(current_user, 'api.station_live_day_metrics(text,date,timestamptz)', 'EXECUTE') AS station_metrics_execute`);
     assert.deepEqual(privileges.rows[0], {
       api_usage: true,
       core_usage: false,
       api_line_select: true,
       active_live_select: true,
+      station_arrival_select: true,
       history_segment_select: true,
       landing_timeline_execute: true,
       live_predicate_execute: true,
+      station_metrics_execute: true,
     });
 
     await assert.rejects(web.query("SELECT * FROM core.line"), /permission denied/);
@@ -155,6 +159,10 @@ try {
 
     const activeVehicles = await web.query("SELECT * FROM api.active_live_vehicle");
     assert.equal(activeVehicles.rowCount, 0);
+    const upcomingStationVehicles = await web.query("SELECT * FROM api.upcoming_station_live_vehicle");
+    assert.equal(upcomingStationVehicles.rowCount, 0);
+    const stationMetrics = await web.query("SELECT * FROM api.station_live_day_metrics('atocha', (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Madrid')::date, CURRENT_TIMESTAMP)");
+    assert.deepEqual(stationMetrics.rows[0], { total_added_delay_seconds: "0", usable_stop_count: "0" });
 
     const segments = await web.query("SELECT * FROM api.history_segment_hour WHERE network_slug = 'madrid' LIMIT 1");
     assert.equal(segments.rowCount, 0);

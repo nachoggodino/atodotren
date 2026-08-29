@@ -1,2 +1,5 @@
 export const LIVE_REFRESH_INTERVAL_MS = 30_000;
 export const LIVE_CACHE_SECONDS = LIVE_REFRESH_INTERVAL_MS / 1_000;
+
+export const LIVE_SERVICE_HOURS = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2] as const;
+export const STATION_UPCOMING_TRAIN_LIMIT = 10;

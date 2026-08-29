@@ -83,6 +83,22 @@ describe("PostgreSQL domain mapping", () => {
     expect(parseJourneyRow(journeyRow("9223372036854775807")).journeyId).toBe("9223372036854775807");
   });
 
+  it("preserves signed station-added delay totals", async () => {
+    const adapter = createPostgresAdapter(config, client(async (text) => {
+      if (text.includes("api.station_catalog")) return [{ public_id: "atocha", slug_es: "atocha", slug_en: "atocha", name_es: "Atocha", name_en: "Atocha" }];
+      if (text.includes("api.station_live_day_metrics")) return [{ total_added_delay_seconds: -95, usable_stop_count: 4 }];
+      if (text.includes("api.history_station_hour")) return [];
+      if (text.includes("api.live_health")) return [];
+      if (text.includes("api.upcoming_station_live_vehicle")) return [];
+      if (text.includes("api.line_catalog")) return [];
+      if (text.includes("api.service_day_state")) return [];
+      throw new Error(`Unexpected query: ${text}`);
+    }));
+
+    const station = await adapter.liveStation("atocha");
+    expect(station?.stationInsights.totalAddedDelaySeconds).toBe(-95);
+  });
+
   it("applies weekday, hour and direction in SQL and does not use a silent history LIMIT", async () => {
     const calls: string[] = [];
     const adapter = createPostgresAdapter(config, client(async (text) => {

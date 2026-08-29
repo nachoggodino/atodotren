@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { LineBadge } from "@/components/line-badge";
+import { DelayDistribution } from "@/components/charts/delay-distribution";
+import { StationDelayTrend } from "@/components/charts/station-delay-trend";
 import { LivePageSummary } from "@/components/live/live-page-summary";
-import { formatDelay } from "@/lib/domain/format";
+import { StationTrainList } from "@/components/live/station-train-list";
+import { formatCompactDelay } from "@/lib/domain/format";
+import { delayStatusLevel } from "@/lib/domain/live-status";
 import { humanizeSlug } from "@/lib/domain/slugs";
-import { positionCaptionKey } from "@/lib/domain/train";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getLiveStation } from "@/lib/server/services";
@@ -33,19 +35,23 @@ export default async function LiveStationPage({ params, searchParams }: { readon
     redirect(`/${lang}/live/station/${canonicalSlug}${suffix}`);
   }
 
+  const nextTrain = data.trains[0];
+  const accumulatedDelayLabel = `${messages.live.stationAccumulatedDelay} ${data.context.name[lang]}`;
+  const accumulatedDelayTone = delayStatusLevel(data.stationInsights.totalAddedDelaySeconds);
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LivePageSummary backLabel={messages.common.back} meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
-      <section className="mt-12">
-        <h2 className="text-2xl font-black">{messages.live.trains}</h2>
-        {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.overnight}</p> : (
-          <div className="mt-4 divide-y divide-border border-y border-border">
-            {data.trains.map((train) => {
-              const caption = positionCaptionKey(train.position);
-              return <div className="grid grid-cols-[auto_1fr_auto] items-center gap-4 py-4" key={train.id}><LineBadge code={train.line.code} color={train.line.color} /><div><strong>{train.id}</strong><p className="text-xs text-muted">{caption === "reported" ? messages.live.reported : caption === "inferred" ? messages.live.inferred : messages.live.positionUnavailable}</p></div><strong className="metric-value">{formatDelay(train.delaySeconds, lang)}</strong></div>;
-            })}
-          </div>
-        )}
+      <LivePageSummary {...(nextTrain === undefined ? {} : { contextColor: nextTrain.line.color })} backLabel={messages.common.back} context="station" meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={data.context.name[lang]} />
+      <section className="mt-10 min-w-0" data-testid="station-total-delay">
+        <p className="eyebrow block max-w-full truncate whitespace-nowrap" title={accumulatedDelayLabel}>{accumulatedDelayLabel}</p>
+        <p className="live-tone live-tone-text metric-value mt-3 text-5xl font-black" data-tone={accumulatedDelayTone}>{formatCompactDelay(data.stationInsights.totalAddedDelaySeconds, lang)}</p>
+      </section>
+      <section className="mt-10">
+        <h2 className="text-2xl font-black">{messages.live.upcomingTrains}</h2>
+        {data.trains.length === 0 ? <p className="mt-4 border-y border-border py-8 text-muted">{messages.live.noUpcomingTrains}</p> : <StationTrainList generatedAt={data.meta.generatedAt} lang={lang} messages={messages} trains={data.trains} />}
+      </section>
+      <section className="mt-12 grid gap-10 border-t border-border pt-8 lg:grid-cols-[1.15fr_.85fr]">
+        <div><h2 className="text-2xl font-black">{messages.live.stationDelayTrend}</h2><div className="mt-4"><StationDelayTrend messages={messages} points={data.stationInsights.delayTrend} /></div></div>
+        <div><h2 className="text-2xl font-black">{messages.live.todayDistributionTitle}</h2><div className="mt-4"><DelayDistribution messages={messages} values={data.stats.distribution} /></div><p className="mt-2 text-xs text-muted">{messages.live.todayDistributionBody}</p></div>
       </section>
     </div>
   );

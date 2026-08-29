@@ -25,7 +25,7 @@ export default async function LivePage({ params, searchParams }: { readonly para
 
   return (
     <div className="page-shell pb-20 pt-7 sm:pt-9">
-      <LivePageSummary meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={messages.live.networkTitle} />
+      <LivePageSummary context="network" meta={data.meta} stats={data.stats} lang={lang} messages={messages} title={messages.nav.live} subtitle={messages.live.networkTitle} />
       <section className="mt-10" aria-label={messages.live.networkTitle}><LineList lines={data.lines} lang={lang} messages={messages} /></section>
       <section className="mt-8"><h2 className="text-2xl font-black tracking-tight">{messages.live.todayDistributionTitle}</h2><div className="mt-4"><DelayDistribution values={data.stats.distribution} messages={messages} /></div></section>
     </div>
