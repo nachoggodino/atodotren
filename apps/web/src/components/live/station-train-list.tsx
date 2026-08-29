@@ -2,9 +2,10 @@
 
 import * as Ariakit from "@ariakit/react";
 import { TrainFront } from "lucide-react";
-import { lineBadgeTextColor } from "@/components/line-badge";
 import type { Lang, StationUpcomingTrain } from "@/lib/domain/contracts";
 import { formatCompactDelay, formatDelay, formatMadridTime } from "@/lib/domain/format";
+import { delayStatusLevel } from "@/lib/domain/live-status";
+import { preferredLineTextColor } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
 function remainingMinutes(arrivalAt: string | null, generatedAt: string, lang: Lang): string {
@@ -35,7 +36,8 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
   const arrivalAt = train.probableArrivalAt ?? train.scheduledArrivalAt;
   const eta = remainingMinutes(arrivalAt, generatedAt, lang);
   const destination = destinationLabel(train, lang, messages);
-  const buttonTextColor = lineBadgeTextColor(train.line.color);
+  const buttonTextColor = preferredLineTextColor(train.line.slug);
+  const delayTone = delayStatusLevel(train.delaySeconds);
   return (
     <Ariakit.PopoverProvider placement="top">
       <Ariakit.PopoverDisclosure
@@ -49,12 +51,15 @@ function StationTrainRow({ train, generatedAt, lang, messages }: { readonly trai
           <span className="flex min-w-0 items-baseline gap-2">
             <strong className="shrink-0">{train.id}</strong>
             <span aria-hidden="true" className="opacity-60">·</span>
-            <span className="truncate text-sm opacity-75">{station?.name[lang] ?? messages.live.positionUnavailable}</span>
+            <span className="truncate text-sm opacity-80">{station?.name[lang] ?? messages.live.positionUnavailable}</span>
           </span>
-          <span className="mt-1 block text-[.68rem] font-bold uppercase tracking-wide opacity-75">{messages.live.delay}: {stationDelay(train.delaySeconds, lang)}</span>
+          <span className="mt-1 flex items-center gap-1.5 text-[.68rem] font-bold uppercase tracking-wide opacity-90">
+            <span aria-hidden="true" className="delay-severity-dot size-[.55rem] shrink-0 rounded-full" data-tone={delayTone} />
+            <span>{messages.live.delay}: {stationDelay(train.delaySeconds, lang)}</span>
+          </span>
         </span>
         <span className="flex items-baseline justify-end gap-1 whitespace-nowrap">
-          <span aria-hidden="true" className="text-[.68rem] font-bold opacity-70">{messages.live.arrivalPrefix}</span>
+          <span aria-hidden="true" className="text-[.68rem] font-bold opacity-75">{messages.live.arrivalPrefix}</span>
           <strong className="metric-value text-xl font-black tabular-nums sm:text-2xl">{eta}</strong>
         </span>
       </Ariakit.PopoverDisclosure>
