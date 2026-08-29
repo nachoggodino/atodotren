@@ -17,6 +17,16 @@ describe("fixture scenarios", () => {
     expect(overnight.meta.source.status).toBe("overnight");
   });
 
+  it("keeps live station statistics distinct from network placeholder data", async () => {
+    const adapter = createFixtureAdapter("healthy");
+    const network = await adapter.liveNetwork();
+    const station = await adapter.liveStation("atocha");
+    expect(station).not.toBeNull();
+    expect(station?.stats.distribution).not.toEqual(network.stats.distribution);
+    expect(station?.stats.meanDelaySeconds).not.toBe(network.stats.meanDelaySeconds);
+    expect(station?.stats.medianDelaySeconds).not.toBe(network.stats.medianDelaySeconds);
+  });
+
   it("makes history filters materially change fixture results", async () => {
     const adapter = createFixtureAdapter("healthy");
     const baseline = await adapter.historyNetwork(baseFilters);
