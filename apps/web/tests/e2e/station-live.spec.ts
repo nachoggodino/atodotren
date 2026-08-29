@@ -5,6 +5,7 @@ test("station live exposes clickable upcoming trains and station-only insights",
 
   const train = page.getByTestId("station-train-row").first();
   await expect(train).toBeVisible();
+  await expect(page.getByTestId("station-train-delay-dot").first()).toBeVisible();
   await train.focus();
   await page.keyboard.press("Enter");
   const detail = page.getByTestId("station-train-detail").filter({ visible: true });
@@ -14,7 +15,9 @@ test("station live exposes clickable upcoming trains and station-only insights",
   await expect(detail).toContainText("Llegada prevista");
   await expect(detail).toContainText("Última parada");
 
-  await expect(page.getByTestId("station-total-delay")).toBeVisible();
+  const totalDelay = page.getByTestId("station-total-delay");
+  await expect(totalDelay).toBeVisible();
+  await expect(totalDelay).toContainText("Retraso acumulado hoy en Atocha");
   await expect(page.getByRole("heading", { name: "Evolución del retraso" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Distribución del retraso" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Puntualidad por línea" })).toHaveCount(0);
