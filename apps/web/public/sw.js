@@ -1,5 +1,5 @@
 const CACHE_POLICY = Object.freeze({
-  version: "web-production-readiness-v3",
+  version: "web-production-readiness-v4",
   keepNetworkSummary: true,
   staticEntries: 128,
 });
@@ -11,7 +11,7 @@ const DAILY_CACHE = `atodotren-daily-${CACHE_POLICY.version}`;
 const PAGE_CACHE = `atodotren-page-${CACHE_POLICY.version}`;
 const OWNED_PREFIX = "atodotren-";
 
-const SHELL_URLS = ["/es", "/en", "/offline.html", "/favicon.svg", "/icon.svg", "/maskable.svg", "/manifest.webmanifest"];
+const SHELL_URLS = ["/es", "/en", "/offline.html", "/favicon.svg", "/icon.svg", "/maskable.svg", "/apple-touch-icon.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)));
