@@ -60,7 +60,7 @@ try {
     },
     migrationsDirectory: new URL("../migrations", import.meta.url).pathname,
   });
-  assert.equal(migration.applied.at(-1), "0021_web_station_metrics.sql");
+  assert.equal(migration.applied.at(-1), "0022_web_station_added_delay.sql");
 
   const databaseAdmin = new Client({ connectionString: adminDb });
   await databaseAdmin.connect();
