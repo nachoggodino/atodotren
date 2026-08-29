@@ -14,9 +14,15 @@ const COMPARISON_LOOKBACK_DAYS = 56;
 const COMPARISON_MIN_SAMPLE = 30;
 const STATION_ARRIVAL_LIMIT = 10;
 
-function strictAggregate(value: unknown, field: string): number {
+function strictInteger(value: unknown, field: string): number {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`Invalid ${field} aggregate`);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid ${field}`);
+  return parsed;
+}
+
+function strictAggregate(value: unknown, field: string): number {
+  const parsed = strictInteger(value, `${field} aggregate`);
+  if (parsed < 0) throw new Error(`Invalid ${field} aggregate`);
   return parsed;
 }
 
@@ -35,8 +41,7 @@ function comparisonFromRow(row: RawPostgresRow | undefined): Capability<Comparis
   if (row === undefined || row.valid_delay_observations === null) return { status: "insufficient-sample" };
   const sample = strictAggregate(row.valid_delay_observations, "comparison sample");
   const punctual = strictAggregate(row.punctual_count, "comparison punctual count");
-  const signed = Number(row.signed_delay_sum);
-  if (!Number.isSafeInteger(signed)) throw new Error("Invalid comparison delay aggregate");
+  const signed = strictInteger(row.signed_delay_sum, "comparison delay aggregate");
   if (sample < COMPARISON_MIN_SAMPLE) return { status: "insufficient-sample" };
   return { status: "available", value: { sample, punctuality: punctual / sample, meanDelaySeconds: Math.round(signed / sample) } };
 }
@@ -68,7 +73,11 @@ function lastStoppedStationFromRow(row: RawPostgresRow): StationRef | null {
 
 function parseStationArrivalVehicle(row: RawPostgresRow) {
   return {
-    vehicle: parseLiveVehicleRow({ ...row, scheduled_next_arrival_at: row.station_scheduled_arrival_at, reported_next_arrival_at: null }),
+    vehicle: parseLiveVehicleRow({
+      ...row,
+      scheduled_next_arrival_at: row.station_scheduled_arrival_at,
+      reported_next_arrival_at: null,
+    }),
     lastStoppedStation: lastStoppedStationFromRow(row),
   };
 }
@@ -93,7 +102,7 @@ function stationDelayTrend(records: readonly StationAggregateRecord[]): readonly
 
 function stationTotalAddedDelay(row: RawPostgresRow | undefined): number {
   if (row === undefined) return 0;
-  return strictAggregate(row.total_added_delay_seconds, "station total added delay");
+  return strictInteger(row.total_added_delay_seconds, "station total added delay");
 }
 
 export interface LiveRepository {
@@ -112,17 +121,33 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
   async function vehicles(lineSlug?: string) {
     const clauses = ["network_slug = $1"];
     const values: unknown[] = [MADRID_NETWORK.slug];
-    if (lineSlug !== undefined) { values.push(lineSlug); clauses.push(`line_slug = $${values.length}`); }
+    if (lineSlug !== undefined) {
+      values.push(lineSlug);
+      clauses.push(`line_slug = $${values.length}`);
+    }
     return (await client.query(`SELECT * FROM api.active_live_vehicle WHERE ${clauses.join(" AND ")} ORDER BY captured_at DESC, state_key`, values)).map(parseLiveVehicleRow);
   }
 
   async function upcomingStationVehicles(stationId: string) {
-    const rows = await client.query(`SELECT * FROM api.upcoming_station_live_vehicle WHERE network_slug = $1 AND target_station_id = $2 ORDER BY station_expected_arrival_at, state_key LIMIT $3`, [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT]);
+    const rows = await client.query(
+      "SELECT * FROM api.upcoming_station_live_vehicle WHERE network_slug = $1 AND target_station_id = $2 ORDER BY station_expected_arrival_at, state_key LIMIT $3",
+      [MADRID_NETWORK.slug, stationId, STATION_ARRIVAL_LIMIT],
+    );
     return rows.map(parseStationArrivalVehicle);
   }
 
   async function comparison(view: "history_line_hour" | "history_station_hour", idColumn: "line_slug" | "station_id", id: string, date: string, hour: number): Promise<Capability<Comparison>> {
-    const rows = await client.query(`SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations, sum(punctual_count)::bigint AS punctual_count, sum(signed_delay_sum)::bigint AS signed_delay_sum FROM api.${view} WHERE network_slug = $1 AND ${idColumn} = $2 AND service_date < $3::date AND service_date >= $3::date - $4::integer AND extract(dow FROM service_date) = extract(dow FROM $3::date) AND scheduled_hour = $5`, [MADRID_NETWORK.slug, id, date, COMPARISON_LOOKBACK_DAYS, hour]);
+    const rows = await client.query(
+      `SELECT sum(valid_delay_observations)::bigint AS valid_delay_observations,
+        sum(punctual_count)::bigint AS punctual_count,
+        sum(signed_delay_sum)::bigint AS signed_delay_sum
+       FROM api.${view}
+       WHERE network_slug = $1 AND ${idColumn} = $2
+         AND service_date < $3::date AND service_date >= $3::date - $4::integer
+         AND extract(dow FROM service_date) = extract(dow FROM $3::date)
+         AND scheduled_hour = $5`,
+      [MADRID_NETWORK.slug, id, date, COMPARISON_LOOKBACK_DAYS, hour],
+    );
     return comparisonFromRow(rows[0]);
   }
 
@@ -130,7 +155,9 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
     async network(now = new Date()) {
       const date = currentMadridDate(now);
       const [lines, vehicleRows, health, networkRows, lineRows, dayMetadata] = await Promise.all([
-        catalog.lines(), vehicles(), sourceAt(),
+        catalog.lines(),
+        vehicles(),
+        sourceAt(),
         client.query("SELECT * FROM api.history_network_day WHERE network_slug = $1 AND service_date = $2::date", [MADRID_NETWORK.slug, date]),
         client.query("SELECT * FROM api.history_line_day WHERE network_slug = $1 AND service_date = $2::date", [MADRID_NETWORK.slug, date]),
         metadata.forDates([date], now),
@@ -143,7 +170,11 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       for (const vehicle of vehicleRows) activeByLine.set(vehicle.lineSlug, (activeByLine.get(vehicle.lineSlug) ?? 0) + 1);
       const performance: LinePerformance[] = lines.map((line) => {
         const aggregate = perLine.get(line.slug);
-        return { ...line, stats: aggregate === undefined ? { status: "unavailable", reason: "not-provided" } : { status: "available", value: summaryFromAggregateRows([aggregate]) }, activeTrains: activeByLine.get(line.slug) ?? 0 };
+        return {
+          ...line,
+          stats: aggregate === undefined ? { status: "unavailable", reason: "not-provided" } : { status: "available", value: summaryFromAggregateRows([aggregate]) },
+          activeTrains: activeByLine.get(line.slug) ?? 0,
+        };
       });
       return { meta: liveResponseMeta({ stats, sourceAt: health, activeTrains: vehicleRows.length, serviceDate: date, finalization: dayMetadata.finalization, provenance: algorithmProvenance(aggregateRows.flatMap((row) => row.algorithmVersions)), precision: "mixed", now }), stats, lines: performance };
     },
@@ -152,7 +183,12 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       if (line === null) return null;
       const date = currentMadridDate(now);
       const [vehicleRows, health, summaryRows, patterns, dayMetadata, usual] = await Promise.all([
-        vehicles(slug), sourceAt(), client.query("SELECT * FROM api.history_line_day WHERE network_slug = $1 AND line_slug = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, slug, date]), topology.patterns(slug), metadata.forDates([date], now), comparison("history_line_hour", "line_slug", slug, date, madridHour(now)),
+        vehicles(slug),
+        sourceAt(),
+        client.query("SELECT * FROM api.history_line_day WHERE network_slug = $1 AND line_slug = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, slug, date]),
+        topology.patterns(slug),
+        metadata.forDates([date], now),
+        comparison("history_line_hour", "line_slug", slug, date, madridHour(now)),
       ]);
       if (summaryRows.length > 1) throw new Error(`Duplicate current line aggregate for ${slug}`);
       const aggregates = summaryRows.map((row) => parseAggregateRow(row, "api.history_line_day"));
@@ -166,7 +202,11 @@ export function createLiveRepository(client: PostgresClient, catalog: CatalogRep
       const date = currentMadridDate(now);
       const [rows, health, vehicleRows, lines, dayMetadata, usual, metricRows] = await Promise.all([
         client.query("SELECT * FROM api.history_station_hour WHERE network_slug = $1 AND station_id = $2 AND service_date = $3::date", [MADRID_NETWORK.slug, station.id, date]),
-        sourceAt(), upcomingStationVehicles(station.id), catalog.lines(), metadata.forDates([date], now), comparison("history_station_hour", "station_id", station.id, date, madridHour(now)),
+        sourceAt(),
+        upcomingStationVehicles(station.id),
+        catalog.lines(),
+        metadata.forDates([date], now),
+        comparison("history_station_hour", "station_id", station.id, date, madridHour(now)),
         client.query("SELECT * FROM api.station_live_day_metrics($1, $2::date, $3::timestamptz)", [station.id, date, now.toISOString()]),
       ]);
       if (metricRows.length > 1) throw new Error(`Duplicate live station metrics for ${station.id}`);
