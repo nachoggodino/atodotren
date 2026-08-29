@@ -25,6 +25,7 @@ web_migrations=(
   migrations/0019_web_history_insights.sql
   migrations/0020_web_station_arrivals.sql
   migrations/0021_web_station_metrics.sql
+  migrations/0022_web_station_added_delay.sql
 )
 
 if ! command -v docker >/dev/null 2>&1; then
