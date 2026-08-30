@@ -10,12 +10,26 @@ function dateParam(value: string | null, fallback: string, field: string): strin
   return value;
 }
 
-function hourParam(value: string | null): number | null {
+function hourParam(value: string | null, field = "hour"): number | null {
   if (value === null || value === "") return null;
-  if (!/^\d{1,2}$/.test(value)) throw new ValidationError("Invalid hour filter", "invalid-hour");
+  if (!/^\d{1,2}$/.test(value)) throw new ValidationError(`Invalid ${field} filter`, "invalid-hour");
   const hour = Number(value);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new ValidationError("Invalid hour filter", "invalid-hour");
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new ValidationError(`Invalid ${field} filter`, "invalid-hour");
   return hour;
+}
+
+function hourRangeParams(params: URLSearchParams): Pick<HistoryFilters, "hour" | "hourTo"> {
+  const legacy = hourParam(params.get("hour"));
+  const fromValue = params.get("hourFrom");
+  const toValue = params.get("hourTo");
+  if ((fromValue === null || fromValue === "") && (toValue === null || toValue === "")) {
+    return legacy === null ? { hour: null, hourTo: null } : { hour: legacy, hourTo: legacy };
+  }
+
+  const from = hourParam(fromValue, "hourFrom") ?? 0;
+  const to = hourParam(toValue, "hourTo") ?? 23;
+  if (from > to) throw new ValidationError("Invalid hour range", "invalid-hour-range");
+  return from === 0 && to === 23 ? { hour: null, hourTo: null } : { hour: from, hourTo: to };
 }
 
 function directionParam(value: string | null): DirectionId | null {
@@ -35,11 +49,12 @@ function weekdayParams(value: string | null): readonly number[] {
 export function parseHistoryFilters(params: URLSearchParams, now: Date = new Date()): HistoryFilters {
   const to = dateParam(params.get("to"), madridDateOffset(0, now), "to");
   const from = dateParam(params.get("from"), madridDateOffset(-13, now), "from");
+  const hours = hourRangeParams(params);
   return boundedDateRange({
     from,
     to,
     weekdays: weekdayParams(params.get("weekdays")),
-    hour: hourParam(params.get("hour")),
+    ...hours,
     direction: directionParam(params.get("direction")),
   });
 }
@@ -49,5 +64,9 @@ export function boundedDateRange(filters: HistoryFilters, maximumDays = MAX_HIST
   const days = calendarDaysInclusive(filters.from, filters.to);
   if (!Number.isFinite(days) || days < 1) throw new ValidationError("Invalid historical date range", "invalid-date-range");
   if (days > maximumDays) throw new ValidationError(`Historical range exceeds ${maximumDays} days`, "history-range-too-large");
+  const hourTo = filters.hourTo ?? filters.hour;
+  if ((filters.hour === null) !== (hourTo === null) || (filters.hour !== null && hourTo !== null && filters.hour > hourTo)) {
+    throw new ValidationError("Invalid hour range", "invalid-hour-range");
+  }
   return filters;
 }

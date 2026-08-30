@@ -14,6 +14,14 @@ function finalizationLabel(meta: ResponseMeta, messages: Messages): string {
   }
 }
 
+function exploreFinalizationLabel(meta: ResponseMeta, messages: Messages): string {
+  switch (meta.finalization.state) {
+    case "finalized": return messages.common.finalized;
+    case "processing": return messages.common.processing;
+    case "unknown": return messages.common.freshnessUnknown;
+  }
+}
+
 function finalizationStatusLevel(meta: ResponseMeta): LiveStatusLevel {
   switch (meta.finalization.state) {
     case "finalized": return "good";
@@ -57,7 +65,7 @@ export function DataMeta({ meta, lang, messages, variant = "default" }: { readon
     return (
       <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs sm:grid-cols-4" aria-label={messages.common.dataMetadata} data-testid="explore-data-meta">
         <LiveMetaItem icon={Archive} tone={sourceStatusLevel(meta.source.status)}>{sourceStatusLabel(meta.source.status, messages)}</LiveMetaItem>
-        <LiveMetaItem icon={CheckCircle2} tone={finalizationStatusLevel(meta)}>{finalizationLabel(meta, messages)}</LiveMetaItem>
+        <LiveMetaItem icon={CheckCircle2} tone={finalizationStatusLevel(meta)}>{exploreFinalizationLabel(meta, messages)}</LiveMetaItem>
         <LiveMetaItem icon={Gauge} tone={coverageStatusLevel(meta.coverage.ratio)}>{messages.common.coverage}: {formatPercent(meta.coverage.ratio)}</LiveMetaItem>
         <LiveMetaItem icon={Database} tone={precisionStatusLevel(meta.precision)}>{messages.common.precision}: {precisionLabel(meta.precision, messages)} · {provenanceLabel(meta, messages)}</LiveMetaItem>
       </div>

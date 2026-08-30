@@ -130,6 +130,11 @@ export function fixtureTrains(scenario: FixtureScenario): readonly TrainDetail[]
   return scenario === "reverse-branch" ? values : values.slice(0, 4);
 }
 
+function historyHourSeed(filters: HistoryFilters): number {
+  if (filters.hour === null) return 12;
+  return Math.round((filters.hour + (filters.hourTo ?? filters.hour)) / 2);
+}
+
 function historyPoints(filters: HistoryFilters, seed: number): readonly HistoryPoint[] {
   const result: HistoryPoint[] = [];
   let date = filters.from;
@@ -137,7 +142,7 @@ function historyPoints(filters: HistoryFilters, seed: number): readonly HistoryP
   while (date <= filters.to) {
     const weekday = calendarDayOfWeek(date);
     if (filters.weekdays.length === 0 || filters.weekdays.includes(weekday)) {
-      const hourSeed = filters.hour ?? 12;
+      const hourSeed = historyHourSeed(filters);
       const directionSeed = filters.direction === null ? 2 : filters.direction * 11;
       const scheduled = 190 + ((absoluteIndex + seed + hourSeed) % 9) * 13 + directionSeed;
       const observed = Math.round(scheduled * (0.82 + ((absoluteIndex + seed + directionSeed) % 5) * 0.025));
@@ -171,7 +176,8 @@ export function historyResponse(filters: HistoryFilters, kind: "network" | "line
   const scheduled = trend.reduce((sum, point) => sum + point.scheduled, 0);
   const observed = trend.reduce((sum, point) => sum + point.observed, 0);
   const weightedDelay = trend.reduce((sum, point) => sum + (point.meanDelaySeconds ?? 0) * point.observed, 0);
-  const base: SummaryStats = { scheduled, observed, punctuality: observed === 0 ? null : trend.reduce((sum, point) => sum + (point.punctuality ?? 0) * point.observed, 0) / observed, meanDelaySeconds: observed === 0 ? null : Math.round(weightedDelay / observed), medianDelaySeconds: observed === 0 ? null : 150 + seed * 12 + (filters.hour ?? 0), p90DelaySeconds: observed === 0 ? null : 480 + seed * 21 + (filters.hour ?? 0), canceled: Math.round(scheduled * 0.012), missing: Math.max(0, scheduled - observed), distribution: distributionFromCounts({ early: Math.round(observed * 0.06), punctual: Math.round(observed * 0.61), "delay-2-5": Math.round(observed * 0.17), "delay-5-10": Math.round(observed * 0.09), "delay-10-15": Math.round(observed * 0.045), "delay-15-plus": Math.round(observed * 0.025) }) };
+  const hourSeed = historyHourSeed(filters);
+  const base: SummaryStats = { scheduled, observed, punctuality: observed === 0 ? null : trend.reduce((sum, point) => sum + (point.punctuality ?? 0) * point.observed, 0) / observed, meanDelaySeconds: observed === 0 ? null : Math.round(weightedDelay / observed), medianDelaySeconds: observed === 0 ? null : 150 + seed * 12 + hourSeed, p90DelaySeconds: observed === 0 ? null : 480 + seed * 21 + hourSeed, canceled: Math.round(scheduled * 0.012), missing: Math.max(0, scheduled - observed), distribution: distributionFromCounts({ early: Math.round(observed * 0.06), punctual: Math.round(observed * 0.61), "delay-2-5": Math.round(observed * 0.17), "delay-5-10": Math.round(observed * 0.09), "delay-10-15": Math.round(observed * 0.045), "delay-15-plus": Math.round(observed * 0.025) }) };
   const stats = statsForScenario(base, scenario);
   const ranked = linePerformance(scenario).flatMap((line) => line.stats.status === "available" ? [{ line, stats: line.stats.value }] : []).sort((left, right) => (right.stats.meanDelaySeconds ?? 0) - (left.stats.meanDelaySeconds ?? 0)).slice(0, 5).map(({ line, stats: itemStats }) => ({ id: line.id, label: line.code, sample: itemStats.observed, meanDelaySeconds: itemStats.meanDelaySeconds, punctuality: itemStats.punctuality }));
   const rankings = kind !== "network" || scenario === "unsupported-capabilities" ? { status: "unavailable" as const, reason: "not-supported" as const } : ranked.length === 0 ? { status: "insufficient-sample" as const } : { status: "available" as const, value: ranked };

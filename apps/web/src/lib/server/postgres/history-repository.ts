@@ -29,6 +29,14 @@ interface FilterSql {
   readonly values: unknown[];
 }
 
+function hasHourFilter(filters: HistoryFilters): boolean {
+  return filters.hour !== null;
+}
+
+function historyHourTo(filters: HistoryFilters): number | null {
+  return filters.hour === null ? null : filters.hourTo ?? filters.hour;
+}
+
 function filteredRange(filters: HistoryFilters, prefix: string, initialValues: unknown[] = [MADRID_NETWORK.slug]): FilterSql {
   const values = [...initialValues, filters.from, filters.to];
   const dateStart = `$${values.length - 1}`;
@@ -52,10 +60,12 @@ function aggregateQuery(scope: QueryScope, filters: HistoryFilters): { readonly 
     values.push([...filters.weekdays]);
     clauses.push(`extract(dow FROM service_date)::integer = ANY($${values.length}::integer[])`);
   }
-  if (filters.hour !== null) {
+  if (hasHourFilter(filters)) {
     if (!scope.supportsHour) throw new Error(`${scope.view} cannot apply an hour filter`);
-    values.push(filters.hour);
-    clauses.push(`scheduled_hour = $${values.length}`);
+    const hourTo = historyHourTo(filters);
+    if (filters.hour === null || hourTo === null) throw new Error("Invalid historical hour range");
+    values.push(filters.hour, hourTo);
+    clauses.push(`scheduled_hour BETWEEN $${values.length - 1} AND $${values.length}`);
   }
   if (filters.direction !== null) {
     if (!scope.supportsDirection) throw new Error(`${scope.view} cannot apply a direction filter`);
@@ -104,7 +114,7 @@ function aggregateQuery(scope: QueryScope, filters: HistoryFilters): { readonly 
 }
 
 function scopeFor(kind: "network" | "line" | "station", id: string | null, filters: HistoryFilters): QueryScope {
-  const needsHour = filters.hour !== null || filters.direction !== null;
+  const needsHour = hasHourFilter(filters) || filters.direction !== null;
   if (kind === "network") return {
     view: needsHour ? "history_network_hour" : "history_network_day",
     supportsDirection: needsHour,
@@ -157,9 +167,11 @@ function availableOrSample<T>(items: readonly T[]): Capability<readonly T[]> {
 function withDimensionFilters(base: FilterSql, filters: HistoryFilters, prefix: string, includeHour: boolean): FilterSql {
   const values = [...base.values];
   const clauses = [...base.clauses];
-  if (includeHour && filters.hour !== null) {
-    values.push(filters.hour);
-    clauses.push(`${prefix}.scheduled_hour = $${values.length}`);
+  if (includeHour && hasHourFilter(filters)) {
+    const hourTo = historyHourTo(filters);
+    if (filters.hour === null || hourTo === null) throw new Error("Invalid historical hour range");
+    values.push(filters.hour, hourTo);
+    clauses.push(`${prefix}.scheduled_hour BETWEEN $${values.length - 1} AND $${values.length}`);
   }
   if (filters.direction !== null) {
     values.push(filters.direction);
@@ -169,7 +181,7 @@ function withDimensionFilters(base: FilterSql, filters: HistoryFilters, prefix: 
 }
 
 function rankingQuery(filters: HistoryFilters): { readonly sql: string; readonly values: readonly unknown[] } {
-  const useHour = filters.hour !== null || filters.direction !== null;
+  const useHour = hasHourFilter(filters) || filters.direction !== null;
   const view = useHour ? "api.history_line_hour" : "api.history_line_day";
   const base = filteredRange(filters, "history");
   const scoped = withDimensionFilters(base, filters, "history", true);
@@ -223,7 +235,7 @@ function hourlyView(kind: "network" | "line" | "station"): "history_network_hour
 async function worstHours(client: PostgresClient, kind: "network" | "line" | "station", queryId: string | null, filters: HistoryFilters): Promise<Capability<readonly RankingItem[]>> {
   const view = hourlyView(kind);
   const base = filteredRange(filters, "history");
-  const scoped = withDimensionFilters(base, { ...filters, hour: null }, "history", false);
+  const scoped = withDimensionFilters(base, { ...filters, hour: null, hourTo: null }, "history", false);
   if (kind === "line") {
     scoped.values.push(queryId);
     scoped.clauses.push(`history.line_slug = $${scoped.values.length}`);
@@ -252,7 +264,7 @@ async function worstHours(client: PostgresClient, kind: "network" | "line" | "st
 async function hourWeekday(client: PostgresClient, kind: "network" | "line" | "station", queryId: string | null, filters: HistoryFilters): Promise<Capability<readonly HourWeekdayItem[]>> {
   const view = hourlyView(kind);
   const base = filteredRange(filters, "history");
-  const scoped = withDimensionFilters(base, { ...filters, hour: null }, "history", false);
+  const scoped = withDimensionFilters(base, { ...filters, hour: null, hourTo: null }, "history", false);
   if (kind === "line") {
     scoped.values.push(queryId);
     scoped.clauses.push(`history.line_slug = $${scoped.values.length}`);
@@ -290,7 +302,7 @@ async function volumeReliability(client: PostgresClient, kind: "network" | "line
   let labelSql: string;
   let join = "";
   if (kind === "network") {
-    view = filters.hour !== null || filters.direction !== null ? "api.history_line_hour" : "api.history_line_day";
+    view = hasHourFilter(filters) || filters.direction !== null ? "api.history_line_hour" : "api.history_line_day";
     idSql = "history.line_slug";
     labelSql = "catalog.public_code";
     join = "JOIN api.line_catalog AS catalog ON catalog.network_slug = history.network_slug AND catalog.slug = history.line_slug";

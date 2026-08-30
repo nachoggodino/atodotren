@@ -1,8 +1,8 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { ArrowRight, CalendarDays, Check, Filter } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, CalendarDays, CircleArrowRight, Filter } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { HistoryFilters } from "@/lib/domain/contracts";
 import { calendarDayOfWeek, calendarDaysInclusive, currentMadridDate, offsetCalendarDate } from "@/lib/domain/dates";
@@ -36,30 +36,47 @@ function presetRange(preset: DatePreset): { readonly from: string; readonly to: 
   }
 }
 
-function hourRangeLabel(hour: number): string {
-  const next = (hour + 1) % 24;
-  return `${String(hour).padStart(2, "0")}h–${String(next).padStart(2, "0")}h`;
+function hourStartLabel(hour: number): string {
+  return `${String(hour).padStart(2, "0")}h`;
 }
 
-function weekdayLabel(value: string, messages: Messages): string {
-  switch (value) {
-    case "1,2,3,4,5": return messages.history.weekdays;
-    case "0,6": return messages.history.weekend;
-    case "0": return messages.history.sunday;
-    case "1": return messages.history.monday;
-    case "2": return messages.history.tuesday;
-    case "3": return messages.history.wednesday;
-    case "4": return messages.history.thursday;
-    case "5": return messages.history.friday;
-    case "6": return messages.history.saturday;
+function hourEndLabel(hour: number): string {
+  return `${String(hour).padStart(2, "0")}h59`;
+}
+
+function hourRangeLabel(from: number, to: number): string {
+  return `${hourStartLabel(from)}–${hourEndLabel(to)}`;
+}
+
+function weekdayLabel(day: number, messages: Messages): string {
+  switch (day) {
+    case 0: return messages.history.sunday;
+    case 1: return messages.history.monday;
+    case 2: return messages.history.tuesday;
+    case 3: return messages.history.wednesday;
+    case 4: return messages.history.thursday;
+    case 5: return messages.history.friday;
+    case 6: return messages.history.saturday;
     default: return messages.history.allDays;
   }
 }
 
+function shortWeekdayLabel(day: number, messages: Messages): string {
+  return weekdayLabel(day, messages).slice(0, 3);
+}
+
+function committedHourRange(filters: HistoryFilters): { readonly from: number; readonly to: number } {
+  if (filters.hour === null) return { from: 0, to: 23 };
+  return { from: filters.hour, to: filters.hourTo ?? filters.hour };
+}
+
 function activeFiltersLabel(filters: HistoryFilters, messages: Messages): string {
   const labels: string[] = [];
-  if (filters.weekdays.length > 0) labels.push(weekdayLabel(filters.weekdays.join(","), messages));
-  if (filters.hour !== null) labels.push(hourRangeLabel(filters.hour));
+  if (filters.weekdays.length > 0) labels.push(filters.weekdays.map((day) => shortWeekdayLabel(day, messages)).join(", "));
+  if (filters.hour !== null) {
+    const hours = committedHourRange(filters);
+    labels.push(hourRangeLabel(hours.from, hours.to));
+  }
   return labels.length === 0 ? messages.history.noActiveFilters : labels.join(" · ");
 }
 
@@ -67,38 +84,40 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
   return (
     <button
       aria-label={label}
-      className="grid size-11 shrink-0 place-items-center rounded-md bg-primary text-background transition-[transform,opacity] duration-100 hover:opacity-90 active:scale-90 disabled:cursor-not-allowed disabled:opacity-35"
+      className="grid size-9 shrink-0 place-items-center rounded-full text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
       title={label}
       type="button"
     >
-      <Check className="size-4" />
+      <CircleArrowRight className="size-5" />
     </button>
   );
 }
 
 const POPOVER_CLASS = "z-[80] w-[60vw] max-w-[48rem] min-w-[20rem] rounded-xl border border-border bg-surface-strong p-4 text-foreground shadow-[var(--shadow-float)] outline-none max-sm:w-[calc(100vw-1rem)] max-sm:min-w-0";
+const FIELD_CLASS = "min-h-9 min-w-0 w-full appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-xs tabular-nums text-foreground";
+const MINI_BUTTON_CLASS = "rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] font-semibold leading-4 transition-[background-color,border-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
 
 export function HistoryFiltersForm({ filters, messages }: { readonly filters: HistoryFilters; readonly messages: Messages }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const weekdayKey = filters.weekdays.join(",");
+  const committedHours = committedHourRange(filters);
   const [dateOpen, setDateOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState(filters.from);
   const [dateTo, setDateTo] = useState(filters.to);
-  const [weekdayDraft, setWeekdayDraft] = useState(weekdayKey);
-  const [hourDraft, setHourDraft] = useState(filters.hour === null ? "" : String(filters.hour));
+  const [weekdayDraft, setWeekdayDraft] = useState<number[]>([...filters.weekdays]);
+  const [hourFromDraft, setHourFromDraft] = useState(String(committedHours.from));
+  const [hourToDraft, setHourToDraft] = useState(String(committedHours.to));
 
   const navigate = (mutate: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
     params.delete("direction");
     const query = params.toString();
-    router.push(query === "" ? pathname : `${pathname}?${query}`, { scroll: false });
+    window.location.assign(query === "" ? pathname : `${pathname}?${query}`);
   };
 
   const applyDates = (from: string, to: string) => {
@@ -110,12 +129,20 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
   };
 
   const applySecondaryFilters = () => {
+    const hourFrom = Number(hourFromDraft);
+    const hourTo = Number(hourToDraft);
     setFilterOpen(false);
     navigate((params) => {
-      if (weekdayDraft === "") params.delete("weekdays");
-      else params.set("weekdays", weekdayDraft);
-      if (hourDraft === "") params.delete("hour");
-      else params.set("hour", hourDraft);
+      if (weekdayDraft.length === 0) params.delete("weekdays");
+      else params.set("weekdays", [...weekdayDraft].sort((left, right) => left - right).join(","));
+      params.delete("hour");
+      if (hourFrom === 0 && hourTo === 23) {
+        params.delete("hourFrom");
+        params.delete("hourTo");
+      } else {
+        params.set("hourFrom", String(hourFrom));
+        params.set("hourTo", String(hourTo));
+      }
     });
   };
 
@@ -129,14 +156,23 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
 
   const setFilterPopoverOpen = (open: boolean) => {
     if (open) {
-      setWeekdayDraft(weekdayKey);
-      setHourDraft(filters.hour === null ? "" : String(filters.hour));
+      const hours = committedHourRange(filters);
+      setWeekdayDraft([...filters.weekdays]);
+      setHourFromDraft(String(hours.from));
+      setHourToDraft(String(hours.to));
     }
     setFilterOpen(open);
   };
 
+  const toggleWeekday = (day: number) => {
+    setWeekdayDraft((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((left, right) => left - right));
+  };
+
   const selectedDays = calendarDaysInclusive(dateFrom, dateTo);
   const validDateRange = Number.isFinite(selectedDays) && selectedDays >= 1 && selectedDays <= MAX_HISTORY_RANGE_DAYS;
+  const hourFromNumber = Number(hourFromDraft);
+  const hourToNumber = Number(hourToDraft);
+  const validHourRange = Number.isInteger(hourFromNumber) && Number.isInteger(hourToNumber) && hourFromNumber >= 0 && hourToNumber <= 23 && hourFromNumber <= hourToNumber;
   const presets: readonly { readonly id: DatePreset; readonly label: string }[] = [
     { id: "today", label: messages.history.today },
     { id: "yesterday", label: messages.history.yesterday },
@@ -146,13 +182,14 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
     { id: "last30", label: messages.history.last30Days },
     { id: "thisYear", label: messages.history.thisYear },
   ];
+  const weekdays = [1, 2, 3, 4, 5, 6, 0] as const;
 
   return (
     <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,.65fr)] gap-2" data-testid="explore-filter-bar">
       <Ariakit.PopoverProvider open={dateOpen} setOpen={setDatePopoverOpen}>
         <Ariakit.PopoverDisclosure
           aria-label={messages.history.dateRange}
-          className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-surface-strong px-3 text-sm font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-surface-strong px-3 text-[11px] font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75"
           data-testid="explore-date-filter"
           type="button"
         >
@@ -163,22 +200,22 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
         </Ariakit.PopoverDisclosure>
         <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
           <Ariakit.PopoverHeading className="sr-only">{messages.history.dateRange}</Ariakit.PopoverHeading>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-end gap-2">
-            <label className="grid min-w-0 gap-1 text-xs font-bold text-muted">
+          <div className="mx-auto grid max-w-[34rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-end gap-1.5 sm:gap-2">
+            <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
               {messages.history.from}
-              <input className="min-h-11 min-w-0 rounded-md border border-border bg-surface px-2 text-sm text-foreground" onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
+              <input className={`${FIELD_CLASS} [&::-webkit-calendar-picker-indicator]:hidden`} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
             </label>
-            <ArrowRight className="mb-3 size-4 shrink-0 text-muted" aria-hidden="true" />
-            <label className="grid min-w-0 gap-1 text-xs font-bold text-muted">
+            <ArrowRight className="mb-2.5 size-3.5 shrink-0 text-muted" aria-hidden="true" />
+            <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
               {messages.history.to}
-              <input className="min-h-11 min-w-0 rounded-md border border-border bg-surface px-2 text-sm text-foreground" onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
+              <input className={`${FIELD_CLASS} [&::-webkit-calendar-picker-indicator]:hidden`} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
             </label>
             <ApplyButton disabled={!validDateRange} label={messages.history.apply} onClick={() => applyDates(dateFrom, dateTo)} testId="explore-date-apply" />
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {presets.map((preset) => (
               <button
-                className="rounded-full border border-border bg-surface px-3 py-2 text-xs font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75"
+                className={MINI_BUTTON_CLASS}
                 key={preset.id}
                 onClick={() => {
                   const range = presetRange(preset.id);
@@ -196,7 +233,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
       <Ariakit.PopoverProvider open={filterOpen} setOpen={setFilterPopoverOpen}>
         <Ariakit.PopoverDisclosure
           aria-label={messages.history.filters}
-          className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-surface-strong px-3 text-sm font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border bg-surface-strong px-3 text-[11px] font-bold transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75"
           data-testid="explore-secondary-filter"
           type="button"
         >
@@ -205,30 +242,48 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
         </Ariakit.PopoverDisclosure>
         <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-filter-popover" gutter={8} portal>
           <Ariakit.PopoverHeading className="sr-only">{messages.history.filters}</Ariakit.PopoverHeading>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-3">
-            <label className="grid min-w-0 gap-1 text-xs font-bold text-muted">
-              {messages.history.weekdayFilter}
-              <select className="min-h-11 min-w-0 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground" onChange={(event) => setWeekdayDraft(event.target.value)} value={weekdayDraft}>
-                <option value="">{messages.history.allDays}</option>
-                <option value="1,2,3,4,5">{messages.history.weekdays}</option>
-                <option value="0,6">{messages.history.weekend}</option>
-                <option value="1">{messages.history.monday}</option>
-                <option value="2">{messages.history.tuesday}</option>
-                <option value="3">{messages.history.wednesday}</option>
-                <option value="4">{messages.history.thursday}</option>
-                <option value="5">{messages.history.friday}</option>
-                <option value="6">{messages.history.saturday}</option>
-                <option value="0">{messages.history.sunday}</option>
+          <div className="mx-auto grid max-w-[34rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-end gap-1.5 sm:gap-2">
+            <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
+              {messages.history.from}
+              <select className={FIELD_CLASS} onChange={(event) => setHourFromDraft(event.target.value)} value={hourFromDraft}>
+                {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourStartLabel(hour)}</option>)}
               </select>
             </label>
-            <label className="grid min-w-0 gap-1 text-xs font-bold text-muted">
-              {messages.history.timeSlot}
-              <select className="min-h-11 min-w-0 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground" onChange={(event) => setHourDraft(event.target.value)} value={hourDraft}>
-                <option value="">{messages.history.allTimeSlots}</option>
-                {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourRangeLabel(hour)}</option>)}
+            <ArrowRight className="mb-2.5 size-3.5 shrink-0 text-muted" aria-hidden="true" />
+            <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
+              {messages.history.to}
+              <select className={FIELD_CLASS} onChange={(event) => setHourToDraft(event.target.value)} value={hourToDraft}>
+                {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourEndLabel(hour)}</option>)}
               </select>
             </label>
-            <ApplyButton label={messages.history.apply} onClick={applySecondaryFilters} testId="explore-filter-apply" />
+            <ApplyButton disabled={!validHourRange} label={messages.history.apply} onClick={applySecondaryFilters} testId="explore-filter-apply" />
+          </div>
+          <div className="mt-3">
+            <p className="mb-1.5 text-[10px] font-bold text-muted">{messages.history.weekdayFilter}</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                aria-pressed={weekdayDraft.length === 0}
+                className={`${MINI_BUTTON_CLASS} ${weekdayDraft.length === 0 ? "border-[var(--landing-highlight)] bg-muted-soft text-[var(--landing-highlight)]" : ""}`}
+                onClick={() => setWeekdayDraft([])}
+                type="button"
+              >
+                {messages.history.allDays}
+              </button>
+              {weekdays.map((day) => {
+                const selected = weekdayDraft.includes(day);
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className={`${MINI_BUTTON_CLASS} ${selected ? "border-[var(--landing-highlight)] bg-muted-soft text-[var(--landing-highlight)]" : ""}`}
+                    key={day}
+                    onClick={() => toggleWeekday(day)}
+                    type="button"
+                  >
+                    {shortWeekdayLabel(day, messages)}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </Ariakit.Popover>
       </Ariakit.PopoverProvider>

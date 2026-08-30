@@ -11,11 +11,6 @@ import { HistoryInsights } from "./history-insights";
 import { RankingList } from "./ranking-list";
 
 export function HistoryLayout({ data, lang, messages, filterForm, matrix }: { readonly data: HistoryResponse; readonly lang: Lang; readonly messages: Messages; readonly filterForm: ReactNode; readonly matrix?: ReactNode }) {
-  const finalizationNotice = data.meta.finalization.state === "processing"
-    ? messages.history.currentDay
-    : data.meta.finalization.state === "unknown"
-      ? messages.history.finalizationUnknown
-      : null;
   const subtitle = data.context.kind === "network"
     ? messages.live.networkTitle
     : data.context.kind === "line"
@@ -45,7 +40,6 @@ export function HistoryLayout({ data, lang, messages, filterForm, matrix }: { re
       />
       <div className="mt-5"><DataMeta meta={data.meta} lang={lang} messages={messages} variant="explore" /></div>
       <section className="mt-6"><h2 className="sr-only">{messages.history.filters}</h2>{filterForm}</section>
-      {finalizationNotice === null ? null : <p className="mt-3 text-sm font-semibold text-warning">{finalizationNotice}</p>}
       <div className="mt-6"><SummaryStatsCard help={help} lang={lang} messages={messages} stats={data.stats} testId="explore-stats-grid" /></div>
       <section className="mt-12 grid gap-10 border-t border-border pt-8 lg:grid-cols-[1.15fr_.85fr]">
         <div><h2 className="text-2xl font-black">{messages.history.trend}</h2><div className="mt-4"><HistoryTrend points={data.trend} lang={lang} messages={messages} /></div></div>

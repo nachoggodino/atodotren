@@ -4,6 +4,9 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   await page.goto("/es/explore/line/c1?from=2026-08-18&to=2026-08-24");
   await expect(page.getByRole("heading", { level: 1, name: "Explorar" })).toBeVisible();
   await expect(page.getByTestId("explore-context-title")).toContainText("C1");
+  await expect(page.getByTestId("explore-data-meta")).toContainText("Procesando");
+  await expect(page.getByText("Los datos seleccionados todavía se están procesando.")).toHaveCount(0);
+  await expect(page.getByText("No se pudo verificar la finalización de todos los días de servicio seleccionados.")).toHaveCount(0);
 
   const dateButton = page.getByTestId("explore-date-filter");
   await expect(dateButton).toContainText("18/08/2026");
@@ -12,20 +15,31 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   const datePopover = page.getByTestId("explore-date-popover");
   await datePopover.getByLabel("Desde").fill("2026-08-19");
   await expect(page).toHaveURL(/from=2026-08-18/);
+  const dateTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   await datePopover.getByTestId("explore-date-apply").click();
   await expect(page).toHaveURL(/from=2026-08-19/);
-  await expect(page.getByTestId("explore-date-popover")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(dateTimeOrigin);
 
   await page.getByTestId("explore-secondary-filter").click();
   const filterPopover = page.getByTestId("explore-filter-popover");
-  await filterPopover.getByLabel("Día de la semana").selectOption("1");
-  await filterPopover.getByLabel("Tramo horario").selectOption("8");
+  const allDays = filterPopover.getByRole("button", { name: "Todos", exact: true });
+  const monday = filterPopover.getByRole("button", { name: "Lun", exact: true });
+  await expect(allDays).toHaveAttribute("aria-pressed", "true");
+  await monday.click();
+  await expect(filterPopover).toBeVisible();
+  await expect(allDays).toHaveAttribute("aria-pressed", "false");
+  await expect(monday).toHaveAttribute("aria-pressed", "true");
+  await expect(page).not.toHaveURL(/weekdays=/);
+  await filterPopover.getByLabel("Desde").selectOption("6");
+  await filterPopover.getByLabel("Hasta").selectOption("9");
   await filterPopover.getByTestId("explore-filter-apply").click();
   await expect(page).toHaveURL(/weekdays=1/);
-  await expect(page).toHaveURL(/hour=8/);
+  await expect(page).toHaveURL(/hourFrom=6/);
+  await expect(page).toHaveURL(/hourTo=9/);
+  await expect(page).not.toHaveURL(/(?:\?|&)hour=/);
   await expect(page).not.toHaveURL(/direction=/);
-  await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lunes");
-  await expect(page.getByTestId("explore-secondary-filter")).toContainText("08h–09h");
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lun");
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("06h–09h59");
 
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
@@ -42,8 +56,9 @@ test("date presets apply immediately and close their popover", async ({ page }, 
   await page.goto("/es/explore?from=2026-08-18&to=2026-08-24");
   await page.getByTestId("explore-date-filter").click();
   const popover = page.getByTestId("explore-date-popover");
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
   await popover.getByRole("button", { name: "Últimos 7 días", exact: true }).click();
-  await expect(page.getByTestId("explore-date-popover")).toBeHidden();
+  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(timeOrigin);
   await expect.poll(() => {
     const url = new URL(page.url());
     const from = url.searchParams.get("from");

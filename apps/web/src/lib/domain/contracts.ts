@@ -145,7 +145,16 @@ export interface LandingOverviewResponse {
   readonly trend: readonly LandingDelayPoint[];
 }
 
-export interface HistoryFilters { readonly from: string; readonly to: string; readonly weekdays: readonly number[]; readonly hour: number | null; readonly direction: DirectionId | null }
+export interface HistoryFilters {
+  readonly from: string;
+  readonly to: string;
+  readonly weekdays: readonly number[];
+  /** Inclusive start hour. When hourTo is omitted this remains the legacy exact-hour filter. */
+  readonly hour: number | null;
+  /** Inclusive end hour for a flexible historical time range. */
+  readonly hourTo?: number | null;
+  readonly direction: DirectionId | null;
+}
 export interface HistoryPoint { readonly date: string; readonly scheduled: number; readonly observed: number; readonly punctuality: number | null; readonly meanDelaySeconds: number | null; readonly coverage: number | null }
 export interface RankingItem { readonly id: string; readonly label: string; readonly sample: number; readonly meanDelaySeconds: number | null; readonly punctuality: number | null }
 export interface HourWeekdayItem { readonly weekday: number; readonly hour: number; readonly scheduled: number; readonly sample: number; readonly meanDelaySeconds: number | null; readonly coverage: number | null }

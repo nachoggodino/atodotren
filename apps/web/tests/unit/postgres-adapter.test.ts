@@ -99,7 +99,7 @@ describe("PostgreSQL domain mapping", () => {
     expect(station?.stationInsights.totalAddedDelaySeconds).toBe(-95);
   });
 
-  it("applies weekday, hour and direction in SQL and does not use a silent history LIMIT", async () => {
+  it("applies weekday, hour range and direction in SQL and does not use a silent history LIMIT", async () => {
     const calls: string[] = [];
     const adapter = createPostgresAdapter(config, client(async (text) => {
       calls.push(text);
@@ -112,10 +112,10 @@ describe("PostgreSQL domain mapping", () => {
       if (text.includes("api.service_day_state")) return [{ service_date: "2026-08-20", aggregate_algorithm_version: "v1", status: "verified", finalized_at: "2026-08-21T02:00:00Z" }];
       throw new Error(`Unexpected query: ${text}`);
     }));
-    const result = await adapter.historyNetwork({ from: "2026-08-20", to: "2026-08-20", weekdays: [4], hour: 8, direction: 1 });
+    const result = await adapter.historyNetwork({ from: "2026-08-20", to: "2026-08-20", weekdays: [4], hour: 8, hourTo: 10, direction: 1 });
     const aggregateSql = calls.find((text) => text.includes("WITH filtered")) ?? "";
     expect(aggregateSql).toContain("extract(dow FROM service_date)");
-    expect(aggregateSql).toContain("scheduled_hour");
+    expect(aggregateSql).toContain("scheduled_hour BETWEEN");
     expect(aggregateSql).toContain("direction");
     expect(aggregateSql).not.toMatch(/LIMIT\s+\d+/i);
     expect(result.rankings.status).toBe("available");
