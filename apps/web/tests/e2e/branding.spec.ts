@@ -14,7 +14,7 @@ test("theme selection is accessible and persists across navigation", async ({ pa
 
   await openMenu(page);
   const primaryNav = page.getByRole("navigation", { name: "Primary navigation" });
-  for (const label of ["Home", "Live", "Historical", "Methodology"]) {
+  for (const label of ["Home", "Live", "Explore", "Methodology"]) {
     await expect(primaryNav.getByRole("link", { name: label })).toBeVisible();
   }
 
