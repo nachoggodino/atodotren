@@ -6,7 +6,7 @@ import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
 import { TimetableMatrix } from "@/components/history/timetable-matrix";
 import type { MatrixResult } from "@/lib/domain/contracts";
 import { matrixResultMessage } from "@/lib/domain/matrix-result";
-import { tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
+import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getHistoryLine, getMatrix } from "@/lib/server/services";
@@ -36,5 +36,6 @@ export default async function ExploreLinePage({ params, searchParams }: { readon
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
   const [data, matrix] = await Promise.all([getHistoryLine(slug, parsed.filters, scenario), getMatrix(slug, parsed.filters.to, scenario)]);
   if (data === null) notFound();
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} messages={messages} />} matrix={matrixView(matrix, lang, messages)} />;
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario);
+  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} matrix={matrixView(matrix, lang, messages)} />;
 }
