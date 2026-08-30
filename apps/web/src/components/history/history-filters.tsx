@@ -99,6 +99,7 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
 const POPOVER_CLASS = "z-[80] w-[60vw] max-w-[48rem] min-w-[20rem] rounded-xl border border-border bg-surface-strong p-4 text-foreground shadow-[var(--shadow-float)] outline-none max-sm:w-[calc(100vw-1rem)] max-sm:min-w-0";
 const FIELD_CLASS = "min-h-9 min-w-0 w-full appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-xs tabular-nums text-foreground";
 const MINI_BUTTON_CLASS = "rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] font-semibold leading-4 transition-[background-color,border-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
+const RANGE_FIELDS_CLASS = "mx-auto grid w-fit grid-cols-[7rem_auto_7rem_auto] items-end gap-1.5 sm:grid-cols-[8rem_auto_8rem_auto] sm:gap-2";
 
 export function HistoryFiltersForm({ filters, messages }: { readonly filters: HistoryFilters; readonly messages: Messages }) {
   const pathname = usePathname();
@@ -200,7 +201,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
         </Ariakit.PopoverDisclosure>
         <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
           <Ariakit.PopoverHeading className="sr-only">{messages.history.dateRange}</Ariakit.PopoverHeading>
-          <div className="mx-auto grid max-w-[34rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-end gap-1.5 sm:gap-2">
+          <div className={RANGE_FIELDS_CLASS}>
             <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
               {messages.history.from}
               <input className={`${FIELD_CLASS} [&::-webkit-calendar-picker-indicator]:hidden`} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
@@ -242,7 +243,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
         </Ariakit.PopoverDisclosure>
         <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-filter-popover" gutter={8} portal>
           <Ariakit.PopoverHeading className="sr-only">{messages.history.filters}</Ariakit.PopoverHeading>
-          <div className="mx-auto grid max-w-[34rem] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-end gap-1.5 sm:gap-2">
+          <div className={RANGE_FIELDS_CLASS}>
             <label className="grid min-w-0 gap-1 text-[10px] font-bold text-muted">
               {messages.history.from}
               <select className={FIELD_CLASS} onChange={(event) => setHourFromDraft(event.target.value)} value={hourFromDraft}>
