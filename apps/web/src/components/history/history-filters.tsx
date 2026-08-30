@@ -1,7 +1,7 @@
 "use client";
 
 import * as Ariakit from "@ariakit/react";
-import { ArrowRight, CalendarDays, CircleArrowRight, Filter } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Filter } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { HistoryFilters } from "@/lib/domain/contracts";
@@ -37,16 +37,8 @@ function presetRange(preset: DatePreset): { readonly from: string; readonly to: 
   }
 }
 
-function hourStartLabel(hour: number): string {
-  return `${String(hour).padStart(2, "0")}h`;
-}
-
-function hourEndLabel(hour: number): string {
-  return `${String(hour).padStart(2, "0")}h59`;
-}
-
-function hourRangeLabel(from: number, to: number): string {
-  return `${hourStartLabel(from)}–${hourEndLabel(to)}`;
+function hourLabel(hour: number): string {
+  return `${hour}h`;
 }
 
 function weekdayLabel(day: number, messages: Messages): string {
@@ -71,16 +63,6 @@ function committedHourRange(filters: HistoryFilters): { readonly from: number; r
   return { from: filters.hour, to: filters.hourTo ?? filters.hour };
 }
 
-function activeFiltersLabel(filters: HistoryFilters, messages: Messages): string {
-  const labels: string[] = [];
-  if (filters.weekdays.length > 0) labels.push(filters.weekdays.map((day) => shortWeekdayLabel(day, messages)).join(", "));
-  if (filters.hour !== null) {
-    const hours = committedHourRange(filters);
-    labels.push(hourRangeLabel(hours.from, hours.to));
-  }
-  return labels.length === 0 ? messages.history.noActiveFilters : labels.join(" · ");
-}
-
 function sameWeekdays(current: readonly number[], preset: readonly number[]): boolean {
   return current.length === preset.length && preset.every((day) => current.includes(day));
 }
@@ -89,28 +71,28 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
   return (
     <button
       aria-label={label}
-      className="grid size-7 shrink-0 place-items-center rounded-full text-[var(--landing-highlight)] transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
+      className="grid size-[2.625rem] shrink-0 place-items-center rounded-full bg-[var(--landing-highlight)] text-[var(--background)] shadow-sm transition-[filter,transform,opacity] duration-100 hover:brightness-95 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
       title={label}
       type="button"
     >
-      <CircleArrowRight className="size-4" />
+      <Check className="size-5 stroke-[2.75]" />
     </button>
   );
 }
 
 const POPOVER_BASE_CLASS = "z-[80] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-strong p-3 text-foreground shadow-[var(--shadow-float)] outline-none";
-const DATE_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[17.25rem]`;
+const DATE_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[18.5rem]`;
 const FILTER_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[11.75rem]`;
 const FILTER_DISCLOSURE_CLASS = "flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg border border-border bg-surface-strong px-2.5 text-[11px] font-semibold leading-none transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75";
-const FIELD_CLASS = "h-7 min-w-0 appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-[13px] font-semibold leading-none tabular-nums text-foreground";
-const DATE_FIELD_CLASS = `${FIELD_CLASS} w-24 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:text-center`;
-const HOUR_FIELD_CLASS = `${FIELD_CLASS} w-[3.25rem] [text-align-last:center]`;
-const MINI_BUTTON_CLASS = "h-6 rounded-full border border-border bg-surface px-2 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
-const SELECTED_WEEKDAY_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-black hover:bg-[var(--landing-highlight)]";
-const LABEL_CLASS = "grid shrink-0 gap-0.5 text-center text-[11px] font-bold leading-none text-muted";
+const FIELD_CLASS = "h-8 min-w-0 appearance-none rounded-md border border-border bg-surface px-2 text-center text-[15px] font-semibold leading-none tabular-nums text-foreground";
+const DATE_FIELD_CLASS = `${FIELD_CLASS} w-[7.75rem] [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:text-center`;
+const HOUR_FIELD_CLASS = `${FIELD_CLASS} w-[3.75rem] [text-align-last:center]`;
+const MINI_BUTTON_CLASS = "h-6 rounded-full border border-border bg-surface px-2 text-[14px] font-semibold leading-none transition-[background-color,border-color,color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
+const WEEKDAY_BUTTON_CLASS = `${MINI_BUTTON_CLASS} aria-pressed:border-[var(--landing-highlight)] aria-pressed:bg-[var(--landing-highlight)] aria-pressed:text-[var(--background)] aria-pressed:hover:bg-[var(--landing-highlight)]`;
+const LABEL_CLASS = "grid shrink-0 gap-0.5 text-center text-[13px] font-bold leading-none text-muted";
 
 export function HistoryFiltersForm({ filters, messages }: { readonly filters: HistoryFilters; readonly messages: Messages }) {
   const pathname = usePathname();
@@ -223,18 +205,15 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
           <Ariakit.Popover className={DATE_POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
             <Ariakit.PopoverHeading className="sr-only">{messages.history.dateRange}</Ariakit.PopoverHeading>
             <div className="flex items-end gap-1.5">
-              <label className={`${LABEL_CLASS} w-24`}>
+              <label className={`${LABEL_CLASS} w-[7.75rem]`}>
                 {messages.history.from}
                 <input className={DATE_FIELD_CLASS} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
               </label>
-              <ArrowRight className="mb-2 size-3 shrink-0 text-muted" aria-hidden="true" />
-              <label className={`${LABEL_CLASS} w-24`}>
+              <ArrowRight className="mb-2.5 size-3 shrink-0 text-muted" aria-hidden="true" />
+              <label className={`${LABEL_CLASS} w-[7.75rem]`}>
                 {messages.history.to}
                 <input className={DATE_FIELD_CLASS} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
               </label>
-              <div className="ml-auto">
-                <ApplyButton disabled={!validDateRange} label={messages.history.apply} onClick={() => applyDates(dateFrom, dateTo)} testId="explore-date-apply" />
-              </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {presets.map((preset) => (
@@ -251,6 +230,9 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                 </button>
               ))}
             </div>
+            <div className="mt-3 flex justify-end">
+              <ApplyButton disabled={!validDateRange} label={messages.history.apply} onClick={() => applyDates(dateFrom, dateTo)} testId="explore-date-apply" />
+            </div>
           </Ariakit.Popover>
         </Ariakit.PopoverProvider>
 
@@ -262,34 +244,33 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
             type="button"
           >
             <Filter className="size-3.5 shrink-0 text-[var(--landing-highlight)]" />
-            <span className="min-w-0 truncate">{activeFiltersLabel(filters, messages)}</span>
+            <span className="shrink-0 tabular-nums">{hourLabel(committedHours.from)}</span>
+            <ArrowRight className="size-3 shrink-0 text-muted" aria-hidden="true" />
+            <span className="min-w-0 truncate tabular-nums">{hourLabel(committedHours.to)}</span>
           </Ariakit.PopoverDisclosure>
           <Ariakit.Popover className={FILTER_POPOVER_CLASS} data-testid="explore-filter-popover" gutter={8} portal>
             <Ariakit.PopoverHeading className="sr-only">{messages.history.filters}</Ariakit.PopoverHeading>
             <div className="flex items-end gap-1.5">
-              <label className={`${LABEL_CLASS} w-[3.25rem]`}>
+              <label className={`${LABEL_CLASS} w-[3.75rem]`}>
                 {messages.history.from}
                 <select className={HOUR_FIELD_CLASS} onChange={(event) => setHourFromDraft(event.target.value)} value={hourFromDraft}>
-                  {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourStartLabel(hour)}</option>)}
+                  {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
-              <ArrowRight className="mb-2 size-3 shrink-0 text-muted" aria-hidden="true" />
-              <label className={`${LABEL_CLASS} w-[3.25rem]`}>
+              <ArrowRight className="mb-2.5 size-3 shrink-0 text-muted" aria-hidden="true" />
+              <label className={`${LABEL_CLASS} w-[3.75rem]`}>
                 {messages.history.to}
                 <select className={HOUR_FIELD_CLASS} onChange={(event) => setHourToDraft(event.target.value)} value={hourToDraft}>
-                  {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourEndLabel(hour)}</option>)}
+                  {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
                 </select>
               </label>
-              <div className="ml-auto">
-                <ApplyButton disabled={!validHourRange} label={messages.history.apply} onClick={applySecondaryFilters} testId="explore-filter-apply" />
-              </div>
             </div>
             <div className="mt-2">
-              <p className="mb-1 text-[11px] font-bold leading-none text-muted">{messages.history.weekdayFilter}</p>
+              <p className="mb-1 text-[13px] font-bold leading-none text-muted">{messages.history.weekdayFilter}</p>
               <div className="flex flex-wrap gap-1">
                 <button
                   aria-pressed={weekdayDraft.length === 0}
-                  className={`${MINI_BUTTON_CLASS} ${weekdayDraft.length === 0 ? SELECTED_WEEKDAY_CLASS : ""}`}
+                  className={WEEKDAY_BUTTON_CLASS}
                   onClick={() => setWeekdayDraft([])}
                   type="button"
                 >
@@ -300,7 +281,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                   return (
                     <button
                       aria-pressed={selected}
-                      className={`${MINI_BUTTON_CLASS} ${selected ? SELECTED_WEEKDAY_CLASS : ""}`}
+                      className={WEEKDAY_BUTTON_CLASS}
                       key={preset.label}
                       onClick={() => setWeekdayDraft([...preset.days])}
                       type="button"
@@ -314,7 +295,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                   return (
                     <button
                       aria-pressed={selected}
-                      className={`${MINI_BUTTON_CLASS} ${selected ? SELECTED_WEEKDAY_CLASS : ""}`}
+                      className={WEEKDAY_BUTTON_CLASS}
                       key={day}
                       onClick={() => toggleWeekday(day)}
                       type="button"
@@ -324,6 +305,9 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                   );
                 })}
               </div>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <ApplyButton disabled={!validHourRange} label={messages.history.apply} onClick={applySecondaryFilters} testId="explore-filter-apply" />
             </div>
           </Ariakit.Popover>
         </Ariakit.PopoverProvider>
