@@ -102,11 +102,11 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
 }
 
 const POPOVER_BASE_CLASS = "z-[80] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-strong p-3 text-foreground shadow-[var(--shadow-float)] outline-none";
-const DATE_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[15.25rem]`;
+const DATE_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[17.25rem]`;
 const FILTER_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[11.75rem]`;
 const FILTER_DISCLOSURE_CLASS = "flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg border border-border bg-surface-strong px-2.5 text-[11px] font-semibold leading-none transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75";
 const FIELD_CLASS = "h-7 min-w-0 appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-[13px] font-semibold leading-none tabular-nums text-foreground";
-const DATE_FIELD_CLASS = `${FIELD_CLASS} w-20 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:text-center`;
+const DATE_FIELD_CLASS = `${FIELD_CLASS} w-24 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:text-center`;
 const HOUR_FIELD_CLASS = `${FIELD_CLASS} w-[3.25rem] [text-align-last:center]`;
 const MINI_BUTTON_CLASS = "h-6 rounded-full border border-border bg-surface px-2 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
 const SELECTED_WEEKDAY_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-black hover:bg-[var(--landing-highlight)]";
@@ -223,12 +223,12 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
           <Ariakit.Popover className={DATE_POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
             <Ariakit.PopoverHeading className="sr-only">{messages.history.dateRange}</Ariakit.PopoverHeading>
             <div className="flex items-end gap-1.5">
-              <label className={`${LABEL_CLASS} w-20`}>
+              <label className={`${LABEL_CLASS} w-24`}>
                 {messages.history.from}
                 <input className={DATE_FIELD_CLASS} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} />
               </label>
               <ArrowRight className="mb-2 size-3 shrink-0 text-muted" aria-hidden="true" />
-              <label className={`${LABEL_CLASS} w-20`}>
+              <label className={`${LABEL_CLASS} w-24`}>
                 {messages.history.to}
                 <input className={DATE_FIELD_CLASS} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} />
               </label>
