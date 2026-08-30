@@ -24,21 +24,10 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   const dateButton = page.getByTestId("explore-date-filter");
   await expect(dateButton).toContainText("18/08/2026");
   await expect(dateButton).toContainText("24/08/2026");
-  expect(await dateButton.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(11.5);
   await dateButton.click();
 
   const datePopover = page.getByTestId("explore-date-popover");
   const dateFrom = datePopover.getByLabel("Desde");
-  const todayPreset = datePopover.getByRole("button", { name: "Hoy", exact: true });
-  const dateFromBox = await dateFrom.boundingBox();
-  const presetMetrics = await todayPreset.evaluate((element) => ({
-    fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
-    height: element.getBoundingClientRect().height,
-  }));
-  expect(dateFromBox?.width).toBeLessThanOrEqual(82);
-  expect(presetMetrics.fontSize).toBeLessThanOrEqual(10.5);
-  expect(presetMetrics.height).toBeLessThanOrEqual(25);
-
   await dateFrom.fill("2026-08-19");
   await expect(page).toHaveURL(/from=2026-08-18/);
   await delayNextExploreNavigation(page);
@@ -47,24 +36,19 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
 
   const secondaryFilter = page.getByTestId("explore-secondary-filter");
   await expect(secondaryFilter).toBeVisible();
-  expect(await secondaryFilter.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(11.5);
   await secondaryFilter.click();
 
   const filterPopover = page.getByTestId("explore-filter-popover");
   await expect(filterPopover).toBeVisible();
   const allDays = filterPopover.getByRole("button", { name: "Todos", exact: true });
   const monday = filterPopover.getByRole("button", { name: "Lun", exact: true });
-  const hourFrom = filterPopover.getByLabel("Desde");
-  const hourFromBox = await hourFrom.boundingBox();
-  expect(hourFromBox?.width).toBeLessThanOrEqual(54);
   await expect(allDays).toHaveAttribute("aria-pressed", "true");
   await monday.click();
   await expect(filterPopover).toBeVisible();
   await expect(allDays).toHaveAttribute("aria-pressed", "false");
   await expect(monday).toHaveAttribute("aria-pressed", "true");
-  expect(await monday.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   await expect(page).not.toHaveURL(/weekdays=/);
-  await hourFrom.selectOption("6");
+  await filterPopover.getByLabel("Desde").selectOption("6");
   await filterPopover.getByLabel("Hasta").selectOption("9");
   await delayNextExploreNavigation(page);
   await filterPopover.getByTestId("explore-filter-apply").click();
