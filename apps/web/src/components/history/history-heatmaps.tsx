@@ -2,7 +2,7 @@
 
 import * as Ariakit from "@ariakit/react";
 import { CircleArrowRight, SlidersHorizontal } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirectionDescriptor, DirectionId, HistoryFilters, Lang } from "@/lib/domain/contracts";
 import { formatDelay } from "@/lib/domain/format";
 import type { HistoryAnalysisContext, HistoryHeatmapCell, HistoryHeatmapMetric, HistoryHeatmapResponse, HistoryHeatmapType } from "@/lib/domain/history-analysis";
@@ -18,8 +18,13 @@ interface HeatmapConfig {
 
 const COMMON_METRICS: readonly HistoryHeatmapMetric[] = ["punctuality", "mean-delay", "median-delay", "cancellation-rate", "coverage"];
 const MINIMUM_SAMPLES = [10, 25, 50, 100] as const;
-const CHIP_CLASS = "h-7 rounded-full border border-border bg-surface px-2.5 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform] active:scale-95 aria-pressed:border-[var(--landing-highlight)] aria-pressed:bg-[var(--landing-highlight)] aria-pressed:text-[var(--background)]";
+const CHIP_CLASS = "h-7 rounded-full border border-border bg-surface px-2.5 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform] active:scale-95";
+const CHIP_SELECTED_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-[var(--background)]";
 const GROUP_LABEL_CLASS = "mb-1.5 text-[13px] font-bold leading-none text-muted";
+
+function chipClass(selected: boolean): string {
+  return `${CHIP_CLASS}${selected ? ` ${CHIP_SELECTED_CLASS}` : ""}`;
+}
 
 function HeatmapSkeleton() {
   return <div className="rounded-xl border border-border bg-surface-strong p-3" data-testid="explore-heatmap-skeleton">
@@ -130,6 +135,7 @@ export function HistoryHeatmaps({
 }) {
   const copy = historyAnalysisCopy(lang);
   const sectionRef = useRef<HTMLElement>(null);
+  const initialLoadRequested = useRef(false);
   const requestSequence = useRef(0);
   const allowedTypes = historyHeatmapTypesForContext(context.kind);
   const defaultType: HistoryHeatmapType = context.kind === "line" ? "station-hour" : context.kind === "station" ? "line-hour" : "hour-weekday";
@@ -138,16 +144,15 @@ export function HistoryHeatmaps({
   const [minimumSamples, setMinimumSamples] = useState(25);
   const [data, setData] = useState<HistoryHeatmapResponse | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
   const [typeDraft, setTypeDraft] = useState<HistoryHeatmapType>(defaultType);
   const [lineDraft, setLineDraft] = useState<string | null>(fixedLineSlug);
   const [directionDraft, setDirectionDraft] = useState<DirectionId | null>(null);
   const [metricDraft, setMetricDraft] = useState<HistoryHeatmapMetric>("mean-delay");
   const [minimumDraft, setMinimumDraft] = useState(25);
-  const [directions, setDirections] = useState<readonly DirectionDescriptor[]>(initialDirections);
+  const [directions, setDirections] = useState<readonly DirectionDescriptor[]>([]);
 
-  const load = async (next: HeatmapConfig) => {
+  const load = useCallback(async (next: HeatmapConfig) => {
     const sequence = ++requestSequence.current;
     setStatus("loading");
     const params = new URLSearchParams();
@@ -169,43 +174,34 @@ export function HistoryHeatmaps({
       if (sequence !== requestSequence.current) return;
       setStatus("error");
     }
-  };
+  }, [context.key, context.kind, filters, scenario]);
 
   useEffect(() => {
     const element = sectionRef.current;
-    if (element === null || visible) return;
+    if (element === null || initialLoadRequested.current) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setVisible(true);
-        observer.disconnect();
-      }
+      if (!entries.some((entry) => entry.isIntersecting) || initialLoadRequested.current) return;
+      initialLoadRequested.current = true;
+      observer.disconnect();
+      void load(config);
     }, { rootMargin: "400px" });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [visible]);
+  }, [config, load]);
+
+  const activeLineDraft = fixedLineSlug ?? (historyHeatmapTypeRequiresLine(typeDraft) ? lineDraft : null);
 
   useEffect(() => {
-    if (visible && status === "idle") void load(config);
-  }, [visible, status, config]);
-
-  useEffect(() => {
-    if (!open) return;
-    const activeLine = fixedLineSlug ?? (historyHeatmapTypeRequiresLine(typeDraft) ? lineDraft : null);
-    if (activeLine === null) {
-      setDirections([]);
-      return;
-    }
-    if (fixedLineSlug !== null && activeLine === fixedLineSlug) {
-      setDirections(initialDirections);
-      return;
-    }
+    if (!open || activeLineDraft === null || activeLineDraft === fixedLineSlug) return;
+    let canceled = false;
     const params = new URLSearchParams();
     if (scenario !== undefined) params.set("scenario", scenario);
-    void fetch(`/api/v1/history/lines/${encodeURIComponent(activeLine)}/directions?${params.toString()}`)
+    void fetch(`/api/v1/history/lines/${encodeURIComponent(activeLineDraft)}/directions?${params.toString()}`)
       .then((response) => response.ok ? response.json() as Promise<{ directions: readonly DirectionDescriptor[] }> : Promise.reject(new Error("directions")))
-      .then((body) => setDirections(body.directions))
-      .catch(() => setDirections([]));
-  }, [open, typeDraft, lineDraft, fixedLineSlug, initialDirections, scenario]);
+      .then((body) => { if (!canceled) setDirections(body.directions); })
+      .catch(() => { if (!canceled) setDirections([]); });
+    return () => { canceled = true; };
+  }, [activeLineDraft, fixedLineSlug, open, scenario]);
 
   const setPopoverOpen = (nextOpen: boolean) => {
     if (nextOpen) {
@@ -214,7 +210,7 @@ export function HistoryHeatmaps({
       setDirectionDraft(config.direction);
       setMetricDraft(metric);
       setMinimumDraft(minimumSamples);
-      setDirections(initialDirections);
+      setDirections([]);
     }
     setOpen(nextOpen);
   };
@@ -241,8 +237,8 @@ export function HistoryHeatmaps({
   };
 
   const availableMetrics = historyHeatmapTypeUsesSegments(typeDraft) ? [...COMMON_METRICS, "added-delay" as const] : COMMON_METRICS;
-  const activeLineDraft = fixedLineSlug ?? (historyHeatmapTypeRequiresLine(typeDraft) ? lineDraft : null);
   const showDirection = filters.direction === null && activeLineDraft !== null;
+  const visibleDirections = activeLineDraft !== null && activeLineDraft === fixedLineSlug ? initialDirections : directions;
 
   return <section className="mt-12 border-t border-border pt-8" ref={sectionRef} data-testid="explore-heatmaps">
     <div className="flex items-center justify-between gap-4">
@@ -260,32 +256,32 @@ export function HistoryHeatmaps({
           <div>
             <p className={GROUP_LABEL_CLASS}>{copy.heatmapType}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup">
-              {allowedTypes.map((type) => <button aria-checked={typeDraft === type} aria-pressed={typeDraft === type} className={CHIP_CLASS} key={type} onClick={() => selectType(type)} role="radio" type="button">{copy.heatmapTypes[type]}</button>)}
+              {allowedTypes.map((type) => <button aria-checked={typeDraft === type} className={chipClass(typeDraft === type)} key={type} onClick={() => selectType(type)} role="radio" type="button">{copy.heatmapTypes[type]}</button>)}
             </div>
           </div>
           <div className="mt-3">
             <p className={GROUP_LABEL_CLASS}>{copy.metric}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup">
-              {availableMetrics.map((option) => <button aria-checked={metricDraft === option} aria-pressed={metricDraft === option} className={CHIP_CLASS} key={option} onClick={() => setMetricDraft(option)} role="radio" type="button">{copy.metrics[option]}</button>)}
+              {availableMetrics.map((option) => <button aria-checked={metricDraft === option} className={chipClass(metricDraft === option)} key={option} onClick={() => setMetricDraft(option)} role="radio" type="button">{copy.metrics[option]}</button>)}
             </div>
           </div>
           {context.kind === "network" && historyHeatmapTypeRequiresLine(typeDraft) ? <div className="mt-3">
             <p className={GROUP_LABEL_CLASS}>{copy.line}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup">
-              {MADRID_LINES.map((line) => <button aria-checked={lineDraft === line.slug} aria-pressed={lineDraft === line.slug} className={CHIP_CLASS} key={line.slug} onClick={() => { setLineDraft(line.slug); setDirectionDraft(null); }} role="radio" type="button">{line.code}</button>)}
+              {MADRID_LINES.map((line) => <button aria-checked={lineDraft === line.slug} className={chipClass(lineDraft === line.slug)} key={line.slug} onClick={() => { setLineDraft(line.slug); setDirectionDraft(null); }} role="radio" type="button">{line.code}</button>)}
             </div>
           </div> : null}
           {showDirection ? <div className="mt-3">
             <p className={GROUP_LABEL_CLASS}>{copy.direction}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup">
-              <button aria-checked={directionDraft === null} aria-pressed={directionDraft === null} className={CHIP_CLASS} onClick={() => setDirectionDraft(null)} role="radio" type="button">{copy.bothDirections}</button>
-              {directions.map((direction) => <button aria-checked={directionDraft === direction.id} aria-pressed={directionDraft === direction.id} className={CHIP_CLASS} key={direction.id} onClick={() => setDirectionDraft(direction.id)} role="radio" type="button">{copy.towards} {directionName(direction, lang)}</button>)}
+              <button aria-checked={directionDraft === null} className={chipClass(directionDraft === null)} onClick={() => setDirectionDraft(null)} role="radio" type="button">{copy.bothDirections}</button>
+              {visibleDirections.map((direction) => <button aria-checked={directionDraft === direction.id} className={chipClass(directionDraft === direction.id)} key={direction.id} onClick={() => setDirectionDraft(direction.id)} role="radio" type="button">{copy.towards} {directionName(direction, lang)}</button>)}
             </div>
           </div> : null}
           <div className="mt-3">
             <p className={GROUP_LABEL_CLASS}>{copy.minimumSamples}</p>
             <div className="flex flex-wrap gap-1" role="radiogroup">
-              {MINIMUM_SAMPLES.map((sample) => <button aria-checked={minimumDraft === sample} aria-pressed={minimumDraft === sample} className={CHIP_CLASS} key={sample} onClick={() => setMinimumDraft(sample)} role="radio" type="button">{sample}</button>)}
+              {MINIMUM_SAMPLES.map((sample) => <button aria-checked={minimumDraft === sample} className={chipClass(minimumDraft === sample)} key={sample} onClick={() => setMinimumDraft(sample)} role="radio" type="button">{sample}</button>)}
             </div>
           </div>
           <div className="mt-3 flex justify-end">
