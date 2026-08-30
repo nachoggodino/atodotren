@@ -33,5 +33,6 @@ export default async function ExploreStationPage({ params, searchParams }: { rea
   const canonicalSlug = data.context.slug?.[lang];
   if (canonicalSlug !== undefined && slug !== canonicalSlug) redirect(`/${lang}/explore/station/${canonicalSlug}?${historyFiltersToSearchParams(parsed.filters, scenario)}`);
 
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} messages={messages} />} />;
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario);
+  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} />;
 }
