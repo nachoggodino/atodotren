@@ -81,6 +81,10 @@ function activeFiltersLabel(filters: HistoryFilters, messages: Messages): string
   return labels.length === 0 ? messages.history.noActiveFilters : labels.join(" · ");
 }
 
+function sameWeekdays(current: readonly number[], preset: readonly number[]): boolean {
+  return current.length === preset.length && preset.every((day) => current.includes(day));
+}
+
 function ApplyButton({ label, disabled = false, onClick, testId }: { readonly label: string; readonly disabled?: boolean; readonly onClick: () => void; readonly testId: string }) {
   return (
     <button
@@ -97,14 +101,16 @@ function ApplyButton({ label, disabled = false, onClick, testId }: { readonly la
   );
 }
 
-const POPOVER_CLASS = "z-[80] w-[60vw] max-w-[48rem] min-w-[20rem] rounded-xl border border-border bg-surface-strong p-3 text-foreground shadow-[var(--shadow-float)] outline-none max-sm:w-[calc(100vw-1rem)] max-sm:min-w-0";
+const POPOVER_BASE_CLASS = "z-[80] max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-surface-strong p-3 text-foreground shadow-[var(--shadow-float)] outline-none";
+const DATE_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[15.25rem]`;
+const FILTER_POPOVER_CLASS = `${POPOVER_BASE_CLASS} w-[11.75rem]`;
 const FILTER_DISCLOSURE_CLASS = "flex min-h-9 min-w-0 items-center gap-1.5 rounded-lg border border-border bg-surface-strong px-2.5 text-[11px] font-semibold leading-none transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-[.99] active:opacity-75";
-const FIELD_CLASS = "h-7 min-w-0 appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-[11px] font-semibold leading-none tabular-nums text-foreground";
+const FIELD_CLASS = "h-7 min-w-0 appearance-none rounded-md border border-border bg-surface px-1.5 text-center text-[13px] font-semibold leading-none tabular-nums text-foreground";
 const DATE_FIELD_CLASS = `${FIELD_CLASS} w-20 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:w-full [&::-webkit-datetime-edit]:text-center`;
 const HOUR_FIELD_CLASS = `${FIELD_CLASS} w-[3.25rem] [text-align-last:center]`;
-const MINI_BUTTON_CLASS = "h-6 rounded-full border border-border bg-surface px-2 text-[10px] font-semibold leading-none transition-[background-color,border-color,color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
+const MINI_BUTTON_CLASS = "h-6 rounded-full border border-border bg-surface px-2 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-95 active:opacity-75";
 const SELECTED_WEEKDAY_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-black hover:bg-[var(--landing-highlight)]";
-const LABEL_CLASS = "grid shrink-0 gap-0.5 text-center text-[9px] font-bold leading-none text-muted";
+const LABEL_CLASS = "grid shrink-0 gap-0.5 text-center text-[11px] font-bold leading-none text-muted";
 
 export function HistoryFiltersForm({ filters, messages }: { readonly filters: HistoryFilters; readonly messages: Messages }) {
   const pathname = usePathname();
@@ -192,12 +198,16 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
     { id: "last30", label: messages.history.last30Days },
     { id: "thisYear", label: messages.history.thisYear },
   ];
+  const weekdayPresets: readonly { readonly label: string; readonly days: readonly number[] }[] = [
+    { label: messages.history.weekdays, days: [1, 2, 3, 4, 5] },
+    { label: messages.history.weekend, days: [0, 6] },
+  ];
   const weekdays = [1, 2, 3, 4, 5, 6, 0] as const;
 
   return (
     <>
       {navigating ? <ExploreLoadingSkeleton overlay /> : null}
-      <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,.65fr)] gap-2" data-testid="explore-filter-bar">
+      <div className="grid grid-cols-[max-content_minmax(0,1fr)] gap-2" data-testid="explore-filter-bar">
         <Ariakit.PopoverProvider open={dateOpen} setOpen={setDatePopoverOpen}>
           <Ariakit.PopoverDisclosure
             aria-label={messages.history.dateRange}
@@ -210,7 +220,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
             <ArrowRight className="size-3 shrink-0 text-muted" />
             <span className="min-w-0 truncate tabular-nums">{formatDisplayDate(filters.to)}</span>
           </Ariakit.PopoverDisclosure>
-          <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
+          <Ariakit.Popover className={DATE_POPOVER_CLASS} data-testid="explore-date-popover" gutter={8} portal>
             <Ariakit.PopoverHeading className="sr-only">{messages.history.dateRange}</Ariakit.PopoverHeading>
             <div className="flex items-end gap-1.5">
               <label className={`${LABEL_CLASS} w-20`}>
@@ -254,7 +264,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
             <Filter className="size-3.5 shrink-0 text-[var(--landing-highlight)]" />
             <span className="min-w-0 truncate">{activeFiltersLabel(filters, messages)}</span>
           </Ariakit.PopoverDisclosure>
-          <Ariakit.Popover className={POPOVER_CLASS} data-testid="explore-filter-popover" gutter={8} portal>
+          <Ariakit.Popover className={FILTER_POPOVER_CLASS} data-testid="explore-filter-popover" gutter={8} portal>
             <Ariakit.PopoverHeading className="sr-only">{messages.history.filters}</Ariakit.PopoverHeading>
             <div className="flex items-end gap-1.5">
               <label className={`${LABEL_CLASS} w-[3.25rem]`}>
@@ -275,7 +285,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
               </div>
             </div>
             <div className="mt-2">
-              <p className="mb-1 text-[9px] font-bold leading-none text-muted">{messages.history.weekdayFilter}</p>
+              <p className="mb-1 text-[11px] font-bold leading-none text-muted">{messages.history.weekdayFilter}</p>
               <div className="flex flex-wrap gap-1">
                 <button
                   aria-pressed={weekdayDraft.length === 0}
@@ -285,6 +295,20 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                 >
                   {messages.history.allDays.replace(/\s.+$/, "")}
                 </button>
+                {weekdayPresets.map((preset) => {
+                  const selected = sameWeekdays(weekdayDraft, preset.days);
+                  return (
+                    <button
+                      aria-pressed={selected}
+                      className={`${MINI_BUTTON_CLASS} ${selected ? SELECTED_WEEKDAY_CLASS : ""}`}
+                      key={preset.label}
+                      onClick={() => setWeekdayDraft([...preset.days])}
+                      type="button"
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
                 {weekdays.map((day) => {
                   const selected = weekdayDraft.includes(day);
                   return (
