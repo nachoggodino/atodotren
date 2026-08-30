@@ -1,0 +1,93 @@
+import type { Lang } from "@/lib/domain/contracts";
+import type { HistoryHeatmapMetric, HistoryHeatmapType } from "@/lib/domain/history-analysis";
+
+const copy = {
+  es: {
+    delayedStops: "Paradas retrasadas",
+    heatmaps: "Heatmaps",
+    customize: "Personalizar",
+    customizeHeatmap: "Personalizar heatmap",
+    heatmapType: "Tipo de heatmap",
+    metric: "Métrica",
+    line: "Línea",
+    direction: "Dirección",
+    bothDirections: "Ambas",
+    towards: "Hacia",
+    minimumSamples: "Mínimo de muestras",
+    samples: "muestras",
+    loading: "Cargando heatmap",
+    noData: "No hay suficientes datos para esta combinación.",
+    loadError: "No se pudo cargar este heatmap.",
+    retry: "Reintentar",
+    trendMetrics: {
+      punctuality: "Puntualidad",
+      mean: "Media",
+      median: "Mediana",
+      delayedStops: "Paradas retrasadas",
+    },
+    heatmapTypes: {
+      "hour-weekday": "Hora × día",
+      "station-hour": "Estación × hora",
+      "station-weekday": "Estación × día",
+      "line-hour": "Línea × hora",
+      "line-weekday": "Línea × día",
+      "segment-hour": "Tramo × hora",
+      "segment-weekday": "Tramo × día",
+    } satisfies Record<HistoryHeatmapType, string>,
+    metrics: {
+      punctuality: "Puntualidad",
+      "mean-delay": "Media",
+      "median-delay": "Mediana",
+      "cancellation-rate": "Cancelaciones",
+      coverage: "Cobertura",
+      "added-delay": "Retraso añadido",
+    } satisfies Record<HistoryHeatmapMetric, string>,
+    weekdays: ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const,
+  },
+  en: {
+    delayedStops: "Delayed stops",
+    heatmaps: "Heatmaps",
+    customize: "Customize",
+    customizeHeatmap: "Customize heatmap",
+    heatmapType: "Heatmap type",
+    metric: "Metric",
+    line: "Line",
+    direction: "Direction",
+    bothDirections: "Both",
+    towards: "Towards",
+    minimumSamples: "Minimum samples",
+    samples: "samples",
+    loading: "Loading heatmap",
+    noData: "There is not enough data for this combination.",
+    loadError: "This heatmap could not be loaded.",
+    retry: "Retry",
+    trendMetrics: {
+      punctuality: "Punctuality",
+      mean: "Mean",
+      median: "Median",
+      delayedStops: "Delayed stops",
+    },
+    heatmapTypes: {
+      "hour-weekday": "Hour × weekday",
+      "station-hour": "Station × hour",
+      "station-weekday": "Station × weekday",
+      "line-hour": "Line × hour",
+      "line-weekday": "Line × weekday",
+      "segment-hour": "Segment × hour",
+      "segment-weekday": "Segment × weekday",
+    } satisfies Record<HistoryHeatmapType, string>,
+    metrics: {
+      punctuality: "Punctuality",
+      "mean-delay": "Mean",
+      "median-delay": "Median",
+      "cancellation-rate": "Cancellations",
+      coverage: "Coverage",
+      "added-delay": "Added delay",
+    } satisfies Record<HistoryHeatmapMetric, string>,
+    weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const,
+  },
+} as const;
+
+export function historyAnalysisCopy(lang: Lang) {
+  return copy[lang];
+}
