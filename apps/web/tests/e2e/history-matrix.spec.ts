@@ -1,8 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function waitForDocumentReload(page: Page, previousTimeOrigin: number) {
-  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(previousTimeOrigin);
-  await page.waitForLoadState("networkidle");
+async function delayNextExploreNavigation(page: Page) {
+  await page.route(/\/es\/explore.*[?&]_rsc=/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.continue();
+  }, { times: 1 });
+}
+
+async function expectExploreNavigation(page: Page, url: RegExp) {
+  await expect(page.getByTestId("explore-navigation-skeleton")).toBeVisible();
+  await expect(page).toHaveURL(url);
+  await expect(page.getByTestId("explore-navigation-skeleton")).toHaveCount(0);
 }
 
 test("Explore filters are URL-addressable and matrix detail is keyboard operable", async ({ page }) => {
@@ -16,36 +24,53 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   const dateButton = page.getByTestId("explore-date-filter");
   await expect(dateButton).toContainText("18/08/2026");
   await expect(dateButton).toContainText("24/08/2026");
+  expect(await dateButton.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(11.5);
   await dateButton.click();
+
   const datePopover = page.getByTestId("explore-date-popover");
-  await datePopover.getByLabel("Desde").fill("2026-08-19");
+  const dateFrom = datePopover.getByLabel("Desde");
+  const todayPreset = datePopover.getByRole("button", { name: "Hoy", exact: true });
+  const dateFromBox = await dateFrom.boundingBox();
+  const presetMetrics = await todayPreset.evaluate((element) => ({
+    fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+    height: element.getBoundingClientRect().height,
+  }));
+  expect(dateFromBox?.width).toBeLessThanOrEqual(82);
+  expect(presetMetrics.fontSize).toBeLessThanOrEqual(10.5);
+  expect(presetMetrics.height).toBeLessThanOrEqual(25);
+
+  await dateFrom.fill("2026-08-19");
   await expect(page).toHaveURL(/from=2026-08-18/);
-  const dateTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  await delayNextExploreNavigation(page);
   await datePopover.getByTestId("explore-date-apply").click();
-  await expect(page).toHaveURL(/from=2026-08-19/);
-  await waitForDocumentReload(page, dateTimeOrigin);
+  await expectExploreNavigation(page, /from=2026-08-19/);
 
   const secondaryFilter = page.getByTestId("explore-secondary-filter");
   await expect(secondaryFilter).toBeVisible();
+  expect(await secondaryFilter.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeLessThanOrEqual(11.5);
   await secondaryFilter.click();
+
   const filterPopover = page.getByTestId("explore-filter-popover");
   await expect(filterPopover).toBeVisible();
   const allDays = filterPopover.getByRole("button", { name: "Todos", exact: true });
   const monday = filterPopover.getByRole("button", { name: "Lun", exact: true });
+  const hourFrom = filterPopover.getByLabel("Desde");
+  const hourFromBox = await hourFrom.boundingBox();
+  expect(hourFromBox?.width).toBeLessThanOrEqual(54);
   await expect(allDays).toHaveAttribute("aria-pressed", "true");
   await monday.click();
   await expect(filterPopover).toBeVisible();
   await expect(allDays).toHaveAttribute("aria-pressed", "false");
   await expect(monday).toHaveAttribute("aria-pressed", "true");
+  expect(await monday.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   await expect(page).not.toHaveURL(/weekdays=/);
-  await filterPopover.getByLabel("Desde").selectOption("6");
+  await hourFrom.selectOption("6");
   await filterPopover.getByLabel("Hasta").selectOption("9");
-  const filterTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  await delayNextExploreNavigation(page);
   await filterPopover.getByTestId("explore-filter-apply").click();
-  await expect(page).toHaveURL(/weekdays=1/);
+  await expectExploreNavigation(page, /weekdays=1/);
   await expect(page).toHaveURL(/hourFrom=6/);
   await expect(page).toHaveURL(/hourTo=9/);
-  await waitForDocumentReload(page, filterTimeOrigin);
   await expect(page).not.toHaveURL(/(?:\?|&)hour=/);
   await expect(page).not.toHaveURL(/direction=/);
   await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lun");
@@ -61,14 +86,14 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   await expect(page.getByTestId("matrix-detail")).toBeVisible();
 });
 
-test("date presets apply immediately and close their popover", async ({ page }, testInfo) => {
+test("date presets apply immediately with an immediate loading skeleton", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Preset navigation behavior only needs one Chromium acceptance path.");
   await page.goto("/es/explore?from=2026-08-18&to=2026-08-24");
   await page.getByTestId("explore-date-filter").click();
   const popover = page.getByTestId("explore-date-popover");
-  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  await delayNextExploreNavigation(page);
   await popover.getByRole("button", { name: "Últimos 7 días", exact: true }).click();
-  await waitForDocumentReload(page, timeOrigin);
+  await expect(page.getByTestId("explore-navigation-skeleton")).toBeVisible();
   await expect.poll(() => {
     const url = new URL(page.url());
     const from = url.searchParams.get("from");
@@ -76,6 +101,7 @@ test("date presets apply immediately and close their popover", async ({ page }, 
     if (from === null || to === null) return Number.NaN;
     return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
   }).toBe(6);
+  await expect(page.getByTestId("explore-navigation-skeleton")).toHaveCount(0);
 });
 
 test("explore context selector keeps quick links and default search navigation inside Explore", async ({ page }, testInfo) => {
