@@ -36,6 +36,8 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
 
   const secondaryFilter = page.getByTestId("explore-secondary-filter");
   await expect(secondaryFilter).toBeVisible();
+  await expect(secondaryFilter).toContainText("0h");
+  await expect(secondaryFilter).toContainText("23h");
   await secondaryFilter.click();
 
   const filterPopover = page.getByTestId("explore-filter-popover");
@@ -67,8 +69,9 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   await expect(page).toHaveURL(/hourTo=9/);
   await expect(page).not.toHaveURL(/(?:\?|&)hour=/);
   await expect(page).not.toHaveURL(/direction=/);
-  await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lun");
-  await expect(page.getByTestId("explore-secondary-filter")).toContainText("06h–09h59");
+  await expect(page.getByTestId("explore-secondary-filter")).not.toContainText("Lun");
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("6h");
+  await expect(page.getByTestId("explore-secondary-filter")).toContainText("9h");
 
   const matrix = page.getByTestId("timetable-matrix");
   await expect(matrix).toBeVisible();
