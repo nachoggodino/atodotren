@@ -41,8 +41,18 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   const filterPopover = page.getByTestId("explore-filter-popover");
   await expect(filterPopover).toBeVisible();
   const allDays = filterPopover.getByRole("button", { name: "Todos", exact: true });
+  const weekdayPreset = filterPopover.getByRole("button", { name: "Entre semana", exact: true });
+  const weekendPreset = filterPopover.getByRole("button", { name: "Fin de semana", exact: true });
   const monday = filterPopover.getByRole("button", { name: "Lun", exact: true });
   await expect(allDays).toHaveAttribute("aria-pressed", "true");
+  await weekdayPreset.click();
+  await expect(filterPopover).toBeVisible();
+  await expect(weekdayPreset).toHaveAttribute("aria-pressed", "true");
+  await expect(monday).toHaveAttribute("aria-pressed", "true");
+  await weekendPreset.click();
+  await expect(weekendPreset).toHaveAttribute("aria-pressed", "true");
+  await expect(monday).toHaveAttribute("aria-pressed", "false");
+  await allDays.click();
   await monday.click();
   await expect(filterPopover).toBeVisible();
   await expect(allDays).toHaveAttribute("aria-pressed", "false");
