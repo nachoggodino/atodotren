@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { HistoryFiltersForm } from "@/components/history/history-filters";
 import { HistoryLayout } from "@/components/history/history-layout";
 import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
-import { tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
+import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
 import { getHistoryNetwork } from "@/lib/server/services";
@@ -26,5 +26,6 @@ export default async function ExplorePage({ params, searchParams }: { readonly p
   if (!parsed.ok) return <InvalidHistoryFilters messages={messages} />;
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
   const data = await getHistoryNetwork(parsed.filters, scenario);
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} messages={messages} />} />;
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario);
+  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} />;
 }
