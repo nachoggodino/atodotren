@@ -1,4 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function waitForDocumentReload(page: Page, previousTimeOrigin: number) {
+  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(previousTimeOrigin);
+  await page.waitForLoadState("networkidle");
+}
 
 test("Explore filters are URL-addressable and matrix detail is keyboard operable", async ({ page }) => {
   await page.goto("/es/explore/line/c1?from=2026-08-18&to=2026-08-24");
@@ -18,10 +23,13 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   const dateTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   await datePopover.getByTestId("explore-date-apply").click();
   await expect(page).toHaveURL(/from=2026-08-19/);
-  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(dateTimeOrigin);
+  await waitForDocumentReload(page, dateTimeOrigin);
 
-  await page.getByTestId("explore-secondary-filter").click();
+  const secondaryFilter = page.getByTestId("explore-secondary-filter");
+  await expect(secondaryFilter).toBeVisible();
+  await secondaryFilter.click();
   const filterPopover = page.getByTestId("explore-filter-popover");
+  await expect(filterPopover).toBeVisible();
   const allDays = filterPopover.getByRole("button", { name: "Todos", exact: true });
   const monday = filterPopover.getByRole("button", { name: "Lun", exact: true });
   await expect(allDays).toHaveAttribute("aria-pressed", "true");
@@ -32,10 +40,12 @@ test("Explore filters are URL-addressable and matrix detail is keyboard operable
   await expect(page).not.toHaveURL(/weekdays=/);
   await filterPopover.getByLabel("Desde").selectOption("6");
   await filterPopover.getByLabel("Hasta").selectOption("9");
+  const filterTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   await filterPopover.getByTestId("explore-filter-apply").click();
   await expect(page).toHaveURL(/weekdays=1/);
   await expect(page).toHaveURL(/hourFrom=6/);
   await expect(page).toHaveURL(/hourTo=9/);
+  await waitForDocumentReload(page, filterTimeOrigin);
   await expect(page).not.toHaveURL(/(?:\?|&)hour=/);
   await expect(page).not.toHaveURL(/direction=/);
   await expect(page.getByTestId("explore-secondary-filter")).toContainText("Lun");
@@ -58,7 +68,7 @@ test("date presets apply immediately and close their popover", async ({ page }, 
   const popover = page.getByTestId("explore-date-popover");
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
   await popover.getByRole("button", { name: "Últimos 7 días", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(timeOrigin);
+  await waitForDocumentReload(page, timeOrigin);
   await expect.poll(() => {
     const url = new URL(page.url());
     const from = url.searchParams.get("from");
