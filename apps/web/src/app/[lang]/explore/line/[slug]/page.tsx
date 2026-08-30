@@ -36,6 +36,6 @@ export default async function ExploreLinePage({ params, searchParams }: { readon
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
   const [data, matrix] = await Promise.all([getHistoryLine(slug, parsed.filters, scenario), getMatrix(slug, parsed.filters.to, scenario)]);
   if (data === null) notFound();
-  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario);
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario).toString();
   return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} matrix={matrixView(matrix, lang, messages)} />;
 }
