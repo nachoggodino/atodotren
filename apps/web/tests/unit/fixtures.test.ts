@@ -21,7 +21,7 @@ describe("fixture scenarios", () => {
     const adapter = createFixtureAdapter("healthy");
     const baseline = await adapter.historyNetwork(baseFilters);
     const hour = await adapter.historyNetwork({ ...baseFilters, hour: 8 });
-    const hourRange = await adapter.historyNetwork({ ...baseFilters, hour: 6, hourTo: 9 });
+    const hourRange = await adapter.historyNetwork({ ...baseFilters, hour: 6, hourTo: 7 });
     const direction = await adapter.historyNetwork({ ...baseFilters, direction: 1 });
     const weekdays = await adapter.historyNetwork({ ...baseFilters, weekdays: [1] });
     expect(hour.stats.meanDelaySeconds).not.toBe(baseline.stats.meanDelaySeconds);
