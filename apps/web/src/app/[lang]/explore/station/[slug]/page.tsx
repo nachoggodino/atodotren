@@ -7,7 +7,7 @@ import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearc
 import { humanizeSlug } from "@/lib/domain/slugs";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
-import { getHistoryStation } from "@/lib/server/services";
+import { getHistoryStation, getHistoryTrend } from "@/lib/server/services";
 import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,14 @@ export default async function ExploreStationPage({ params, searchParams }: { rea
   const canonicalSlug = data.context.slug?.[lang];
   if (canonicalSlug !== undefined && slug !== canonicalSlug) redirect(`/${lang}/explore/station/${canonicalSlug}?${historyFiltersToSearchParams(parsed.filters, scenario)}`);
 
+  const trend = await getHistoryTrend({ kind: "station", key: data.context.id }, parsed.filters, scenario);
   const filterKey = historyFiltersToSearchParams(parsed.filters, scenario).toString();
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} />;
+  return <HistoryLayout
+    data={data}
+    trend={trend}
+    lang={lang}
+    messages={messages}
+    filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />}
+    {...(scenario === undefined ? {} : { scenario })}
+  />;
 }
