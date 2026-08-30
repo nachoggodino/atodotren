@@ -9,7 +9,7 @@ import { matrixResultMessage } from "@/lib/domain/matrix-result";
 import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
-import { getHistoryLine, getMatrix } from "@/lib/server/services";
+import { getHistoryLine, getHistoryTrend, getMatrix } from "@/lib/server/services";
 import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +34,20 @@ export default async function ExploreLinePage({ params, searchParams }: { readon
   const parsed = tryHistoryFiltersFromPage(query);
   if (!parsed.ok) return <InvalidHistoryFilters messages={messages} />;
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
-  const [data, matrix] = await Promise.all([getHistoryLine(slug, parsed.filters, scenario), getMatrix(slug, parsed.filters.to, scenario)]);
+  const [data, trend, matrix] = await Promise.all([
+    getHistoryLine(slug, parsed.filters, scenario),
+    getHistoryTrend({ kind: "line", key: slug }, parsed.filters, scenario),
+    getMatrix(slug, parsed.filters.to, scenario),
+  ]);
   if (data === null) notFound();
   const filterKey = historyFiltersToSearchParams(parsed.filters, scenario).toString();
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />} matrix={matrixView(matrix, lang, messages)} />;
+  return <HistoryLayout
+    data={data}
+    trend={trend}
+    lang={lang}
+    messages={messages}
+    filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />}
+    matrix={matrixView(matrix, lang, messages)}
+    {...(scenario === undefined ? {} : { scenario })}
+  />;
 }
