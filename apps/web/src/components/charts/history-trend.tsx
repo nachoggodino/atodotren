@@ -54,7 +54,7 @@ export function HistoryTrend({ points, lang, messages }: { readonly points: read
           <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
           <YAxis
             axisLine={false}
-            domain={metric === "punctuality" ? [0, 100] : undefined}
+            {...(metric === "punctuality" ? { domain: [0, 100] as [number, number] } : {})}
             tickLine={false}
             tick={{ fill: "var(--muted)", fontSize: 11 }}
             width={46}
