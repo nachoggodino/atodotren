@@ -56,7 +56,7 @@ function dimensions(request: HistoryHeatmapRequest): {
   const weekdays = selectedWeekdays(request.filters).map((day) => ({ key: String(day), label: String(day), order: day }));
   const lines = MADRID_LINES.map((line, index) => ({ key: line.slug, label: line.code, order: index }));
   const stations = fixtureStations.slice(0, 8).map((station, index) => ({ key: station.id, label: station.name.es, order: index }));
-  const segments = stations.slice(0, -1).map((station, index) => ({ key: `segment-${index}`, label: `${station.name.es} → ${stations[index + 1]?.label ?? station.name.es}`, order: index }));
+  const segments = stations.slice(0, -1).map((station, index) => ({ key: `segment-${index}`, label: `${station.label} → ${stations[index + 1]?.label ?? station.label}`, order: index }));
 
   switch (request.type) {
     case "hour-weekday": return { xDimension: "hour", yDimension: "weekday", xs: hours, ys: weekdays };
