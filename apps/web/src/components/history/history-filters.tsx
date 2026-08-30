@@ -268,7 +268,7 @@ export function HistoryFiltersForm({ filters, messages }: { readonly filters: Hi
                 onClick={() => setWeekdayDraft([])}
                 type="button"
               >
-                {messages.history.allDays}
+                {messages.history.allDays.replace(/\s.+$/, "")}
               </button>
               {weekdays.map((day) => {
                 const selected = weekdayDraft.includes(day);
