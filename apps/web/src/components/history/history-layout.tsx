@@ -28,7 +28,7 @@ export function HistoryLayout({ data, lang, messages, filterForm, matrix }: { re
   } as const;
 
   return (
-    <div className="page-shell pb-20 pt-7 sm:pt-9">
+    <div className="page-shell relative pb-20 pt-7 sm:pt-9">
       <LiveHeader
         {...(backLabel === undefined ? {} : { backLabel })}
         {...(contextColor === undefined ? {} : { contextColor })}
