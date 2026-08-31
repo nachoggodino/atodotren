@@ -20,7 +20,7 @@ test("Explore trend switches metrics locally without changing the page filters",
 test("Explore heatmaps lazy-load and only refetch when their data scope changes", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "The heatmap interaction contract only needs one Chromium acceptance path.");
   let heatmapRequests = 0;
-  await page.route(/\/api\/v1\/history\/heatmap\?/, async (route) => {
+  await page.route("**/api/v1/history/heatmap*", async (route) => {
     heatmapRequests += 1;
     await new Promise((resolve) => setTimeout(resolve, 350));
     await route.continue();
