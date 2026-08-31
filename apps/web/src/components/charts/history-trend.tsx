@@ -37,7 +37,7 @@ export function HistoryTrend({ points, lang, messages }: { readonly points: read
       {METRICS.map((option) => (
         <button
           aria-checked={metric === option}
-          className="h-7 rounded-lg px-2.5 text-[11px] font-bold leading-none transition-[background-color,color,transform] active:scale-95 aria-checked:bg-[var(--landing-highlight)] aria-checked:text-[var(--background)]"
+          className="h-7 rounded-lg px-2.5 text-[11px] font-bold leading-none transition-[background-color,color,transform] active:scale-95 aria-checked:bg-[var(--landing-highlight)] aria-checked:text-black"
           key={option}
           onClick={() => setMetric(option)}
           role="radio"
