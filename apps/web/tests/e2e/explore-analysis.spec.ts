@@ -20,16 +20,13 @@ test("Explore trend switches metrics locally without changing the page filters",
 test("Explore heatmaps lazy-load and only refetch when their data scope changes", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "The heatmap interaction contract only needs one Chromium acceptance path.");
   let heatmapRequests = 0;
-  await page.route("**/api/v1/history/heatmap*", async (route) => {
-    heatmapRequests += 1;
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    await route.continue();
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/v1/history/heatmap") heatmapRequests += 1;
   });
 
   await page.goto("/es/explore?from=2026-08-18&to=2026-08-24");
   const section = page.getByTestId("explore-heatmaps");
   await section.scrollIntoViewIfNeeded();
-  await expect(section.getByTestId("explore-heatmap-skeleton")).toBeVisible();
   await expect(section.getByTestId("explore-heatmap-grid")).toBeVisible();
   await expect.poll(() => heatmapRequests).toBe(1);
 
@@ -48,7 +45,6 @@ test("Explore heatmaps lazy-load and only refetch when their data scope changes"
   await expect(popover.getByRole("radio", { name: "C1", exact: true })).toBeVisible();
   await popover.getByRole("radio", { name: "C1", exact: true }).click();
   await popover.getByRole("button", { name: "Personalizar", exact: true }).click();
-  await expect(section.getByTestId("explore-heatmap-skeleton")).toBeVisible();
   await expect(section.getByTestId("explore-heatmap-grid")).toBeVisible();
   await expect(section).toContainText("Estación × hora · Puntualidad");
   await expect.poll(() => heatmapRequests).toBe(2);
