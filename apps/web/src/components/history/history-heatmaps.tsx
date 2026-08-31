@@ -19,7 +19,7 @@ interface HeatmapConfig {
 const COMMON_METRICS: readonly HistoryHeatmapMetric[] = ["punctuality", "mean-delay", "median-delay", "cancellation-rate", "coverage"];
 const MINIMUM_SAMPLES = [10, 25, 50, 100] as const;
 const CHIP_CLASS = "h-7 rounded-full border border-border bg-surface px-2.5 text-[12px] font-semibold leading-none transition-[background-color,border-color,color,transform] active:scale-95";
-const CHIP_SELECTED_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-[var(--background)]";
+const CHIP_SELECTED_CLASS = "border-[var(--landing-highlight)] bg-[var(--landing-highlight)] text-black";
 const GROUP_LABEL_CLASS = "mb-1.5 text-[13px] font-bold leading-none text-muted";
 
 function chipClass(selected: boolean): string {
