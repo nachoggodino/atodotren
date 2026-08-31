@@ -12,7 +12,7 @@ import { BrandSymbol, BrandWordmark } from "./brand-mark";
 
 const HOME_ICON_CLASS = "text-primary";
 const LIVE_ICON_CLASS = "text-[var(--landing-positive)]";
-const HISTORY_ICON_CLASS = "text-[var(--landing-highlight)]";
+const EXPLORE_ICON_CLASS = "text-[var(--landing-highlight)]";
 const METHODOLOGY_ICON_CLASS = "text-[var(--nav-methodology)]";
 const HEADER_EDGE_CONTROL_CLASS = "grid h-11 shrink-0 place-items-center rounded-lg px-3 text-primary transition-[background-color,transform,opacity] duration-100 hover:bg-muted-soft active:scale-90 active:opacity-70";
 const DESKTOP_BREAKPOINT_PX = 640;
@@ -20,10 +20,10 @@ const HEADER_REVEAL_TOP_PX = 96;
 const HEADER_REVEAL_SCROLL_DELTA_PX = -12;
 const HEADER_HIDE_SCROLL_DELTA_PX = 28;
 
-type NavSection = "home" | "live" | "history" | "methodology";
+type NavSection = "home" | "live" | "explore" | "methodology";
 
 function activeNavSection(pathname: string): NavSection {
-  if (pathname.includes("/history")) return "history";
+  if (pathname.includes("/explore") || pathname.includes("/history")) return "explore";
   if (pathname.includes("/live")) return "live";
   if (pathname.includes("/methodology")) return "methodology";
   return "home";
@@ -79,7 +79,7 @@ export function AppHeader({ lang, messages }: { readonly lang: Lang; readonly me
   const links = [
     { section: "home", href: `/${lang}`, label: messages.nav.home, Icon: House, iconClassName: HOME_ICON_CLASS },
     { section: "live", href: `/${lang}/live`, label: messages.nav.live, Icon: Radio, iconClassName: LIVE_ICON_CLASS },
-    { section: "history", href: `/${lang}/history`, label: messages.nav.history, Icon: BarChart3, iconClassName: HISTORY_ICON_CLASS },
+    { section: "explore", href: `/${lang}/explore`, label: messages.nav.explore, Icon: BarChart3, iconClassName: EXPLORE_ICON_CLASS },
     { section: "methodology", href: `/${lang}/methodology`, label: messages.nav.methodology, Icon: BookOpen, iconClassName: METHODOLOGY_ICON_CLASS },
   ] as const;
   const context = links.find((item) => item.section === activeNavSection(pathname)) ?? links[0];

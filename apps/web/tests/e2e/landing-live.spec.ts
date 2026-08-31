@@ -7,7 +7,7 @@ async function openMenu(page: import("@playwright/test").Page) {
   await expect(button).toHaveAccessibleName(/Cerrar menú|Close menu/);
 }
 
-test("landing search exposes live and history actions and opens the selected live line", async ({ page }) => {
+test("landing search exposes live and explore actions and opens the selected live line", async ({ page }) => {
   await page.goto("/es");
   await expect(page.getByTestId("landing-live-metrics")).toBeVisible();
   await expect(page.getByTestId("landing-delay-trend")).toBeVisible();
@@ -18,9 +18,9 @@ test("landing search exposes live and history actions and opens the selected liv
   await expect(option).toBeVisible();
 
   const liveAction = page.getByRole("link", { name: /^Ver hoy:/ }).first();
-  const historyAction = page.getByRole("link", { name: /^Ver histórico:/ }).first();
+  const exploreAction = page.getByRole("link", { name: /^Explorar:/ }).first();
   await expect(liveAction).toHaveAttribute("href", /\/es\/live\/line\/c1$/);
-  await expect(historyAction).toHaveAttribute("href", /\/es\/history\/line\/c1$/);
+  await expect(exploreAction).toHaveAttribute("href", /\/es\/explore\/line\/c1$/);
 
   await liveAction.click();
   await expect(page).toHaveURL(/\/es\/live\/line\/c1/);
@@ -59,7 +59,7 @@ test("live context selector exposes line navigation and defaults search results 
   const station = page.getByRole("option").filter({ hasText: "Atocha" }).first();
   await expect(station).toBeVisible();
   await expect(page.getByRole("link", { name: /^Ver hoy: Atocha/ }).first()).toHaveAttribute("href", /\/es\/live\/station\/atocha$/);
-  await expect(page.getByRole("link", { name: /^Ver histórico: Atocha/ }).first()).toHaveAttribute("href", /\/es\/history\/station\/atocha$/);
+  await expect(page.getByRole("link", { name: /^Explorar: Atocha/ }).first()).toHaveAttribute("href", /\/es\/explore\/station\/atocha$/);
 
   await station.click();
   await expect(page).toHaveURL(/\/es\/live\/station\/atocha$/);

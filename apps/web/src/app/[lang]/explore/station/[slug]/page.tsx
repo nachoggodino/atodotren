@@ -7,7 +7,7 @@ import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearc
 import { humanizeSlug } from "@/lib/domain/slugs";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
-import { getHistoryStation } from "@/lib/server/services";
+import { getHistoryStation, getHistoryTrend } from "@/lib/server/services";
 import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +17,10 @@ export async function generateMetadata({ params }: { readonly params: Promise<{ 
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
   const context = humanizeSlug(slug);
-  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/history/station/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyStationDescription, context) });
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/explore/station/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyStationDescription, context) });
 }
 
-export default async function HistoryStationPage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
+export default async function ExploreStationPage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
   const [{ lang, slug }, query] = await Promise.all([params, searchParams]);
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);
@@ -31,7 +31,16 @@ export default async function HistoryStationPage({ params, searchParams }: { rea
   if (data === null) notFound();
 
   const canonicalSlug = data.context.slug?.[lang];
-  if (canonicalSlug !== undefined && slug !== canonicalSlug) redirect(`/${lang}/history/station/${canonicalSlug}?${historyFiltersToSearchParams(parsed.filters, scenario)}`);
+  if (canonicalSlug !== undefined && slug !== canonicalSlug) redirect(`/${lang}/explore/station/${canonicalSlug}?${historyFiltersToSearchParams(parsed.filters, scenario)}`);
 
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} directions={data.directions} lang={lang} messages={messages} />} />;
+  const trend = await getHistoryTrend({ kind: "station", key: data.context.id }, parsed.filters, scenario);
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario).toString();
+  return <HistoryLayout
+    data={data}
+    trend={trend}
+    lang={lang}
+    messages={messages}
+    filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />}
+    {...(scenario === undefined ? {} : { scenario })}
+  />;
 }

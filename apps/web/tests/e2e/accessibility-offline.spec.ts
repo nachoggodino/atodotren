@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-for (const path of ["/es", "/en/live", "/es/history/line/c1?from=2026-08-18&to=2026-08-24", "/en/methodology"]) {
+for (const path of ["/es", "/en/live", "/es/explore/line/c1?from=2026-08-18&to=2026-08-24", "/en/methodology"]) {
   test(`axe smoke ${path}`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-chromium", "One Chromium accessibility pass per representative route is sufficient.");
     await page.goto(path);
@@ -57,7 +57,7 @@ test("uncached historical detail receives the explicit no-cache offline page", a
   await page.goto("/es");
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null);
   await context.setOffline(true);
-  await page.goto("/es/history/station/atocha?from=2026-08-01&to=2026-08-02", { waitUntil: "domcontentloaded" });
+  await page.goto("/es/explore/station/atocha?from=2026-08-01&to=2026-08-02", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "No hay una copia guardada de esta vista." })).toBeVisible();
   await context.setOffline(false);
 });

@@ -2,7 +2,9 @@ import "server-only";
 
 import type { HistoryFilters, HistoryResponse, MatrixResult } from "@/lib/domain/contracts";
 import { boundedDateRange } from "@/lib/domain/filters";
+import type { HistoryAnalysisContext, HistoryHeatmapRequest, HistoryHeatmapResponse, HistoryTrendPoint } from "@/lib/domain/history-analysis";
 import { LIVE_CACHE_SECONDS } from "@/lib/domain/live-policy";
+import { fixtureHistoryHeatmap, fixtureHistoryTrend, fixtureLineDirections } from "@/lib/fixtures/history-analysis";
 import { effectiveFixtureScenario, getDataAdapter } from "./adapter";
 import { cacheKey, getCached } from "./cache";
 import { cacheSecondsForDate, cacheSecondsForHistory } from "./history-request";
@@ -62,6 +64,28 @@ export async function getHistoryStation(slug: string, filters: HistoryFilters, s
   const safe = boundedDateRange(filters);
   const adapter = await getDataAdapter(scenario);
   return getCached(cacheKey(["history", "station", slug, scenarioKey(scenario), safe]), cacheSecondsForHistory(safe), () => adapter.historyStation(slug, safe));
+}
+
+export async function getHistoryTrend(context: HistoryAnalysisContext, filters: HistoryFilters, scenario?: string): Promise<readonly HistoryTrendPoint[]> {
+  const safe = boundedDateRange(filters);
+  const adapter = await getDataAdapter(scenario);
+  return getCached(cacheKey(["history-analysis", "trend", context, scenarioKey(scenario), safe]), cacheSecondsForHistory(safe), () =>
+    adapter.historyTrend === undefined ? Promise.resolve(fixtureHistoryTrend(context, safe)) : adapter.historyTrend(context, safe));
+}
+
+export async function getHistoryHeatmap(request: HistoryHeatmapRequest, scenario?: string): Promise<HistoryHeatmapResponse> {
+  const safeFilters = boundedDateRange(request.filters);
+  const safeRequest: HistoryHeatmapRequest = { ...request, filters: safeFilters };
+  const adapter = await getDataAdapter(scenario);
+  return getCached(cacheKey(["history-analysis", "heatmap", scenarioKey(scenario), safeRequest]), cacheSecondsForHistory(safeFilters), () =>
+    adapter.historyHeatmap === undefined ? Promise.resolve(fixtureHistoryHeatmap(safeRequest)) : adapter.historyHeatmap(safeRequest));
+}
+
+export async function getLineDirections(slug: string, scenario?: string) {
+  const normalized = slug.trim().toLowerCase();
+  const adapter = await getDataAdapter(scenario);
+  return getCached(cacheKey(["history-analysis", "directions", normalized, scenarioKey(scenario)]), CATALOG_CACHE_SECONDS, () =>
+    adapter.lineDirections === undefined ? Promise.resolve(fixtureLineDirections(normalized)) : adapter.lineDirections(normalized));
 }
 
 export async function getMatrix(lineSlug: string, serviceDate: string, scenario?: string): Promise<MatrixResult> {

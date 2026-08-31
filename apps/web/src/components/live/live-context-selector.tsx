@@ -10,17 +10,20 @@ import { MADRID_LINE_TEXT_COLOR, MADRID_NETWORK } from "@/lib/domain/network";
 import type { Messages } from "@/messages/types";
 
 const QUICK_LINES = MADRID_NETWORK.lines;
+type ContextMode = "live" | "explore";
 
 export function LiveContextSelector({
   subtitle,
   contextColor,
   lang,
   messages,
+  mode = "live",
 }: {
   readonly subtitle: string;
   readonly contextColor: string | undefined;
   readonly lang: Lang;
   readonly messages: Messages;
+  readonly mode?: ContextMode;
 }) {
   const [open, setOpen] = useState(false);
   const [pressed, setPressed] = useState(false);
@@ -33,7 +36,7 @@ export function LiveContextSelector({
       <Ariakit.PopoverDisclosure
         className={`inline-flex min-w-0 appearance-none border-0 bg-transparent p-0 transition-[transform,opacity] duration-100 active:scale-95 active:opacity-70 ${pressed ? "scale-95 opacity-70" : ""}`}
         data-context-tone={contextColor === undefined ? "neutral" : "line"}
-        data-testid="live-context-title"
+        data-testid={`${mode}-context-title`}
         onPointerCancel={() => setPressed(false)}
         onPointerDown={() => setPressed(true)}
         onPointerUp={() => setPressed(false)}
@@ -50,7 +53,7 @@ export function LiveContextSelector({
 
       <Ariakit.Popover
         className="z-[70] w-[62vw] max-w-xs rounded-xl border border-border bg-surface-strong p-3 shadow-[var(--shadow-float)] outline-none"
-        data-testid="live-context-selector"
+        data-testid={`${mode}-context-selector`}
         gutter={8}
         portal
       >
@@ -59,7 +62,7 @@ export function LiveContextSelector({
             <Link
               aria-label={`${messages.common.line} ${line.code}`}
               className="grid aspect-square min-w-0 place-items-center rounded-md text-[13px] font-black transition-[filter,transform,opacity] duration-100 hover:brightness-95 active:scale-95 active:opacity-75 focus-visible:outline-offset-2"
-              href={`/${lang}/live/line/${line.slug}`}
+              href={`/${lang}/${mode}/line/${line.slug}`}
               key={line.slug}
               onClick={() => setOpen(false)}
               style={{ backgroundColor: line.surfaceColor, color: MADRID_LINE_TEXT_COLOR }}
@@ -69,7 +72,7 @@ export function LiveContextSelector({
           ))}
         </div>
         <div className="mt-3">
-          <EntitySearch compact lang={lang} messages={messages} onNavigate={() => setOpen(false)} />
+          <EntitySearch compact defaultMode={mode} lang={lang} messages={messages} onNavigate={() => setOpen(false)} />
         </div>
       </Ariakit.Popover>
     </Ariakit.PopoverProvider>

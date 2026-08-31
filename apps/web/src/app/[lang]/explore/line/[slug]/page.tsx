@@ -6,10 +6,10 @@ import { InvalidHistoryFilters } from "@/components/history/invalid-filters";
 import { TimetableMatrix } from "@/components/history/timetable-matrix";
 import type { MatrixResult } from "@/lib/domain/contracts";
 import { matrixResultMessage } from "@/lib/domain/matrix-result";
-import { tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
+import { historyFiltersToSearchParams, tryHistoryFiltersFromPage, type PageSearchParams } from "@/lib/domain/page-params";
 import { getMessages, isLang } from "@/lib/i18n";
 import { localizedPageMetadata, sharedLocalizedPath } from "@/lib/seo";
-import { getHistoryLine, getMatrix } from "@/lib/server/services";
+import { getHistoryLine, getHistoryTrend, getMatrix } from "@/lib/server/services";
 import { contextDescription, metadataCopy } from "@/messages/metadata";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: { readonly params: Promise<{ 
   if (!isLang(lang)) return {};
   const copy = metadataCopy[lang];
   const context = slug.toUpperCase();
-  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/history/line/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyLineDescription, context) });
+  return localizedPageMetadata({ lang, paths: sharedLocalizedPath(`/explore/line/${slug}`), title: `${context} · ${copy.historyNetworkTitle}`, description: contextDescription(copy.historyLineDescription, context) });
 }
 
 function matrixView(result: MatrixResult, lang: "es" | "en", messages: ReturnType<typeof getMessages>) {
@@ -27,14 +27,27 @@ function matrixView(result: MatrixResult, lang: "es" | "en", messages: ReturnTyp
   return <p className={`border-y border-border py-8 text-sm ${result.status === "failed" ? "text-danger" : "text-muted"}`}>{matrixResultMessage(result, messages)}</p>;
 }
 
-export default async function HistoryLinePage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
+export default async function ExploreLinePage({ params, searchParams }: { readonly params: Promise<{ lang: string; slug: string }>; readonly searchParams: Promise<PageSearchParams> }) {
   const [{ lang, slug }, query] = await Promise.all([params, searchParams]);
   if (!isLang(lang)) notFound();
   const messages = getMessages(lang);
   const parsed = tryHistoryFiltersFromPage(query);
   if (!parsed.ok) return <InvalidHistoryFilters messages={messages} />;
   const scenario = typeof query.scenario === "string" ? query.scenario : undefined;
-  const [data, matrix] = await Promise.all([getHistoryLine(slug, parsed.filters, scenario), getMatrix(slug, parsed.filters.to, scenario)]);
+  const [data, trend, matrix] = await Promise.all([
+    getHistoryLine(slug, parsed.filters, scenario),
+    getHistoryTrend({ kind: "line", key: slug }, parsed.filters, scenario),
+    getMatrix(slug, parsed.filters.to, scenario),
+  ]);
   if (data === null) notFound();
-  return <HistoryLayout data={data} lang={lang} messages={messages} filterForm={<HistoryFiltersForm filters={parsed.filters} directions={data.directions} lang={lang} messages={messages} />} matrix={matrixView(matrix, lang, messages)} />;
+  const filterKey = historyFiltersToSearchParams(parsed.filters, scenario).toString();
+  return <HistoryLayout
+    data={data}
+    trend={trend}
+    lang={lang}
+    messages={messages}
+    filterForm={<HistoryFiltersForm key={filterKey} filters={parsed.filters} messages={messages} />}
+    matrix={matrixView(matrix, lang, messages)}
+    {...(scenario === undefined ? {} : { scenario })}
+  />;
 }

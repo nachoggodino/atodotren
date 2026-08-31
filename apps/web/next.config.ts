@@ -8,7 +8,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["pg"],
   async redirects() {
-    return [{ source: "/", destination: "/es", permanent: false }];
+    return [
+      { source: "/", destination: "/es", permanent: false },
+      { source: "/:lang/history", destination: "/:lang/explore", permanent: true },
+      { source: "/:lang/history/:path*", destination: "/:lang/explore/:path*", permanent: true },
+    ];
   },
 };
 

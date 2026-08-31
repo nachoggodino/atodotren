@@ -99,7 +99,7 @@ describe("PostgreSQL domain mapping", () => {
     expect(station?.stationInsights.totalAddedDelaySeconds).toBe(-95);
   });
 
-  it("applies weekday, hour and direction in SQL and does not use a silent history LIMIT", async () => {
+  it("applies weekday, hour range and direction in SQL and does not use a silent history LIMIT", async () => {
     const calls: string[] = [];
     const adapter = createPostgresAdapter(config, client(async (text) => {
       calls.push(text);
@@ -112,14 +112,68 @@ describe("PostgreSQL domain mapping", () => {
       if (text.includes("api.service_day_state")) return [{ service_date: "2026-08-20", aggregate_algorithm_version: "v1", status: "verified", finalized_at: "2026-08-21T02:00:00Z" }];
       throw new Error(`Unexpected query: ${text}`);
     }));
-    const result = await adapter.historyNetwork({ from: "2026-08-20", to: "2026-08-20", weekdays: [4], hour: 8, direction: 1 });
+    const result = await adapter.historyNetwork({ from: "2026-08-20", to: "2026-08-20", weekdays: [4], hour: 8, hourTo: 10, direction: 1 });
     const aggregateSql = calls.find((text) => text.includes("WITH filtered")) ?? "";
     expect(aggregateSql).toContain("extract(dow FROM service_date)");
-    expect(aggregateSql).toContain("scheduled_hour");
+    expect(aggregateSql).toContain("scheduled_hour BETWEEN");
     expect(aggregateSql).toContain("direction");
     expect(aggregateSql).not.toMatch(/LIMIT\s+\d+/i);
     expect(result.rankings.status).toBe("available");
     expect(result.meta.finalization.state).toBe("finalized");
+  });
+
+  it("builds all Explore trend metrics from stop-call aggregates", async () => {
+    const calls: string[] = [];
+    const adapter = createPostgresAdapter(config, client(async (text) => {
+      calls.push(text);
+      if (text.includes("FROM api.history_station_hour AS history")) return [{ ...aggregateRow(), valid_delay_observations: 9, punctual_count: 6, signed_delay_sum: 900 }];
+      throw new Error(`Unexpected query: ${text}`);
+    }));
+    expect(adapter.historyTrend).toBeDefined();
+    const trend = await adapter.historyTrend?.(
+      { kind: "line", key: "c1" },
+      { from: "2026-08-20", to: "2026-08-20", weekdays: [4], hour: 6, hourTo: 9, direction: 1 },
+    );
+    expect(calls[0]).toContain("api.history_station_hour");
+    expect(calls[0]).toContain("history.line_slug");
+    expect(calls[0]).toContain("scheduled_hour BETWEEN");
+    expect(trend?.[0]).toMatchObject({ observed: 9, delayedStops: 3, meanDelaySeconds: 100, medianDelaySeconds: 135 });
+  });
+
+  it("returns bounded multi-metric Explore heatmap cells without raw-detail reads", async () => {
+    const calls: string[] = [];
+    const adapter = createPostgresAdapter(config, client(async (text) => {
+      calls.push(text);
+      if (text.includes("FROM api.history_station_hour AS history")) return [{
+        ...aggregateRow(),
+        x_key: "8",
+        x_label: "8h",
+        x_order: 8,
+        y_key: "1",
+        y_label: "1",
+        y_order: 1,
+        valid_delay_observations: 9,
+        punctual_count: 6,
+        signed_delay_sum: 900,
+        canceled_count: 1,
+      }];
+      throw new Error(`Unexpected query: ${text}`);
+    }));
+    expect(adapter.historyHeatmap).toBeDefined();
+    const heatmap = await adapter.historyHeatmap?.({
+      context: { kind: "network", key: "madrid" },
+      filters: { from: "2026-08-20", to: "2026-08-24", weekdays: [1, 2, 3, 4, 5], hour: 6, hourTo: 9, direction: null },
+      type: "station-hour",
+      lineSlug: "c1",
+      direction: 1,
+    });
+    const sql = calls[0] ?? "";
+    expect(sql).toContain("api.history_station_hour");
+    expect(sql).toContain("history.line_slug");
+    expect(sql).toContain("scheduled_hour BETWEEN");
+    expect(sql).toContain("history.direction");
+    expect(sql).not.toContain("core.journey_stop");
+    expect(heatmap?.cells[0]).toMatchObject({ observed: 9, meanDelaySeconds: 100, medianDelaySeconds: 135, cancellationRate: 0.1 });
   });
 
   it("detects the matrix public-contract hard bound instead of treating 6000 rows as complete", async () => {
